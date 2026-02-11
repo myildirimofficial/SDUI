@@ -36,15 +36,11 @@ namespace SDUI.Animation
             AnimationType = AnimationType.EaseInOut;
 
             _valueProvider = new ValueProvider<double>(0, ValueFactories.DoubleFactory, EasingMethods.DefaultEase);
-
-            // Timer'ı lazy initialization ile oluştur - handle sorununu çözer
-            // _timer = new Timer { Interval = 16 }; // BU SATIR KALDIRILDI
-            // _timer.Tick += OnTick; // BU SATIR KALDIRILDI
         }
 
         public bool Running => _isRunning;
 
-        // Lazy initialization - Timer sadece gerektiğinde oluturulur
+
         private void EnsureTimer()
         {
             if (_timer != null)
@@ -113,7 +109,6 @@ namespace SDUI.Animation
 
             _isRunning = true;
 
-            // Timer'ı lazy initialization ile oluştur
             EnsureTimer();
 
             if (_timer != null && !_timer.Enabled)
@@ -225,7 +220,7 @@ namespace SDUI.Animation
             if (_timer != null)
             {
                 _timer.Stop();
-                _timer.Tick -= OnTick; // Event handler'ı kaldır
+                _timer.Tick -= OnTick;
                 _timer.Dispose();
                 _timer = null;
             }

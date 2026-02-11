@@ -1131,15 +1131,18 @@ public class UIWindow : UIWindowBase
         var hoverColor = ColorScheme.BorderColor;
 
         // Background rendering
+        var contentTop = (int)_cachedMetrics.TitleHeightDPI;
+        var contentRect = new Rectangle(0, showTitle ? contentTop : 0, Width, Height - (showTitle ? contentTop : 0));
+
         if (FullDrawHatch)
         {
             using var hatchBrush = new HatchBrush(_hatch, ColorScheme.BackColor, hoverColor);
-            graphics.FillRectangle(hatchBrush, 0, 0, Width, Height);
+            graphics.FillRectangle(hatchBrush, contentRect);
         }
         else
         {
             using var backBrush = ColorScheme.BackColor.Brush();
-            graphics.FillRectangle(backBrush, ClientRectangle);
+            graphics.FillRectangle(backBrush, contentRect);
         }
 
         if (!ShowTitle)
