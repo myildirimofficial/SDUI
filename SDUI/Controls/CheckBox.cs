@@ -53,6 +53,9 @@ namespace SDUI.Controls
             get { return ripple; }
             set
             {
+                if (ripple == value)
+                    return;
+
                 ripple = value;
                 AutoSize = AutoSize; //Make AutoSize directly set the bounds.
 

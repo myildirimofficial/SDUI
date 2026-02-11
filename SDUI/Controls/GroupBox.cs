@@ -28,11 +28,19 @@ public class GroupBox : System.Windows.Forms.GroupBox
         get => _radius;
         set
         {
-            _radius = value;
+            if (_radius == value)
+                return;
 
+            _radius = value;
+            DisposeGraphicsCache();
             Invalidate();
         }
     }
+
+    // Rendering cache
+    private GraphicsPath _cachedPath;
+    private Rectangle _cachedBounds;
+    private float _cachedDpi;
 
     public GroupBox()
     {
@@ -42,27 +50,103 @@ public class GroupBox : System.Windows.Forms.GroupBox
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.DoubleBuffer
                 | ControlStyles.ResizeRedraw
-                | ControlStyles.Opaque
                 | ControlStyles.UserPaint,
             true
         );
 
         UpdateStyles();
-        this.DoubleBuffered = true;
-        this.BackColor = Color.Transparent;
-        this.Padding = new Padding(3, 8, 3, 3);
+        DoubleBuffered = true;
+        BackColor = Color.Transparent;
+        Padding = new Padding(3, 8, 3, 3);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeGraphicsCache();
+        }
+        base.Dispose(disposing);
+    }
+
+    private void DisposeGraphicsCache()
+    {
+        _cachedPath?.Dispose();
+        _cachedPath = null;
+        _cachedBounds = Rectangle.Empty;
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        DisposeGraphicsCache();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        DisposeGraphicsCache();
+        Invalidate();
+    }
+
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent == null)
+        {
+            DisposeGraphicsCache();
+        }
     }
 
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        Invalidate();
+        // base.OnParentBackColorChanged already triggers repaint
     }
 
     protected override void OnControlAdded(ControlEventArgs e)
     {
         base.OnControlAdded(e);
-        Invalidate(true);
+        // Only invalidate the added control's area
+        if (e.Control != null)
+            Invalidate(e.Control.Bounds);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case 0x0014: // WM_ERASEBKGND
+                m.Result = (IntPtr)1;
+                return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    private GraphicsPath GetCachedPath()
+    {
+        var currentBounds = ClientRectangle;
+        var currentDpi = DeviceDpi;
+
+        if (_cachedPath != null && 
+            _cachedBounds == currentBounds && 
+            Math.Abs(_cachedDpi - currentDpi) < 0.01f)
+        {
+            return _cachedPath;
+        }
+
+        DisposeGraphicsCache();
+
+        var rect = currentBounds.ToRectangleF();
+        var inflate = _shadowDepth / 4f;
+        rect.Inflate(-inflate, -inflate);
+
+        _cachedPath = rect.Radius(_radius);
+        _cachedBounds = currentBounds;
+        _cachedDpi = currentDpi;
+
+        return _cachedPath;
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -70,41 +154,48 @@ public class GroupBox : System.Windows.Forms.GroupBox
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        GroupBoxRenderer.DrawParentBackground(graphics, ClientRectangle, this);
+        // Draw parent background only in clip rectangle
+        GroupBoxRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
+
         if (ColorScheme.DrawDebugBorders)
         {
-            using var redPen = new Pen(Color.Red, 1);
-            redPen.Alignment = PenAlignment.Inset;
-            e.Graphics.DrawRectangle(redPen, new Rectangle(0, 0, Width - 1, Height - 1));
+            using var redPen = new Pen(Color.Red, 1) { Alignment = PenAlignment.Inset };
+            graphics.DrawRectangle(redPen, 0, 0, Width - 1, Height - 1);
         }
 
         var rect = ClientRectangle.ToRectangleF();
         var inflate = _shadowDepth / 4f;
         rect.Inflate(-inflate, -inflate);
-        var shadowRect = rect;
 
-        //using (var path = e.Graphics.GenerateRoundedRectangle(rect, _radius))
-        using var path = rect.Radius(_radius);
-        rect = new RectangleF(0, 0, rect.Width, Font.Height + 7);
+        var path = GetCachedPath();
+        if (path == null)
+            return;
 
-        var color = ColorScheme.BorderColor;
-        BackColor = Color.Transparent;
-
+        // Fill background
         using (var brush = new SolidBrush(ColorScheme.BackColor2))
-            e.Graphics.FillPath(brush, path);
+            graphics.FillPath(brush, path);
 
-        using var backColorBrush = new SolidBrush(ColorScheme.BackColor2.Alpha(15));
+        // Draw header area
+        var headerRect = new RectangleF(0, 0, rect.Width, Font.Height + 7);
+        
+        using (var backColorBrush = new SolidBrush(ColorScheme.BackColor2.Alpha(15)))
+        {
+            var clip = graphics.ClipBounds;
+            graphics.SetClip(headerRect);
+            
+            graphics.DrawLine(ColorScheme.BorderColor, 0, headerRect.Height - 1, headerRect.Width, headerRect.Height - 1);
+            graphics.FillPath(backColorBrush, path);
 
-        var clip = e.Graphics.ClipBounds;
-        e.Graphics.SetClip(rect);
-        e.Graphics.DrawLine(ColorScheme.BorderColor, 0, rect.Height - 1, rect.Width, rect.Height - 1);
-        e.Graphics.FillPath(backColorBrush, path);
+            this.DrawString(graphics, ColorScheme.ForeColor, headerRect);
+            
+            graphics.SetClip(clip);
+        }
 
-        this.DrawString(graphics, ColorScheme.ForeColor, rect);
+        // Draw shadow and border
+        if (_shadowDepth > 0)
+            graphics.DrawShadow(rect, _shadowDepth, _radius);
 
-        e.Graphics.SetClip(clip);
-        e.Graphics.DrawShadow(shadowRect, _shadowDepth, _radius);
-        e.Graphics.DrawPath(ColorScheme.BorderColor, path);
+        graphics.DrawPath(ColorScheme.BorderColor, path);
     }
 
     public override Size GetPreferredSize(Size proposedSize)

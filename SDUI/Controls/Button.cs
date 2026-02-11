@@ -24,6 +24,9 @@ public class Button : System.Windows.Forms.Button
         get { return base.Text; }
         set
         {
+            if (base.Text == value)
+                return;
+                
             base.Text = value;
             textSize = TextRenderer.MeasureText(value, Font);
             if (AutoSize)
@@ -56,6 +59,7 @@ public class Button : System.Windows.Forms.Button
                 return;
 
             _radius = value;
+            DisposeGraphicsCache();
             Invalidate();
         }
     }
@@ -63,13 +67,19 @@ public class Button : System.Windows.Forms.Button
     private readonly Animation.AnimationEngine animationManager;
     private readonly Animation.AnimationEngine hoverAnimationManager;
 
+    // Rendering cache
+    private GraphicsPath _cachedPath;
+    private Rectangle _cachedBounds;
+    private float _cachedDpi;
+
     public Button()
     {
         SetStyle(
             ControlStyles.UserPaint
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.SupportsTransparentBackColor,
+                | ControlStyles.SupportsTransparentBackColor
+                | ControlStyles.ResizeRedraw,
             true
         );
 
@@ -92,19 +102,90 @@ public class Button : System.Windows.Forms.Button
         UpdateStyles();
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeGraphicsCache();
+        }
+        base.Dispose(disposing);
+    }
+
+    private void DisposeGraphicsCache()
+    {
+        _cachedPath?.Dispose();
+        _cachedPath = null;
+        _cachedBounds = Rectangle.Empty;
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        DisposeGraphicsCache();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        DisposeGraphicsCache();
+        Invalidate();
+    }
+
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent == null)
+        {
+            DisposeGraphicsCache();
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case 0x0014: // WM_ERASEBKGND
+                m.Result = (IntPtr)1;
+                return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    private GraphicsPath GetCachedPath(RectangleF rect)
+    {
+        var currentBounds = Rectangle.Round(rect);
+        var currentDpi = DeviceDpi;
+
+        if (_cachedPath != null && 
+            _cachedBounds == currentBounds && 
+            Math.Abs(_cachedDpi - currentDpi) < 0.01f)
+        {
+            return _cachedPath;
+        }
+
+        DisposeGraphicsCache();
+
+        _cachedPath = rect.Radius(_radius);
+        _cachedBounds = currentBounds;
+        _cachedDpi = currentDpi;
+
+        return _cachedPath;
+    }
+
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         _mouseState = 2;
         animationManager.StartNewAnimation(AnimationDirection.In, e.Location);
-        Invalidate();
+        // Invalidate handled by animationManager.OnAnimationProgress
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
         _mouseState = 1;
-        Invalidate();
+        // Invalidate handled by animation or next paint
     }
 
     protected override void OnMouseEnter(EventArgs e)
@@ -112,7 +193,7 @@ public class Button : System.Windows.Forms.Button
         base.OnMouseEnter(e);
         _mouseState = 1;
         hoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-        Invalidate();
+        // Invalidate handled by hoverAnimationManager.OnAnimationProgress
     }
 
     protected override void OnMouseLeave(EventArgs e)
@@ -121,7 +202,7 @@ public class Button : System.Windows.Forms.Button
 
         _mouseState = 0;
         hoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        Invalidate();
+        // Invalidate handled by hoverAnimationManager.OnAnimationProgress
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -129,15 +210,14 @@ public class Button : System.Windows.Forms.Button
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        ButtonRenderer.DrawParentBackground(graphics, ClientRectangle, this);
+        ButtonRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
 
         var rectf = ClientRectangle.ToRectangleF();
 
         if (ColorScheme.DrawDebugBorders)
         {
-            var redPen = new Pen(Color.Red, 1);
-            redPen.Alignment = PenAlignment.Outset;
-            graphics.DrawRectangle(redPen, 0, 0, rectf.Width - 1, rectf.Height - 1);
+            using (var redPen = new Pen(Color.Red, 1) { Alignment = PenAlignment.Outset })
+                graphics.DrawRectangle(redPen, 0, 0, rectf.Width - 1, rectf.Height - 1);
         }
 
         var inflate = _shadowDepth / 4f;
@@ -149,82 +229,90 @@ public class Button : System.Windows.Forms.Button
         else
             color = ColorScheme.ForeColor.Alpha(20);
 
-        using var brush = new SolidBrush(color);
-        using var outerPen = new Pen(ColorScheme.BorderColor);
+        var path = GetCachedPath(rectf);
 
-        using (var path = rectf.Radius(_radius))
+        // Draw border for transparent buttons
+        if (Color == Color.Transparent)
         {
-            if (Color == Color.Transparent)
-                graphics.DrawPath(outerPen, path);
+            using var outerPen = new Pen(ColorScheme.BorderColor);
+            graphics.DrawPath(outerPen, path);
+        }
 
+        // Fill button background
+        using (var brush = new SolidBrush(color))
             graphics.FillPath(brush, path);
 
-            var animationColor = Color.Transparent;
-            if (Color != Color.Transparent)
-                animationColor = Color.FromArgb((int)(hoverAnimationManager.GetProgress() * 65), color.Determine());
-            else
-                animationColor = Color.FromArgb((int)(hoverAnimationManager.GetProgress() * color.A), brush.Color);
+        // Draw hover animation overlay
+        var hoverProgress = hoverAnimationManager.GetProgress();
+        if (hoverProgress > 0.01f)
+        {
+            var animationColor = Color != Color.Transparent
+                ? Color.FromArgb((int)(hoverProgress * 65), color.Determine())
+                : Color.FromArgb((int)(hoverProgress * color.A), color);
 
             using var b = new SolidBrush(animationColor);
             graphics.FillPath(b, path);
+        }
 
+        // Draw shadow
+        if (_shadowDepth > 0)
             graphics.DrawShadow(rectf, _shadowDepth, _radius);
 
-            //Ripple
-            if (animationManager.IsAnimating())
+        // Draw ripple effect
+        if (animationManager.IsAnimating())
+        {
+            using var ripplePath = (GraphicsPath)path.Clone();
+            
+            for (int i = 0; i < animationManager.GetAnimationCount(); i++)
             {
-                var mode = graphics.SmoothingMode;
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                for (int i = 0; i < animationManager.GetAnimationCount(); i++)
+                var animationValue = animationManager.GetProgress(i);
+                var animationSource = animationManager.GetSource(i);
+
+                var rippleAlpha = (int)(101 - (animationValue * 100));
+                if (rippleAlpha > 0)
                 {
-                    var animationValue = animationManager.GetProgress(i);
-                    var animationSource = animationManager.GetSource(i);
-
-                    using var rippleBrush = new SolidBrush(
-                        ColorScheme.BackColor.Alpha((int)(101 - (animationValue * 100)))
-                    );
+                    using var rippleBrush = new SolidBrush(ColorScheme.BackColor.Alpha(rippleAlpha));
+                    
                     var rippleSize = (float)(animationValue * Width * 2.0);
-
                     var rippleRect = new RectangleF(
                         animationSource.X - rippleSize / 2,
                         animationSource.Y - rippleSize / 2,
                         rippleSize,
                         rippleSize
                     );
-                    path.AddEllipse(rippleRect);
-                    graphics.FillPath(rippleBrush, path);
+                    
+                    ripplePath.Reset();
+                    ripplePath.AddPath(path, false);
+                    ripplePath.AddEllipse(rippleRect);
+                    
+                    graphics.FillPath(rippleBrush, ripplePath);
                 }
-                graphics.SmoothingMode = mode;
             }
         }
 
+        // Draw text and image
         var foreColor = Color == Color.Transparent ? ColorScheme.ForeColor : ForeColor;
         if (!Enabled)
             foreColor = Color.Gray;
 
         var textRect = rectf.ToRectangle();
+        
         if (Image != null)
         {
-            //Image
-            Rectangle imageRect = new Rectangle(8, 6, 24, 24);
+            var dpiScale = DeviceDpi / 96f;
+            var imageSize = (int)(24 * dpiScale);
+            var padding = (int)(8 * dpiScale);
+            var spacing = (int)(4 * dpiScale);
+
+            Rectangle imageRect = new Rectangle(padding, (Height - imageSize) / 2, imageSize, imageSize);
 
             if (string.IsNullOrEmpty(Text))
-                // Center Image
-                imageRect.X += 2;
+                imageRect.X = (Width - imageSize) / 2;
 
-            if (Image != null)
-                graphics.DrawImage(Image, imageRect);
+            graphics.DrawImage(Image, imageRect);
 
-            // First 8: left padding
-            // 24: Image width
-            // Second 4: space between Image and Text
-            // Third 8: right padding
-            textRect.Width -= 8 + 24 + 4 + 8;
-
-            // First 8: left padding
-            // 24: Image width
-            // Second 4: space between Image and Text
-            textRect.X += 8 + 24 + 4;
+            textRect.Width -= padding + imageSize + spacing + padding;
+            textRect.X += padding + imageSize + spacing;
         }
 
         this.DrawString(graphics, TextAlign, foreColor, textRect, AutoEllipsis, UseMnemonic);

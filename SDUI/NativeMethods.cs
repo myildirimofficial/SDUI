@@ -243,6 +243,10 @@ public class NativeMethods
     public static extern bool InvalidateRect(IntPtr hWnd, Rect rect, bool bErase);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ValidateRect(IntPtr hWnd, IntPtr lpRect);
+
+    [DllImport("user32.dll")]
     public static extern bool GetClientRect(IntPtr hWnd, ref Rect rect);
 
     [DllImport(uxtheme, ExactSpelling = true)]

@@ -21,8 +21,10 @@ public class TextBox : Control
         get => _radius;
         set
         {
-            _radius = value;
+            if (_radius == value)
+                return;
 
+            _radius = value;
             Invalidate();
         }
     }
@@ -34,9 +36,12 @@ public class TextBox : Control
         get { return _passmask; }
         set
         {
-            _textBox.UseSystemPasswordChar = UseSystemPasswordChar;
+            if (_passmask == value)
+                return;
+
+            _textBox.UseSystemPasswordChar = value;
             _passmask = value;
-            Invalidate();
+            // No Invalidate needed - internal textbox handles display
         }
     }
 
@@ -46,8 +51,11 @@ public class TextBox : Control
         get { return _passFocusShow; }
         set
         {
+            if (_passFocusShow == value)
+                return;
+
             _passFocusShow = value;
-            Invalidate();
+            // No Invalidate needed - doesn't affect visual state until focus changes
         }
     }
 
@@ -69,9 +77,12 @@ public class TextBox : Control
         get { return _maxchars; }
         set
         {
+            if (_maxchars == value)
+                return;
+
             _maxchars = value;
-            _textBox.MaxLength = MaxLength;
-            Invalidate();
+            _textBox.MaxLength = value;
+            // No Invalidate needed - internal textbox handles this
         }
     }
 
@@ -81,8 +92,11 @@ public class TextBox : Control
         get { return _align; }
         set
         {
+            if (_align == value)
+                return;
+
             _align = value;
-            Invalidate();
+            // No Invalidate needed - internal textbox handles text alignment
         }
     }
 
@@ -92,8 +106,11 @@ public class TextBox : Control
         get { return _multiline; }
         set
         {
+            if (_multiline == value)
+                return;
+
             _multiline = value;
-            Invalidate();
+            // No Invalidate needed - internal textbox handles multiline
         }
     }
 
@@ -107,14 +124,14 @@ public class TextBox : Control
     {
         base.OnBackColorChanged(e);
         _textBox.BackColor = Color.FromArgb(BackColor.R, BackColor.G, BackColor.B);
-        Invalidate();
+        // base.OnBackColorChanged already triggers repaint
     }
 
     protected override void OnForeColorChanged(System.EventArgs e)
     {
         base.OnForeColorChanged(e);
         _textBox.ForeColor = ForeColor;
-        Invalidate();
+        // base.OnForeColorChanged already triggers repaint
     }
 
     protected override void OnFontChanged(System.EventArgs e)

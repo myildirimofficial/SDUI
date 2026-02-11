@@ -12,6 +12,9 @@ public class TabControl : System.Windows.Forms.TabControl
         get => _borderRadius;
         set
         {
+            if (_borderRadius == value)
+                return;
+
             _borderRadius = value;
             Invalidate();
         }
@@ -34,7 +37,7 @@ public class TabControl : System.Windows.Forms.TabControl
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        Invalidate();
+        // base.OnParentBackColorChanged already triggers repaint
     }
 
     protected override void CreateHandle()

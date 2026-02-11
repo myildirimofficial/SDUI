@@ -41,6 +41,9 @@ public class Radio : RadioButton
         get { return ripple; }
         set
         {
+            if (ripple == value)
+                return;
+
             ripple = value;
             AutoSize = AutoSize; //Make AutoSize directly set the bounds.
 

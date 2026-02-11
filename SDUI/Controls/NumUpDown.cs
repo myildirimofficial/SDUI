@@ -31,11 +31,14 @@ namespace SDUI.Controls
             get { return _value; }
             set
             {
-                if (value <= _max & value >= _min)
-                {
-                    _value = value;
-                    ValueChanged?.Invoke(this, EventArgs.Empty);
-                }
+                if (value > _max || value < _min)
+                    return;
+
+                if (_value == value)
+                    return;
+
+                _value = value;
+                ValueChanged?.Invoke(this, EventArgs.Empty);
                 Invalidate();
             }
         }
@@ -45,15 +48,15 @@ namespace SDUI.Controls
             get { return _min; }
             set
             {
-                if (value < _max)
-                {
-                    _min = value;
-                }
+                if (_min == value || value >= _max)
+                    return;
+
+                _min = value;
 
                 if (_value < _min)
                     Value = _min;
-
-                Invalidate();
+                else
+                    Invalidate();
             }
         }
 
@@ -62,13 +65,15 @@ namespace SDUI.Controls
             get { return _max; }
             set
             {
-                if (value > _min)
-                    _max = value;
+                if (_max == value || value <= _min)
+                    return;
+
+                _max = value;
 
                 if (_value > _max)
                     Value = _max;
-
-                Invalidate();
+                else
+                    Invalidate();
             }
         }
 

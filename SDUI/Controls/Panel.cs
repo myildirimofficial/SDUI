@@ -14,8 +14,11 @@ public class Panel : System.Windows.Forms.Panel
         get => _radius;
         set
         {
-            _radius = value;
+            if (_radius == value)
+                return;
 
+            _radius = value;
+            DisposeGraphicsCache();
             Invalidate();
         }
     }
@@ -62,95 +65,194 @@ public class Panel : System.Windows.Forms.Panel
         }
     }
 
+    // Rendering cache for performance
+    private GraphicsPath _cachedPath;
+    private Rectangle _cachedBounds;
+    private float _cachedDpi;
+
     public Panel()
     {
         SetStyle(
             ControlStyles.SupportsTransparentBackColor
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.UserPaint,
+                | ControlStyles.UserPaint
+                | ControlStyles.ResizeRedraw,
             true
         );
 
         BackColor = Color.Transparent;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeGraphicsCache();
+        }
+        base.Dispose(disposing);
+    }
+
+    private void DisposeGraphicsCache()
+    {
+        _cachedPath?.Dispose();
+        _cachedPath = null;
+        _cachedBounds = Rectangle.Empty;
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        DisposeGraphicsCache();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        DisposeGraphicsCache();
+        Invalidate();
+    }
+
+    protected override void OnParentChanged(EventArgs e)
+    {
+        base.OnParentChanged(e);
+        if (Parent == null)
+        {
+            DisposeGraphicsCache();
+        }
+    }
+
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        Invalidate();
+        // base.OnParentBackColorChanged already triggers repaint
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case 0x0014: // WM_ERASEBKGND
+                // Prevent flicker by not erasing background
+                m.Result = (IntPtr)1;
+                return;
+
+            case 0x000F: // WM_PAINT
+                // Let base handle paint but with our optimization
+                break;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    private GraphicsPath GetCachedPath()
+    {
+        var currentBounds = ClientRectangle;
+        var currentDpi = DeviceDpi;
+
+        // Check if cache is valid
+        if (_cachedPath != null && 
+            _cachedBounds == currentBounds && 
+            Math.Abs(_cachedDpi - currentDpi) < 0.01f)
+        {
+            return _cachedPath;
+        }
+
+        // Dispose old cache
+        DisposeGraphicsCache();
+
+        // Create new cached path
+        if (_radius > 0)
+        {
+            var rect = currentBounds.ToRectangleF();
+            _cachedPath = rect.Radius(_radius);
+            _cachedBounds = currentBounds;
+            _cachedDpi = currentDpi;
+        }
+
+        return _cachedPath;
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var graphics = e.Graphics;
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        GroupBoxRenderer.DrawParentBackground(graphics, ClientRectangle, this);
+        // Only use AntiAlias when needed (rounded corners)
+        if (_radius > 0)
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+        // Draw parent background only if transparent
+        if (BackColor == Color.Transparent || BackColor.A < 255)
+            GroupBoxRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
+
         if (ColorScheme.DrawDebugBorders)
         {
-            using var redPen = new Pen(Color.Red, 1);
-            redPen.Alignment = PenAlignment.Inset;
-            e.Graphics.DrawRectangle(redPen, new Rectangle(0, 0, Width - 1, Height - 1));
+            using var redPen = new Pen(Color.Red, 1) { Alignment = PenAlignment.Inset };
+            graphics.DrawRectangle(redPen, 0, 0, Width - 1, Height - 1);
         }
 
         var rect = ClientRectangle.ToRectangleF();
-
         var color = BackColor == Color.Transparent ? ColorScheme.BackColor2 : BackColor;
         var borderColor = _borderColor == Color.Transparent ? ColorScheme.BorderColor : _borderColor;
 
-        var inflate = _shadowDepth / 4f;
-        //rect.Inflate(-inflate, -inflate);
-
         if (_radius > 0)
         {
-            using var path = rect.Radius(_radius);
-            /*var shadow = DropShadow.Create(path, Color.Black.Alpha(20), _shadowDepth);
+            var path = GetCachedPath();
+            if (path != null)
+            {
+                // Fill background
+                using (var brush = new SolidBrush(color))
+                    graphics.FillPath(brush, path);
 
-            var shadowBounds = DropShadow.GetBounds(shadowRect, _shadowDepth);
-            //shadowBounds.Offset(0, 0);
+                // Draw shadow if needed
+                if (_shadowDepth > 0)
+                {
+                    ShadowUtils.DrawShadow(
+                        graphics,
+                        ColorScheme.ShadowColor,
+                        rect.ToRectangle(),
+                        (int)(_shadowDepth + 1) + 40,
+                        DockStyle.Right
+                    );
+                }
 
-            e.Graphics.DrawImageUnscaled(shadow, shadowBounds.Location);
-
-            */
-
-            using (var brush = new SolidBrush(color))
-                e.Graphics.FillPath(brush, path);
-
-            //e.Graphics.DrawShadow(rect, _shadowDepth, _radius);
-            ShadowUtils.DrawShadow(
-                graphics,
-                ColorScheme.ShadowColor,
-                rect.ToRectangle(),
-                (int)(_shadowDepth + 1) + 40,
-                DockStyle.Right
-            );
-            using var pen = new Pen(borderColor, _border.All);
-            e.Graphics.DrawPath(pen, path);
-
-            return;
+                // Draw border
+                if (_border.All > 0)
+                {
+                    using var pen = new Pen(borderColor, _border.All);
+                    graphics.DrawPath(pen, path);
+                }
+            }
         }
+        else
+        {
+            // Fast path for non-rounded rectangles
+            using (var brush = new SolidBrush(color))
+                graphics.FillRectangle(brush, rect);
 
-        using (var brush = new SolidBrush(color))
-            e.Graphics.FillRectangle(brush, rect);
+            if (_shadowDepth > 0)
+                graphics.DrawShadow(rect, _shadowDepth, 1);
 
-        e.Graphics.DrawShadow(rect, _shadowDepth, _radius == 0 ? 1 : _radius);
-
-        ControlPaint.DrawBorder(
-            e.Graphics,
-            ClientRectangle,
-            borderColor,
-            _border.Left,
-            ButtonBorderStyle.Solid,
-            borderColor,
-            _border.Top,
-            ButtonBorderStyle.Solid,
-            borderColor,
-            _border.Right,
-            ButtonBorderStyle.Solid,
-            borderColor,
-            _border.Bottom,
-            ButtonBorderStyle.Solid
-        );
+            // Draw border
+            if (_border.Left > 0 || _border.Top > 0 || _border.Right > 0 || _border.Bottom > 0)
+            {
+                ControlPaint.DrawBorder(
+                    graphics,
+                    ClientRectangle,
+                    borderColor,
+                    _border.Left,
+                    ButtonBorderStyle.Solid,
+                    borderColor,
+                    _border.Top,
+                    ButtonBorderStyle.Solid,
+                    borderColor,
+                    _border.Right,
+                    ButtonBorderStyle.Solid,
+                    borderColor,
+                    _border.Bottom,
+                    ButtonBorderStyle.Solid
+                );
+            }
+        }
     }
 }

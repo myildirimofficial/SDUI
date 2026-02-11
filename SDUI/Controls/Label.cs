@@ -17,6 +17,9 @@ public class Label : System.Windows.Forms.Label
         get => _gradientAnimation;
         set
         {
+            if (_gradientAnimation == value)
+                return;
+
             _gradientAnimation = value;
             Invalidate();
         }
@@ -31,6 +34,11 @@ public class Label : System.Windows.Forms.Label
         get => _gradient;
         set
         {
+            if (_gradient != null && value != null && 
+                _gradient.Length == value.Length &&
+                _gradient[0] == value[0] && _gradient[1] == value[1])
+                return;
+
             _gradient = value;
             Invalidate();
         }
@@ -47,15 +55,13 @@ public class Label : System.Windows.Forms.Label
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
-
-        Invalidate();
+        // base.OnSizeChanged already triggers repaint
     }
 
     protected override void OnTextChanged(EventArgs e)
     {
         base.OnTextChanged(e);
-
-        Invalidate();
+        // base.OnTextChanged already triggers repaint
     }
 
     protected override void OnPaint(PaintEventArgs e)

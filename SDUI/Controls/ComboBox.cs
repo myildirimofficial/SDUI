@@ -13,8 +13,10 @@ public class ComboBox : System.Windows.Forms.ComboBox
         get => _radius;
         set
         {
-            _radius = value;
+            if (_radius == value)
+                return;
 
+            _radius = value;
             Invalidate();
         }
     }
@@ -85,7 +87,7 @@ public class ComboBox : System.Windows.Forms.ComboBox
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        Invalidate();
+        // base.OnParentBackColorChanged already triggers repaint
     }
 
     protected override void OnLostFocus(EventArgs e)

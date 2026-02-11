@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -13,6 +13,16 @@ public class UIWindowBase : Form
     private int dwmMargin = 1;
     private bool right = false;
     private Point location;
+    private Color _lastBackColor = Color.Empty;
+
+    // Theme animation fields
+    private Timer _themeTimer;
+    private Color _themeFrom;
+    private Color _themeTo;
+    private int _themeStep;
+    private int _themeTotalSteps;
+    private const int ThemeDurationMs = 350;
+    private const int ThemeIntervalMs = 15;
 
     public int DwmMargin
     {
@@ -25,9 +35,6 @@ public class UIWindowBase : Form
     /// </summary>
     public float DPI => DeviceDpi / 96.0f;
 
-    /// <summary>
-    /// Has aero enabled by windows <c>true</c>; otherwise <c>false</c>
-    /// </summary>
     private bool _aeroEnabled
     {
         get
@@ -109,7 +116,6 @@ public class UIWindowBase : Form
             style &= ~(uint)SetWindowLongFlags.WS_MINIMIZEBOX;
             style &= ~(uint)SetWindowLongFlags.WS_MAXIMIZE;
             style &= ~(uint)SetWindowLongFlags.WS_MAXIMIZEBOX;
-            //style &= ~(uint)SetWindowLongFlags.WS_BORDER;
             style |= (uint)SetWindowLongFlags.WS_TILED;
             cp.Style = (int)style;
 
@@ -124,7 +130,6 @@ public class UIWindowBase : Form
         if (DesignMode)
             return;
 
-        // Otherwise, it will not be applied.
         if (StartPosition == FormStartPosition.CenterScreen)
             CenterToScreen();
 
@@ -151,70 +156,37 @@ public class UIWindowBase : Form
 
         switch (m.Msg)
         {
+            case 0x0014: // WM_ERASEBKGND
+                m.Result = (IntPtr)1;
+                return;
+
             case WM_NCHITTEST:
             {
                 if (WindowState != FormWindowState.Maximized)
                 {
                     int gripDist = 10;
-
                     var pt = PointToClient(Cursor.Position);
-
                     Size clientSize = ClientSize;
-                    ///allow resize on the lower right corner
-                    if (
-                        pt.X >= clientSize.Width - gripDist
-                        && pt.Y >= clientSize.Height - gripDist
-                        && clientSize.Height >= gripDist
-                    )
-                    {
-                        m.Result = (IntPtr)(IsMirrored ? htBottomLeft : htBottomRight);
-                        return;
-                    }
-                    ///allow resize on the lower left corner
+
+                    if (pt.X >= clientSize.Width - gripDist && pt.Y >= clientSize.Height - gripDist && clientSize.Height >= gripDist)
+                    { m.Result = (IntPtr)(IsMirrored ? htBottomLeft : htBottomRight); return; }
                     if (pt.X <= gripDist && pt.Y >= clientSize.Height - gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)(IsMirrored ? htBottomRight : htBottomLeft);
-                        return;
-                    }
-                    ///allow resize on the upper right corner
+                    { m.Result = (IntPtr)(IsMirrored ? htBottomRight : htBottomLeft); return; }
                     if (pt.X <= gripDist && pt.Y <= gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)(IsMirrored ? htTopRight : htTopLeft);
-                        return;
-                    }
-                    ///allow resize on the upper left corner
+                    { m.Result = (IntPtr)(IsMirrored ? htTopRight : htTopLeft); return; }
                     if (pt.X >= clientSize.Width - gripDist && pt.Y <= gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)(IsMirrored ? htTopLeft : htTopRight);
-                        return;
-                    }
-                    ///allow resize on the top border
+                    { m.Result = (IntPtr)(IsMirrored ? htTopLeft : htTopRight); return; }
                     if (pt.Y <= 2 && clientSize.Height >= 2)
-                    {
-                        m.Result = (IntPtr)htTop;
-                        return;
-                    }
-                    ///allow resize on the bottom border
+                    { m.Result = (IntPtr)htTop; return; }
                     if (pt.Y >= clientSize.Height - gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)htBottom;
-                        return;
-                    }
-                    ///allow resize on the left border
+                    { m.Result = (IntPtr)htBottom; return; }
                     if (pt.X <= gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)htLeft;
-                        return;
-                    }
-                    ///allow resize on the right border
+                    { m.Result = (IntPtr)htLeft; return; }
                     if (pt.X >= clientSize.Width - gripDist && clientSize.Height >= gripDist)
-                    {
-                        m.Result = (IntPtr)htRight;
-                        return;
-                    }
+                    { m.Result = (IntPtr)htRight; return; }
                 }
 
-                if ((int)m.Result == HTCLIENT) // drag the form
+                if ((int)m.Result == HTCLIENT)
                     m.Result = (IntPtr)HTCAPTION;
 
                 break;
@@ -222,20 +194,13 @@ public class UIWindowBase : Form
             case WM_NCCALCSIZE:
 
                 var handle = Handle;
-
                 var lpwp = (WINDOWPOS)Marshal.PtrToStructure(m.LParam, typeof(WINDOWPOS));
                 if (lpwp.HWND == IntPtr.Zero)
                     return;
 
                 if ((lpwp.flags & (SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOREDRAW)) != 0)
-                {
                     return;
-                }
-                // TEMPORARY CODE
-                // if (OS.IsAppThemed ()) {
-                // OS.InvalidateRect (handle, null, true);
-                // return result;
-                // }
+
                 int bits = GetWindowLong(handle, WindowLongIndexFlags.GWL_STYLE).ToInt32();
                 if ((bits & TCS_MULTILINE) != 0)
                 {
@@ -245,7 +210,6 @@ public class UIWindowBase : Form
 
                 var rect = new Rect();
                 SetRect(rect, 0, 0, lpwp.cx, lpwp.cy);
-
                 SendMessage(handle, WM_NCCALCSIZE, 0, ref rect);
                 int newWidth = rect.Right - rect.Left;
                 int newHeight = rect.Bottom - rect.Top;
@@ -253,28 +217,21 @@ public class UIWindowBase : Form
                 int oldWidth = rect.Right - rect.Left;
                 int oldHeight = rect.Bottom - rect.Top;
                 if (newWidth == oldWidth && newHeight == oldHeight)
-                {
                     return;
-                }
+
                 var inset = new Rect();
                 SendMessage(handle, TCM_ADJUSTRECT, 0, ref inset);
-                int marginX = -inset.Right,
-                    marginY = -inset.Bottom;
+                int marginX = -inset.Right, marginY = -inset.Bottom;
                 if (newWidth != oldWidth)
                 {
-                    int left = oldWidth;
-                    if (newWidth < oldWidth)
-                        left = newWidth;
+                    int left = newWidth < oldWidth ? newWidth : oldWidth;
                     SetRect(rect, left - marginX, 0, newWidth, newHeight);
                     InvalidateRect(handle, rect, true);
                 }
                 if (newHeight != oldHeight)
                 {
-                    int bottom = oldHeight;
-                    if (newHeight < oldHeight)
-                        bottom = newHeight;
-                    if (newWidth < oldWidth)
-                        oldWidth -= marginX;
+                    int bottom = newHeight < oldHeight ? newHeight : oldHeight;
+                    if (newWidth < oldWidth) oldWidth -= marginX;
                     SetRect(rect, 0, bottom - marginY, oldWidth, newHeight);
                     InvalidateRect(handle, rect, true);
                 }
@@ -286,37 +243,43 @@ public class UIWindowBase : Form
 
     public void ChangeControlsTheme(Control control)
     {
-        control.Enabled = false;
+        if (control == null || control.IsDisposed || !control.IsHandleCreated)
+            return;
+
+        if (!control.Visible)
+            return;
 
         var isDark = ColorScheme.BackColor.IsDark();
+
         if (control is ListView listView)
         {
-
             if (WindowsHelper.IsModern)
             {
-                listView.ApplyTheme();
-                control.Enabled = true;
-                return;
+                try { listView.ApplyTheme(); }
+                catch { }
             }
         }
-
-        if (control is RichTextBox || control is ListBox)
+        else if (control is RichTextBox || control is ListBox)
         {
             try
             {
                 control.BackColor = ColorScheme.BackColor;
                 control.ForeColor = ColorScheme.ForeColor;
             }
-            catch (Exception) { }
+            catch { }
         }
 
-        WindowsHelper.UseImmersiveDarkMode(control.Handle, isDark);
-
-        foreach (Control subControl in control.Controls)
+        try
         {
-            ChangeControlsTheme(subControl);
+            WindowsHelper.UseImmersiveDarkMode(control.Handle, isDark);
         }
-        control.Enabled = true;
+        catch { }
+
+        if (control.HasChildren)
+        {
+            foreach (Control subControl in control.Controls)
+                ChangeControlsTheme(subControl);
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -331,7 +294,6 @@ public class UIWindowBase : Form
         if (_aeroEnabled)
         {
             var v = 2;
-
             DwmSetWindowAttribute(Handle, DWMWINDOWATTRIBUTE.DWMWA_NCRENDERING_POLICY, ref v, 4);
             var margins = new MARGINS()
             {
@@ -340,17 +302,11 @@ public class UIWindowBase : Form
                 Right = dwmMargin,
                 Top = dwmMargin,
             };
-
             DwmExtendFrameIntoClientArea(this.Handle, ref margins);
         }
 
         SetWindowPos(
-            Handle,
-            IntPtr.Zero,
-            0,
-            0,
-            0,
-            0,
+            Handle, IntPtr.Zero, 0, 0, 0, 0,
             SetWindowPosFlags.SWP_FRAMECHANGED
                 | SetWindowPosFlags.SWP_NOSIZE
                 | SetWindowPosFlags.SWP_NOMOVE
@@ -363,25 +319,147 @@ public class UIWindowBase : Form
     protected override void OnBackColorChanged(EventArgs e)
     {
         base.OnBackColorChanged(e);
-        if (DesignMode)
+
+        if (DesignMode || !IsHandleCreated)
             return;
 
-        ChangeControlsTheme(this);
-
-        if (!WindowsHelper.IsModern)
+        if (_lastBackColor == BackColor)
             return;
 
-        WindowsHelper.UseImmersiveDarkMode(Handle, ColorScheme.BackColor.IsDark());
+        _lastBackColor = BackColor;
 
-        if (ColorScheme.BackColor.IsDark())
+        // Skip full theme application during animation intermediate frames
+        if (_themeTimer != null && _themeTimer.Enabled && BackColor != _themeTo)
         {
-            var flag = DWMSBT_TABBEDWINDOW;
-            DwmSetWindowAttribute(
-                Handle,
-                DWMWINDOWATTRIBUTE.DWMWA_SYSTEMBACKDROP_TYPE,
-                ref flag,
-                Marshal.SizeOf<int>()
-            );
+            Invalidate();
+            return;
         }
+
+        try
+        {
+            foreach (Control control in Controls)
+                ChangeControlsTheme(control);
+
+            if (!WindowsHelper.IsModern)
+                return;
+
+            WindowsHelper.UseImmersiveDarkMode(Handle, ColorScheme.BackColor.IsDark());
+
+            /*if (ColorScheme.BackColor.IsDark())
+            {
+                var flag = DWMSBT_TABBEDWINDOW;
+                DwmSetWindowAttribute(
+                    Handle,
+                    DWMWINDOWATTRIBUTE.DWMWA_SYSTEMBACKDROP_TYPE,
+                    ref flag,
+                    Marshal.SizeOf<int>()
+                );
+            }*/
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Apply the current theme to this window and all child controls (instant).
+    /// </summary>
+    public void ApplyTheme()
+    {
+        if (!IsHandleCreated || IsDisposed)
+            return;
+
+        StopThemeAnimation();
+        _lastBackColor = Color.Empty;
+        BackColor = ColorScheme.BackColor;
+    }
+
+    /// <summary>
+    /// Apply the current theme with a smooth color transition animation.
+    /// </summary>
+    public void ApplyThemeAnimated()
+    {
+        if (!IsHandleCreated || IsDisposed)
+            return;
+
+        var target = ColorScheme.BackColor;
+        if (BackColor == target)
+            return;
+
+        _themeFrom = BackColor;
+        _themeTo = target;
+        _themeStep = 0;
+        _themeTotalSteps = Math.Max(1, ThemeDurationMs / ThemeIntervalMs);
+
+        // Apply native dark/light mode immediately so scrollbars switch early
+        if (WindowsHelper.IsModern)
+        {
+            var isDark = _themeTo.IsDark();
+            WindowsHelper.UseImmersiveDarkMode(Handle, isDark);
+
+            foreach (Control control in Controls)
+            {
+                try
+                {
+                    if (control.IsHandleCreated)
+                        WindowsHelper.UseImmersiveDarkMode(control.Handle, isDark);
+                }
+                catch { }
+            }
+        }
+
+        if (_themeTimer == null)
+        {
+            _themeTimer = new Timer { Interval = ThemeIntervalMs };
+            _themeTimer.Tick += OnThemeTimerTick;
+        }
+
+        _themeTimer.Start();
+    }
+
+    private void OnThemeTimerTick(object sender, EventArgs e)
+    {
+        _themeStep++;
+
+        if (_themeStep >= _themeTotalSteps)
+        {
+            StopThemeAnimation();
+
+            // Final step: set exact target and apply full theme
+            _lastBackColor = Color.Empty;
+            BackColor = _themeTo;
+            return;
+        }
+
+        float t = (float)_themeStep / _themeTotalSteps;
+        // Ease-out cubic: 1 - (1 - t)^3
+        t = 1f - (1f - t) * (1f - t) * (1f - t);
+
+        var r = (int)(_themeFrom.R + (_themeTo.R - _themeFrom.R) * t);
+        var g = (int)(_themeFrom.G + (_themeTo.G - _themeFrom.G) * t);
+        var b = (int)(_themeFrom.B + (_themeTo.B - _themeFrom.B) * t);
+
+        r = Math.Clamp(r, 0, 255);
+        g = Math.Clamp(g, 0, 255);
+        b = Math.Clamp(b, 0, 255);
+
+        _lastBackColor = Color.Empty;
+        BackColor = Color.FromArgb(r, g, b);
+    }
+
+    private void StopThemeAnimation()
+    {
+        if (_themeTimer != null)
+            _themeTimer.Stop();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _themeTimer?.Stop();
+            _themeTimer?.Dispose();
+            _themeTimer = null;
+        }
+
+        base.Dispose(disposing);
     }
 }

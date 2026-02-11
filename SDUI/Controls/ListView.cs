@@ -11,13 +11,13 @@ public class ListView : System.Windows.Forms.ListView
 {
     private ListViewColumnSorter LvwColumnSorter { get; set; }
     private bool _isApplyingTheme = true;
+    private bool _isUpdating = false;
 
     public ListView()
         : base()
     {
         SetStyle(
                  ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.ResizeRedraw
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.EnableNotifyMessage,
             true
@@ -26,36 +26,70 @@ public class ListView : System.Windows.Forms.ListView
         ListViewItemSorter = LvwColumnSorter;
         View = View.Details;
         FullRowSelect = true;
+        OwnerDraw = false; // Let system handle drawing for better performance
         UpdateStyles();
+    }
+
+    /// <summary>
+    /// Suspends painting to improve performance during bulk operations
+    /// </summary>
+    public new void BeginUpdate()
+    {
+        if (_isUpdating || !IsHandleCreated || IsDisposed)
+            return;
+
+        try
+        {
+            _isUpdating = true;
+            SendMessage(Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+            base.BeginUpdate();
+        }
+        catch (Exception ex)
+        {
+            _isUpdating = false;
+            System.Diagnostics.Debug.WriteLine($"BeginUpdate failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Resumes painting after bulk operations
+    /// </summary>
+    public new void EndUpdate()
+    {
+        if (!_isUpdating || !IsHandleCreated || IsDisposed)
+            return;
+
+        try
+        {
+            base.EndUpdate();
+            SendMessage(Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+            _isUpdating = false;
+            Invalidate();
+        }
+        catch (Exception ex)
+        {
+            _isUpdating = false;
+            System.Diagnostics.Debug.WriteLine($"EndUpdate failed: {ex.Message}");
+        }
     }
 
     protected override void OnSelectedIndexChanged(EventArgs e)
     {
         base.OnSelectedIndexChanged(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseDown(MouseEventArgs e)
-    {
-        base.OnMouseDown(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseWheel(MouseEventArgs e)
-    {
-        base.OnMouseWheel(e);
-        Invalidate();
+        // Invalidate removed - handled by WM_NOTIFY messages
     }
 
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
         EnableDoubleBuffering();
+        EnableExtendedStyles();
         ApplyTheme();
     }
 
     protected override void OnNotifyMessage(Message m)
     {
+        // Filter out WM_ERASEBKGND (0x14) to reduce flicker
         if (m.Msg != 0x14)
         {
             base.OnNotifyMessage(m);
@@ -65,35 +99,66 @@ public class ListView : System.Windows.Forms.ListView
     protected override void OnColumnClick(ColumnClickEventArgs e)
     {
         base.OnColumnClick(e);
-        for (int i = 0; i < Columns.Count; i++)
-            SetSortArrow(i, SortOrder.None);
-
-        if (e.Column == LvwColumnSorter.SortColumn)
+        
+        BeginUpdate();
+        try
         {
-            LvwColumnSorter.Order =
-                (LvwColumnSorter.Order == SortOrder.Ascending) ? SortOrder.Descending : SortOrder.Ascending;
+            for (int i = 0; i < Columns.Count; i++)
+                SetSortArrow(i, SortOrder.None);
+
+            if (e.Column == LvwColumnSorter.SortColumn)
+            {
+                LvwColumnSorter.Order =
+                    (LvwColumnSorter.Order == SortOrder.Ascending) ? SortOrder.Descending : SortOrder.Ascending;
+            }
+            else
+            {
+                LvwColumnSorter.SortColumn = e.Column;
+                LvwColumnSorter.Order = SortOrder.Ascending;
+            }
+
+            SetSortArrow(e.Column, LvwColumnSorter.Order);
+
+            if (!VirtualMode)
+                Sort();
         }
-        else
+        finally
         {
-            LvwColumnSorter.SortColumn = e.Column;
-            LvwColumnSorter.Order = SortOrder.Ascending;
+            EndUpdate();
         }
-
-        SetSortArrow(e.Column, LvwColumnSorter.Order);
-
-        if (!VirtualMode)
-            Sort();
     }
 
     public void SelectAllItems()
     {
-        Focus();
-        SetItemState(-1, 2, 2);
+        if (Items.Count == 0)
+            return;
+
+        BeginUpdate();
+        try
+        {
+            Focus();
+            SetItemState(-1, 2, 2);
+        }
+        finally
+        {
+            EndUpdate();
+        }
     }
 
     public void DeselectAllItems()
     {
-        SetItemState(-1, 2, 0);
+        if (SelectedIndices.Count == 0)
+            return;
+
+        BeginUpdate();
+        try
+        {
+            SetItemState(-1, 2, 0);
+        }
+        finally
+        {
+            EndUpdate();
+        }
     }
 
     public void SetItemState(int itemIndex, int mask, int value)
@@ -102,7 +167,9 @@ public class ListView : System.Windows.Forms.ListView
         lvItem.stateMask = mask;
         lvItem.state = value;
         SendMessageLVItem(Handle, LVM_SETITEMSTATE, itemIndex, ref lvItem);
-        EnsureVisible(itemIndex);
+        
+        if (itemIndex >= 0 && itemIndex < Items.Count)
+            EnsureVisible(itemIndex);
     }
 
     public int SetGroupInfo(IntPtr hWnd, int nGroupID, uint nSate)
@@ -119,10 +186,18 @@ public class ListView : System.Windows.Forms.ListView
 
     public void SetSortArrow(int column, SortOrder sortOrder)
     {
-        var pHeader = SendMessage(this.Handle, LVM_GETHEADER, 0, 0);
+        if (column < 0 || column >= Columns.Count)
+            return;
+
+        var pHeader = SendMessage(Handle, LVM_GETHEADER, 0, 0);
+        if (pHeader == IntPtr.Zero)
+            return;
+
         var pColumn = new IntPtr(column);
         var headerItem = new HDITEM { mask = HDITEM.Mask.Format };
-        SendMessage(pHeader, HDM_GETITEM, pColumn, ref headerItem);
+        
+        if (SendMessage(pHeader, HDM_GETITEM, pColumn, ref headerItem) == IntPtr.Zero)
+            return;
 
         switch (sortOrder)
         {
@@ -144,8 +219,25 @@ public class ListView : System.Windows.Forms.ListView
 
     private void EnableDoubleBuffering()
     {
+        if (!IsHandleCreated)
+            return;
+
+        // Enable double buffering and other performance optimizations
         IntPtr lParam = new IntPtr(LVS_EX_DOUBLEBUFFER | 0x00000020);
         SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, lParam);
+    }
+
+    private void EnableExtendedStyles()
+    {
+        if (!IsHandleCreated)
+            return;
+
+        // Additional performance extended styles
+        const int LVS_EX_BORDERSELECT = 0x00008000;
+        const int LVS_EX_LABELTIP = 0x00004000;
+        
+        IntPtr styles = new IntPtr(LVS_EX_DOUBLEBUFFER | 0x00000020 | LVS_EX_BORDERSELECT | LVS_EX_LABELTIP);
+        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, styles);
     }
 
     internal void ApplyTheme()
@@ -209,39 +301,62 @@ public class ListView : System.Windows.Forms.ListView
             _isApplyingTheme = false;
         }
 
-        Invalidate();
+        // Invalidate removed - system will repaint after theme change
     }
 
     protected override void WndProc(ref Message m)
     {
-        base.WndProc(ref m);
-
-        if (m.Msg == WM_NOTIFY)
+        switch (m.Msg)
         {
-            var pnmhdr = (NMHDR)m.GetLParam(typeof(NMHDR));
+            case 0x0014: // WM_ERASEBKGND
+                // Prevent flicker - return 1 to indicate handled
+                m.Result = (IntPtr)1;
+                return;
 
-            if (pnmhdr.code == NM_CUSTOMDRAW)
-            {
-                var nmcd = (NMCUSTOMDRAW)m.GetLParam(typeof(NMCUSTOMDRAW));
-
-                switch (nmcd.dwDrawStage)
+            case 0x000F: // WM_PAINT
+                // Skip painting if we're in update mode
+                if (_isUpdating)
                 {
-                    case (int)CDDS.CDDS_PREPAINT:
-                        m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYITEMDRAW);
-                        break;
-                    case (int)CDDS.CDDS_ITEMPREPAINT:
-
-                        SetTextColor(nmcd.hdc, ColorTranslator.ToWin32(ColorScheme.ForeColor));
-
-                        m.Result = new IntPtr((int)CDRF.CDRF_DODEFAULT);
-
-                        break;
-                    default:
-                        m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYPOSTPAINT);
-                        break;
+                    // Let Windows know we handled it
+                    ValidateRect(Handle, IntPtr.Zero);
+                    m.Result = IntPtr.Zero;
+                    return;
                 }
-            }
+                break;
+
+            case WM_NOTIFY:
+                if (!IsHandleCreated || IsDisposed)
+                {
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+
+                var pnmhdr = (NMHDR)m.GetLParam(typeof(NMHDR));
+
+                if (pnmhdr.code == NM_CUSTOMDRAW)
+                {
+                    var nmcd = (NMCUSTOMDRAW)m.GetLParam(typeof(NMCUSTOMDRAW));
+
+                    switch (nmcd.dwDrawStage)
+                    {
+                        case (int)CDDS.CDDS_PREPAINT:
+                            m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYITEMDRAW);
+                            return;
+                        
+                        case (int)CDDS.CDDS_ITEMPREPAINT:
+                            SetTextColor(nmcd.hdc, ColorTranslator.ToWin32(ColorScheme.ForeColor));
+                            m.Result = new IntPtr((int)CDRF.CDRF_DODEFAULT);
+                            return;
+                        
+                        default:
+                            m.Result = new IntPtr((int)CDRF.CDRF_DODEFAULT);
+                            return;
+                    }
+                }
+                break;
         }
+
+        base.WndProc(ref m);
     }
 
     protected override CreateParams CreateParams
@@ -249,8 +364,13 @@ public class ListView : System.Windows.Forms.ListView
         get
         {
             CreateParams cp = base.CreateParams;
+            // WS_EX_COMPOSITED for smoother rendering
             cp.ExStyle |= 0x02000000;
+            // WS_CLIPCHILDREN to prevent child control flicker
+            cp.Style |= 0x02000000;
             return cp;
         }
     }
+
+    private const int WM_SETREDRAW = 0x000B;
 }
