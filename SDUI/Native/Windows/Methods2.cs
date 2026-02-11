@@ -53,6 +53,8 @@ public partial class Methods
 
     public const int HT_CAPTION = 0x2;
     public const int CS_DROPSHADOW = 0x00020000;
+    public const int CS_HREDRAW = 0x0002;
+    public const int CS_VREDRAW = 0x0001;
     public const int WS_MINIMIZEBOX = 0x20000;
     public const int WS_SIZEBOX = 0x00040000;
     public const int WS_SYSMENU = 0x00080000;

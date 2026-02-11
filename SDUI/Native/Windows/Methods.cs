@@ -45,6 +45,15 @@ public partial class Methods
     [DllImport(user32, SetLastError = true)]
     public static extern IntPtr SetCursor(IntPtr hCursor);
 
+    [DllImport(user32)]
+    public static extern bool ClipCursor(ref Rect lpRect);
+
+    [DllImport(user32)]
+    public static extern bool ClipCursor(IntPtr lpRect);
+
+    [DllImport(user32)]
+    public static extern bool GetClipCursor(out Rect lpRect);
+
     [DllImport(kernel32)]
     public static extern IntPtr GetModuleHandle(string lpModuleName);
 
@@ -120,6 +129,17 @@ public partial class Methods
 
     [DllImport("shcore.dll")]
     public static extern int GetDpiForMonitor(IntPtr hmonitor, MonitorDpiType dpiType, out uint dpiX, out uint dpiY);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+    [DllImport("shcore.dll", SetLastError = true)]
+    public static extern int SetProcessDpiAwareness(int awareness);
+
+    public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (IntPtr)(-4);
 
     public delegate bool MonitorEnumDelegate(IntPtr hMonitor, IntPtr hdcMonitor, ref Rect lprcMonitor, IntPtr dwData);
 }

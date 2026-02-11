@@ -3,3 +3,6 @@
 public class Element : ElementBase
 {
 }
+public class TextBox : ElementBase
+{
+}

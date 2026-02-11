@@ -47,6 +47,10 @@ public enum WindowMessage : uint
     /// </summary>
     WM_DISPLAYCHANGE = 0x007E,
     /// <summary>
+    /// Sent when the effective DPI for a window has changed.
+    /// </summary>
+    WM_DPICHANGED = 0x02E0,
+    /// <summary>
     /// Sent to a window when the window is about to be hidden or shown.
     /// </summary>
     WM_SHOWWINDOW = 0x0018,

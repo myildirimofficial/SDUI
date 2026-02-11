@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Orivy.Example
 {
-    internal partial class MainWindow : UIWindowBase
+    internal partial class MainWindow : UIWindow
     {
         internal MainWindow()
         {

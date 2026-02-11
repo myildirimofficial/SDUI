@@ -27,6 +27,18 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
     public SKPoint MousePosition { get; private set; }
 
+    /// <summary>
+    /// Gets the current cursor position in screen coordinates via native GetCursorPos.
+    /// </summary>
+    public static SKPoint CursorScreenPosition
+    {
+        get
+        {
+            GetCursorPos(out var pt);
+            return new SKPoint(pt.X, pt.Y);
+        }
+    }
+
 
     private FormBorderStyle _formBorderStyle = FormBorderStyle.Sizable;
     public FormBorderStyle FormBorderStyle
@@ -313,6 +325,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
             if (!_aeroEnabled)
                 cp.ClassStyle |= CS_DROPSHADOW;
             cp.ClassStyle |= CS_DBLCLKS;
+            cp.ClassStyle |= CS_HREDRAW | CS_VREDRAW;
 
             return cp;
         }
@@ -950,10 +963,13 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 }
             case WindowMessage.WM_MOVE:
                 {
+                    // Skip WM_MOVE during manual drag to prevent race condition with OnMouseMove
+                    if (this is UIWindow uiWin && uiWin.IsOnMoving)
+                        return IntPtr.Zero;
+
                     int x = (short)(lParam.ToInt64() & 0xFFFF);
                     int y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
 
-                    // Prevent recursion when updating from native window
                     _updatingFromNative = true;
                     try
                     {
@@ -993,6 +1009,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     {
                         Size = new SKSize(width, height);
                         OnSizeChanged(EventArgs.Empty);
+                        InvalidateWindow();
                     }
                     finally
                     {
@@ -1031,6 +1048,24 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     // Native rendering - delegate to rendering partial class
                     return HandlePaint(hWnd);
                 }
+            case WindowMessage.WM_DPICHANGED:
+                var newDpi = (float)(wParam.ToInt32() & 0xFFFF);
+                var oldDpi = DeviceDpi;
+
+                if (Math.Abs(newDpi - oldDpi) > 0.001f)
+                {
+                    var rect = Marshal.PtrToStructure<Rect>(lParam);
+                    SetWindowPos(Handle, IntPtr.Zero,
+                        rect.Left, rect.Top,
+                        rect.Width, rect.Height,
+                        SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+
+                    OnDpiChanged(newDpi, oldDpi);
+                    Invalidate();
+                }
+
+                return IntPtr.Zero;
+                break;
         }
 
         return DefWindowProc(hWnd, msg, wParam, lParam);

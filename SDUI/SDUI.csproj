@@ -56,7 +56,6 @@
     <Compile Remove="Controls\Tooltip.cs" />
     <Compile Remove="Controls\TrackBar.cs" />
     <Compile Remove="Controls\TreeView.cs" />
-    <Compile Remove="Controls\UIWindow.cs" />
     <Compile Remove="Controls\UserControl.cs" />
     <Compile Remove="Extensions\TextBoxBaseExtensions.cs" />
     <Compile Remove="Helpers\ListViewColumnSorter.cs" />

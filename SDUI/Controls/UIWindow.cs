@@ -1,8 +1,6 @@
 ﻿using SDUI.Animation;
-using SDUI.Collections;
 using SDUI.Extensions;
 using SDUI.Helpers;
-using SDUI.Layout;
 using SDUI.Native.Windows;
 using SDUI.Rendering;
 using SkiaSharp;
@@ -11,10 +9,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.Linq;
 using System.Timers;
-using System.Windows.Forms;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
@@ -34,8 +30,6 @@ public partial class UIWindow : UIWindowBase
 
     private const float HOVER_ANIMATION_SPEED = 0.1f;
     private const float HOVER_ANIMATION_OPACITY = 0.4f;
-
-    private const int WM_ERASEBKGND = 0x0014;
 
     // Hot-path caches (avoid per-frame LINQ allocations)
     private readonly List<ElementBase> _frameElements = new();
@@ -134,6 +128,11 @@ public partial class UIWindow : UIWindowBase
     private bool _formMoveMouseDown;
 
     /// <summary>
+    /// Gets whether the window is currently being moved by user drag.
+    /// </summary>
+    internal bool IsOnMoving => _formMoveMouseDown;
+
+    /// <summary>
     ///     Gradient header colors
     /// </summary>
     private SKColor[] _gradient = new[] { SKColors.Transparent, SKColors.Transparent };
@@ -156,14 +155,9 @@ public partial class UIWindow : UIWindowBase
     private int _layoutSuspendCount;
 
     /// <summary>
-    ///     The position of the form when the left mouse button is pressed
+    ///     The starting location when form drag begins
     /// </summary>
-    private SKPoint _location;
-
-    /// <summary>
-    ///     The position of the window before it is maximized
-    /// </summary>
-    private SKPoint _locationOfBeforeMaximized;
+    private SKPoint _dragStartLocation;
 
     /// <summary>
     ///     Whether to show the maximize button of the form
@@ -209,12 +203,13 @@ public partial class UIWindow : UIWindowBase
     private RenderBackend _renderBackend = RenderBackend.Software;
     private IWindowRenderer? _renderer;
 
-    private bool _showPerfOverlay;
+    private bool _showPerfOverlay = true;
 
     /// <summary>
     ///     The size of the window before it is maximized
     /// </summary>
     private SKSize _sizeOfBeforeMaximized;
+    private SKPoint _locationOfBeforeMaximized;
 
     // Prevent Invalidate()->Update() storms in Software backend
     private bool _softwareUpdateQueued;
@@ -258,24 +253,6 @@ public partial class UIWindow : UIWindowBase
     ///     Whether to show the title bar of the form
     /// </summary>
     private bool showMenuInsteadOfIcon;
-
-    /*
-    [Browsable(false)]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public new FormBorderStyle FormBorderStyle
-    {
-        get
-        {
-            return base.FormBorderStyle;
-        }
-        set
-        {
-            if (!Enum.IsDefined(typeof(FormBorderStyle), value))
-                throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(FormBorderStyle));
-            base.FormBorderStyle = FormBorderStyle.Sizable;
-        }
-    }*/
 
     /// <summary>
     ///     Whether to show the title bar of the form
@@ -766,6 +743,8 @@ public partial class UIWindow : UIWindowBase
         }
     }
 
+    public SKRectI MaximizedBounds { get; private set; }
+
     public override void Invalidate()
     {
         // Avoid synchronous Update() storms (especially with multiple animations). In software
@@ -775,15 +754,7 @@ public partial class UIWindow : UIWindowBase
                 QueueSoftwareUpdate();
     }
 
-    new void Render(SKCanvas canvas)
-    {
-        var w = (int)ClientSize.Width;
-        var h = (int)ClientSize.Height;
-        if (w <= 0 || h <= 0)
-            return;
-        var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        RenderScene(canvas, info);
-    }
+    // REMOVED: Render method - using UIWindowBase.OnPaintCanvas instead
 
     /// <summary>
     ///     If extend box clicked invoke the event
@@ -955,7 +926,7 @@ public partial class UIWindow : UIWindowBase
                     return;
 
                 if (_renderBackend == RenderBackend.Software)
-                    Invalidate();
+                    InvalidateWindow(); // ✅ Use native invalidate to avoid recursion
             }));
         }
         catch
@@ -1164,31 +1135,18 @@ public partial class UIWindow : UIWindowBase
         _cacheBitmap = null;
     }
 
-    private void RenderSoftwareFrameUncached(SKImageInfo info, Graphics graphics)
-    {
-        using var skBitmap = new SKBitmap(info);
-        var pixels = skBitmap.GetPixels();
+    // REMOVED: RenderSoftwareFrameUncached - using UIWindowBase native rendering
 
-        using var surface = SKSurface.Create(info, pixels, skBitmap.RowBytes);
-        if (surface == null)
-            return;
-
-        var canvas = surface.Canvas;
-        RenderScene(canvas, info);
-        canvas.Flush();
-        surface.Flush();
-
-        using var gdiBitmap =
-            new Bitmap(info.Width, info.Height, skBitmap.RowBytes, PixelFormat.Format32bppPArgb, pixels);
-        graphics.DrawImageUnscaled(gdiBitmap, 0, 0);
-    }
-
-    protected override void OnControlAdded(ElementEventArgs e)
+    internal override void OnControlAdded(ElementEventArgs e)
     {
         base.OnControlAdded(e);
 
         if (ShowTitle && !AllowAddControlOnTitle && e.Element.Location.Y < TitleHeight)
-            e.Element.Location.Y = Padding.Top;
+        {
+            var newLoc = e.Element.Location;
+            newLoc.Y = Padding.Top;
+            e.Element.Location = newLoc;
+        }
     }
 
     private void CalcSystemBoxPos()
@@ -1267,7 +1225,8 @@ public partial class UIWindow : UIWindowBase
     }
 
 
-    protected override void OnMouseClick(MouseEventArgs e)
+
+    protected internal override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
 
@@ -1352,7 +1311,7 @@ public partial class UIWindow : UIWindowBase
         if (pageRect == null)
             UpdateTabRects();
 
-        if (_formMoveMouseDown && !MousePosition.Equals(_mouseOffset))
+        if (_formMoveMouseDown && !CursorScreenPosition.Equals(_mouseOffset))
             return;
 
         for (var i = 0; i < pageRect.Count; i++)
@@ -1445,8 +1404,9 @@ public partial class UIWindow : UIWindowBase
         if (e.Button == MouseButtons.Left && Movable)
         {
             _formMoveMouseDown = true;
-            _location = Location;
-            _mouseOffset = MousePosition;
+            _dragStartLocation = Location;
+            _mouseOffset = CursorScreenPosition;
+            SetCapture(Handle);
         }
     }
 
@@ -1481,13 +1441,13 @@ public partial class UIWindow : UIWindowBase
         if (!MaximizeBox)
             return;
 
-        var inCloseBox = e.Location.InRect(_controlBoxRect);
-        var inMaxBox = e.Location.InRect(_maximizeBoxRect);
-        var inMinBox = e.Location.InRect(_minimizeBoxRect);
-        var inExtendBox = e.Location.InRect(_extendBoxRect);
-        var inCloseTabBox = _tabCloseButton && e.Location.InRect(_closeTabBoxRect);
-        var inNewTabBox = _newTabButton && e.Location.InRect(_newTabBoxRect);
-        var inFormMenuBox = e.Location.InRect(_formMenuRect);
+        var inCloseBox = _controlBoxRect.Contains(e.Location);
+        var inMaxBox = _maximizeBoxRect.Contains(e.Location);
+        var inMinBox = _minimizeBoxRect.Contains(e.Location);
+        var inExtendBox = _extendBoxRect.Contains(e.Location);
+        var inCloseTabBox = _tabCloseButton && _closeTabBoxRect.Contains(e.Location);
+        var inNewTabBox = _newTabButton && _newTabBoxRect.Contains(e.Location);
+        var inFormMenuBox = _formMenuRect.Contains(e.Location);
 
         if (inCloseBox || inMaxBox || inMinBox || inExtendBox || inCloseTabBox || inNewTabBox || inFormMenuBox)
             return;
@@ -1495,7 +1455,7 @@ public partial class UIWindow : UIWindowBase
         if (!ShowTitle)
             return;
 
-        if (e.Y > Thickness.Top)
+        if (e.Y > Padding.Top)
             return;
 
         ShowMaximize();
@@ -1508,7 +1468,7 @@ public partial class UIWindow : UIWindowBase
         {
             var captured = _mouseCapturedElement;
             var bounds = GetWindowRelativeBoundsStatic(captured);
-            var localEvent = new MouseEventArgs(SDUI.Helpers.InputConversions.ToSDUIMouseButtons(e.Button), e.Clicks, e.X - bounds.X, e.Y - bounds.Y, e.Delta);
+            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
             captured.OnMouseUp(localEvent);
             if (e.Button == MouseButtons.Left) ReleaseMouseCapture(captured);
         }
@@ -1517,18 +1477,24 @@ public partial class UIWindow : UIWindowBase
 
         if (!IsDisposed && _formMoveMouseDown)
         {
-            //int screenIndex = GetMouseInScreen(PointToScreen(e.Location));
-            var screen = Screen.FromPoint(MousePosition);
-            if (MousePosition.Y == screen.WorkingArea.Top && MaximizeBox) ShowMaximize(true);
+            var screenPos = CursorScreenPosition;
+            var screen = Screen.FromPoint(screenPos);
+            if (screenPos.Y == screen.WorkingArea.Top && MaximizeBox) ShowMaximize(true);
 
-            if (Top < screen.WorkingArea.Top) Top = screen.WorkingArea.Top;
+            var location = Location;
+            if (location.X < screen.WorkingArea.Left)
+                location.X = screen.WorkingArea.Left;
 
-            if (Top > screen.WorkingArea.Bottom - TitleHeight)
-                Top = Convert.ToInt32(screen.WorkingArea.Bottom - _titleHeightDPI);
+            if (location.Y > screen.WorkingArea.Bottom - TitleHeight)
+                location.Y = Convert.ToInt32(screen.WorkingArea.Bottom - _titleHeightDPI);
+
+            Location = location;
         }
 
         IsStayAtTopBorder = false;
-        Cursor.Clip = new SkiaSharp.SKRect();
+        Cursor.Clip = null;
+        if (_formMoveMouseDown)
+            ReleaseCapture();
         _formMoveMouseDown = false;
 
         animationSource = e.Location;
@@ -1592,28 +1558,30 @@ public partial class UIWindow : UIWindowBase
         {
             var captured = _mouseCapturedElement;
             var bounds = GetWindowRelativeBoundsStatic(captured);
-            var localEvent = new MouseEventArgs(SDUI.Helpers.InputConversions.ToSDUIMouseButtons(e.Button), e.Clicks, e.X - bounds.X, e.Y - bounds.Y, e.Delta);
+            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
             captured.OnMouseMove(localEvent);
             return;
         }
 
-        if (_formMoveMouseDown && !MousePosition.Equals(_mouseOffset))
+        var screenCursor = CursorScreenPosition;
+        if (_formMoveMouseDown && !screenCursor.Equals(_mouseOffset))
         {
             if (WindowState == FormWindowState.Maximized)
             {
                 var maximizedWidth = Width;
-                var locationX = Left;
+                var locationX = Location.X;
                 ShowMaximize();
 
                 var offsetXRatio = 1 - (float)Width / maximizedWidth;
                 _mouseOffset.X -= (int)((_mouseOffset.X - locationX) * offsetXRatio);
             }
 
-            var offsetX = _mouseOffset.X - MousePosition.X;
-            var offsetY = _mouseOffset.Y - MousePosition.Y;
-            var _workingArea = Screen.GetWorkingArea(this);
+            var offsetX = _mouseOffset.X - screenCursor.X;
+            var offsetY = _mouseOffset.Y - screenCursor.Y;
+            var screen = Screen.FromPoint(screenCursor);
+            var _workingArea = screen.WorkingArea;
 
-            if (MousePosition.Y - _workingArea.Top == 0)
+            if (screenCursor.Y - _workingArea.Top == 0)
             {
                 if (!IsStayAtTopBorder)
                 {
@@ -1623,11 +1591,16 @@ public partial class UIWindow : UIWindowBase
                 }
                 else if (DateTime.Now.Ticks - TopBorderStayTicks > _stickyBorderTime)
                 {
-                    Cursor.Clip = new SkiaSharp.SKRect();
+                    Cursor.Clip = null;
                 }
             }
 
-            Location = new SKPoint(_location.X - offsetX, _location.Y - offsetY);
+            var newX = (int)(_dragStartLocation.X - offsetX);
+            var newY = (int)(_dragStartLocation.Y - offsetY);
+            base.Location = new SKPoint(newX, newY);
+            SetWindowPos(Handle, IntPtr.Zero, newX, newY, 0, 0,
+                SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOZORDER |
+                SetWindowPosFlags.SWP_NOACTIVATE | SetWindowPosFlags.SWP_NOCOPYBITS);
         }
         else
         {
@@ -1815,8 +1788,8 @@ public partial class UIWindow : UIWindowBase
             var localEvent = new MouseEventArgs(
                 e.Button,
                 e.Clicks,
-                windowMousePos.X - elementBounds.X,
-                windowMousePos.Y - elementBounds.Y,
+                (int)windowMousePos.X - (int)elementBounds.Left,
+                (int)windowMousePos.Y - (int)elementBounds.Top,
                 e.Delta);
 
             element.OnMouseWheel(localEvent);
@@ -1830,15 +1803,15 @@ public partial class UIWindow : UIWindowBase
     {
         var screen = Screen.FromPoint(MousePosition);
         base.MaximumSize = screen.WorkingArea.Size;
-        if (screen.Primary)
+        if (screen.IsPrimary)
             MaximizedBounds = screen.WorkingArea;
         else
-            MaximizedBounds = new SkiaSharp.SKRect(0, 0, 0, 0);
+            MaximizedBounds = SKRectI.Empty;
 
         if (WindowState == FormWindowState.Normal)
         {
             _sizeOfBeforeMaximized = Size;
-            _locationOfBeforeMaximized = IsOnMoving ? _location : Location;
+            _locationOfBeforeMaximized = IsOnMoving ? _dragStartLocation : Location;
             WindowState = FormWindowState.Maximized;
         }
         else if (WindowState == FormWindowState.Maximized)
@@ -1846,9 +1819,9 @@ public partial class UIWindow : UIWindowBase
             if (_sizeOfBeforeMaximized.Width == 0 || _sizeOfBeforeMaximized.Height == 0)
             {
                 var w = 800;
-                if (MinimumSize.Width > 0) w = MinimumSize.Width;
+                if (MinimumSize.Width > 0) w = (int)MinimumSize.Width;
                 var h = 600;
-                if (MinimumSize.Height > 0) h = MinimumSize.Height;
+                if (MinimumSize.Height > 0) h = (int)MinimumSize.Height;
                 _sizeOfBeforeMaximized = new SKSize(w, h);
             }
 
@@ -1879,22 +1852,9 @@ public partial class UIWindow : UIWindowBase
         Invalidate();
     }
 
-    protected override void NotifyInvalidate(SkiaSharp.SKRect invalidatedArea)
-    {
-        base.NotifyInvalidate(invalidatedArea);
-        _needsFullRedraw = true;
-    }
+    // REMOVED: NotifyInvalidate - method doesn't exist in UIWindowBase
 
-    protected override void WndProc(ref Message m)
-    {
-        if (!DesignMode && _renderBackend != RenderBackend.Software && m.Msg == WM_ERASEBKGND)
-        {
-            m.Result = 1;
-            return;
-        }
-
-        base.WndProc(ref m);
-    }
+    // REMOVED: WndProc - using UIWindowBase native WndProc instead
 
     protected override void OnLayout(LayoutEventArgs levent)
     {
@@ -1903,33 +1863,31 @@ public partial class UIWindow : UIWindowBase
         var clientArea = ClientRectangle;
         var clientPadding = Padding;
 
-        clientArea.X += clientPadding.Left;
-        clientArea.Y += clientPadding.Top;
-        clientArea.Width -= clientPadding.Horizontal;
-        clientArea.Height -= clientPadding.Vertical;
+        var adjustedArea = SKRect.Create(
+            clientArea.Left + clientPadding.Left,
+            clientArea.Top + clientPadding.Top,
+            clientArea.Width - clientPadding.Horizontal,
+            clientArea.Height - clientPadding.Vertical);
 
-        var remainingArea = clientArea;
+        var remainingArea = adjustedArea;
 
         // WinForms dock order: Reverse z-order (last added first) in a single pass
         // This matches WinForms DefaultLayout behavior where docking is z-order dependent
         // and processed in reverse (children.Count - 1 down to 0)
         for (var i = Controls.Count - 1; i >= 0; i--)
             if (Controls[i] is ElementBase control && control.Visible)
-                PerformDefaultLayout(control, clientArea, ref remainingArea);
+                PerformDefaultLayout(control, adjustedArea, ref remainingArea);
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    protected override void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
-        var w = ClientSize.Width;
-        var h = ClientSize.Height;
-        if (w <= 0 || h <= 0)
-            return;
-
-        if (!DesignMode && _renderBackend != RenderBackend.Software && _renderer != null)
+        base.OnPaintCanvas(canvas, info);
+        
+        if (_renderBackend != RenderBackend.Software && _renderer != null)
         {
             try
             {
-                _renderer.Render(w, h, RenderScene);
+                _renderer.Render((int)info.Width, (int)info.Height, RenderScene);
                 ArmIdleMaintenance();
                 return;
             }
@@ -1939,35 +1897,11 @@ public partial class UIWindow : UIWindowBase
                 _renderer?.Dispose();
                 _renderer = null;
                 _renderBackend = RenderBackend.Software;
-                // Fall through to software rendering below...
             }
         }
 
-        var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        if (ShouldCacheSoftwareBackBuffer(info))
-        {
-            using var bmp = RenderSoftwareFrameToGdiBitmap(info);
-            if (bmp != null)
-            {
-                e.Graphics.DrawImageUnscaled(bmp, 0, 0);
-            }
-            else
-            {
-                // If cached conversion failed for any reason, fallback to uncached rendering
-                if (DebugSettings.EnableRenderLogging)
-                    DebugSettings.Log(
-                        $"UIWindow: RenderSoftwareFrameToGdiBitmap returned null for size {info.Width}x{info.Height}, falling back to uncached rendering");
-                RenderSoftwareFrameUncached(info, e.Graphics);
-            }
-        }
-        else
-        {
-            // Free any previously retained backbuffer (e.g., after resizing to a large size).
-            DisposeSoftwareBackBuffer();
-            RenderSoftwareFrameUncached(info, e.Graphics);
-        }
-
-        base.OnPaint(e);
+        // Software rendering path - use provided canvas
+        RenderScene(canvas, info);
         ArmIdleMaintenance();
     }
 
@@ -1986,17 +1920,17 @@ public partial class UIWindow : UIWindowBase
         var hwnd = Handle;
 
         // Window styles
-        var stylePtr = NativeMethods.GetWindowLong(hwnd, NativeMethods.WindowLongIndexFlags.GWL_STYLE);
+        var stylePtr = GetWindowLong(hwnd, WindowLongIndexFlags.GWL_STYLE);
         var style = stylePtr;
-        var clipFlags = (nint)(uint)(NativeMethods.SetWindowLongFlags.WS_CLIPCHILDREN |
-                                     NativeMethods.SetWindowLongFlags.WS_CLIPSIBLINGS);
+        var clipFlags = (nint)(uint)(SetWindowLongFlags.WS_CLIPCHILDREN |
+                                     SetWindowLongFlags.WS_CLIPSIBLINGS);
         style = gpu ? style | clipFlags : style & ~clipFlags;
 
         // Extended styles
-        var exStylePtr = NativeMethods.GetWindowLong(hwnd, NativeMethods.WindowLongIndexFlags.GWL_EXSTYLE);
+        var exStylePtr = GetWindowLong(hwnd, WindowLongIndexFlags.GWL_EXSTYLE);
         var exStyle = exStylePtr;
-        var noRedirect = (nint)(uint)NativeMethods.SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
-        var composited = (nint)(uint)NativeMethods.SetWindowLongFlags.WS_EX_COMPOSITED;
+        var noRedirect = (nint)(uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
+        var composited = (nint)(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
         if (gpu)
         {
             if (_renderBackend == RenderBackend.OpenGL)
@@ -2012,68 +1946,31 @@ public partial class UIWindow : UIWindowBase
 
         if (IntPtr.Size == 8)
         {
-            NativeMethods.SetWindowLongPtr64(hwnd, (int)NativeMethods.WindowLongIndexFlags.GWL_STYLE, style);
-            NativeMethods.SetWindowLongPtr64(hwnd, (int)NativeMethods.WindowLongIndexFlags.GWL_EXSTYLE, exStyle);
+            SetWindowLongPtr64(hwnd, (int)WindowLongIndexFlags.GWL_STYLE, style);
+            SetWindowLongPtr64(hwnd, (int)WindowLongIndexFlags.GWL_EXSTYLE, exStyle);
         }
         else
         {
-            NativeMethods.SetWindowLong32(hwnd, (int)NativeMethods.WindowLongIndexFlags.GWL_STYLE, (int)style);
-            NativeMethods.SetWindowLong32(hwnd, (int)NativeMethods.WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
+            SetWindowLong32(hwnd, (int)WindowLongIndexFlags.GWL_STYLE, (int)style);
+            SetWindowLong32(hwnd, (int)WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
         }
 
         // Re-apply non-client metrics.
-        NativeMethods.SetWindowPos(
+        SetWindowPos(
             hwnd,
             IntPtr.Zero,
             0,
             0,
             0,
             0,
-            NativeMethods.SetWindowPosFlags.SWP_NOMOVE |
-            NativeMethods.SetWindowPosFlags.SWP_NOSIZE |
-            NativeMethods.SetWindowPosFlags.SWP_NOZORDER |
-            NativeMethods.SetWindowPosFlags.SWP_NOACTIVATE |
-            NativeMethods.SetWindowPosFlags.SWP_FRAMECHANGED);
+            SetWindowPosFlags.SWP_NOMOVE |
+            SetWindowPosFlags.SWP_NOSIZE |
+            SetWindowPosFlags.SWP_NOZORDER |
+            SetWindowPosFlags.SWP_NOACTIVATE |
+            SetWindowPosFlags.SWP_FRAMECHANGED);
     }
 
-    private Bitmap? RenderSoftwareFrameToGdiBitmap(SKImageInfo info)
-    {
-        CreateOrUpdateCache(info);
-        if (DebugSettings.EnableRenderLogging)
-            DebugSettings.Log(
-                $"UIWindow.RenderSoftwareFrameToGdiBitmap: enter {info.Width}x{info.Height} cacheSurface={(_cacheSurface != null ? "present" : "null")} cacheBitmap={(_cacheBitmap != null ? "present" : "null")}");
-
-        if (_cacheSurface == null || _cacheBitmap == null)
-            return null;
-
-        lock (_softwareCacheLock)
-        {
-            var canvas = _cacheSurface.Canvas;
-            RenderScene(canvas, info);
-            canvas.Flush();
-            _cacheSurface.Flush();
-
-            // Create a temporary GDI bitmap copy from SKBitmap pixels and return a cloned copy
-            // so that the resulting System.Drawing.Bitmap owns its pixel data (no pointer into SKBitmap).
-            try
-            {
-                var pixels = _cacheBitmap.GetPixels();
-                using var wrapper = new Bitmap(info.Width, info.Height, _cacheBitmap.RowBytes,
-                    PixelFormat.Format32bppPArgb, pixels);
-                var copy = new Bitmap(wrapper);
-                return copy;
-            }
-            catch (Exception ex)
-            {
-                // If something went wrong copying the SKBitmap pixel block (rare, may be due to native race),
-                // return null so caller can fall back to uncached rendering instead of crashing the process.
-                if (DebugSettings.EnableRenderLogging)
-                    DebugSettings.Log(
-                        $"UIWindow: RenderSoftwareFrameToGdiBitmap failed to copy pixels ({info.Width}x{info.Height}): {ex}");
-                return null;
-            }
-        }
-    }
+    // REMOVED: RenderSoftwareFrameToGdiBitmap - using UIWindowBase native rendering with Memory DC
 
     private void RenderScene(SKCanvas canvas, SKImageInfo info)
     {
@@ -2211,7 +2108,6 @@ public partial class UIWindow : UIWindowBase
         var foreColor = ColorScheme.ForeColor;
         var hoverColor = ColorScheme.BorderColor;
 
-        // Arka plan� temizle
         canvas.Clear(ColorScheme.BackColor);
 
         if (FullDrawHatch)
@@ -2507,7 +2403,7 @@ public partial class UIWindow : UIWindowBase
             var bounds = new SkiaSharp.SKRect();
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
-                ? _formMenuRect.X + _formMenuRect.Width + 8 * DPI
+                ? _formMenuRect.Left + _formMenuRect.Width + 8 * DPI
                 : faviconSize + 14 * DPI;
             var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
@@ -2644,18 +2540,21 @@ public partial class UIWindow : UIWindowBase
 
                     var startingIconBounds = new SkiaSharp.SKRect();
                     font.MeasureText("", out startingIconBounds);
-                    var iconX = rect.X + TAB_HEADER_PADDING * DPI;
+                    var iconX = rect.Left + TAB_HEADER_PADDING * DPI;
 
                     var inlinePaddingX = startingIconBounds.Width + TAB_HEADER_PADDING * DPI;
-                    rect.X += inlinePaddingX;
-                    rect.Width -= inlinePaddingX + closeIconSize;
+                    var adjustedRect = SKRect.Create(
+                        rect.Left + inlinePaddingX,
+                        rect.Top,
+                        rect.Width - inlinePaddingX - closeIconSize,
+                        rect.Height);
 
                     var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
                     TextRenderer.DrawText(canvas, "", iconX, textY, SKTextAlign.Center, font, textPaint);
 
                     var bounds = new SkiaSharp.SKRect();
                     font.MeasureText(page.Text, out bounds);
-                    var textX = rect.X + rect.Width / 2;
+                    var textX = adjustedRect.Left + adjustedRect.Width / 2;
                     TextRenderer.DrawText(canvas, page.Text, textX, textY, SKTextAlign.Center, font, textPaint);
                 }
                 else

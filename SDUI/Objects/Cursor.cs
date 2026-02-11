@@ -1,5 +1,6 @@
 using SkiaSharp;
 using System;
+using static SDUI.Native.Windows.Methods;
 
 namespace SDUI;
 
@@ -31,6 +32,41 @@ public sealed class Cursor : IDisposable
     public void Dispose()
     {
         // We do not dispose system cursors. If in future we add ownership semantics for custom cursors, do it here.
+    }
+
+    /// <summary>
+    /// Gets or sets the cursor clipping rectangle in screen coordinates.
+    /// Setting to null or SKRectI.Empty removes clipping restrictions.
+    /// </summary>
+    public static SKRectI? Clip
+    {
+        get
+        {
+            if (GetClipCursor(out var rect))
+            {
+                return SKRectI.Create(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
+            }
+            return null;
+        }
+        set
+        {
+            if (value == null || value.Value.IsEmpty)
+            {
+                ClipCursor(IntPtr.Zero);
+            }
+            else
+            {
+                var clipRect = value.Value;
+                var rect = new Rect
+                {
+                    Left = clipRect.Left,
+                    Top = clipRect.Top,
+                    Right = clipRect.Right,
+                    Bottom = clipRect.Bottom
+                };
+                ClipCursor(ref rect);
+            }
+        }
     }
 
     public override string ToString() => Name;

@@ -450,6 +450,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         {
             if (_maximumSize == value) return;
             _maximumSize = value;
+
             if ((_maximumSize.Width > 0 && Size.Width > _maximumSize.Width) ||
                 (_maximumSize.Height > 0 && Size.Height > _maximumSize.Height))
                 Size = new SKSize(
@@ -484,7 +485,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
     }
 
-    public SKRect Bounds
+    public virtual SKRect Bounds
     {
         get => SKRect.Create(Location, Size);
         set
@@ -504,7 +505,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// <summary>
     /// Gets the rectangle that defines the client area of the control in device-independent pixels.
     /// </summary>
-    public SKRect ClientRectangle => SKRect.Create(0, 0, Size.Width, Size.Height);
+    public virtual SKRect ClientRectangle => SKRect.Create(0, 0, Size.Width, Size.Height);
 
     /// <summary>
     ///     Gets the rectangle that represents the display area of the control (client area minus padding).

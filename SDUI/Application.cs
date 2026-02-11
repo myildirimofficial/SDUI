@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI;
@@ -12,6 +13,7 @@ public class Application
 {
     private static readonly List<UIWindowBase> _openForms = new();
     private static UIWindowBase _activeForm;
+    private static bool _dpiAwarenessSet;
 
     public static IReadOnlyList<UIWindowBase> OpenForms => _openForms.AsReadOnly();
 
@@ -23,6 +25,35 @@ public class Application
             if (_activeForm == value) return;
             _activeForm = value;
         }
+    }
+
+    /// <summary>
+    /// Sets the process DPI awareness to Per-Monitor V2 (Win10 1703+),
+    /// falling back to Per-Monitor (Win8.1+).
+    /// Call before creating any windows.
+    /// </summary>
+    public static void EnableDpiAwareness()
+    {
+        if (_dpiAwarenessSet)
+            return;
+
+        _dpiAwarenessSet = true;
+
+        if (Environment.OSVersion.Version >= new Version(10, 0, 15063))
+        {
+            try
+            {
+                SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                return;
+            }
+            catch (EntryPointNotFoundException) { }
+        }
+
+        try
+        {
+            SetProcessDpiAwareness(2); // PROCESS_PER_MONITOR_DPI_AWARE
+        }
+        catch (EntryPointNotFoundException) { }
     }
 
     internal static void RegisterForm(UIWindowBase form)
@@ -57,6 +88,8 @@ public class Application
     {
 		try
 		{
+            EnableDpiAwareness();
+
             if (!window.IsHandleCreated)
                 window.CreateHandle();
 
