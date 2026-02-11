@@ -1,49 +1,32 @@
-﻿using System;
+﻿using SDUI.Helpers;
+using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using SDUI.Controls.Subclasses;
-using SDUI.Helpers;
 using static SDUI.NativeMethods;
 
 namespace SDUI.Controls;
 
 public class ListView : System.Windows.Forms.ListView
 {
-    /// <summary>
-    /// The column sorter
-    /// </summary>
     private ListViewColumnSorter LvwColumnSorter { get; set; }
+    private bool _isApplyingTheme = true;
 
-    /// <summary>
-    /// The header sub class
-    /// </summary>
-    private ListViewHeaderSubclassedWindow _headerSubClass;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AeroListView"/> class.
-    /// </summary>
     public ListView()
         : base()
     {
         SetStyle(
-            ControlStyles.Opaque |
-            ControlStyles.UserPaint
-                | ControlStyles.AllPaintingInWmPaint
+                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.EnableNotifyMessage,
             true
         );
-
         LvwColumnSorter = new ListViewColumnSorter();
         ListViewItemSorter = LvwColumnSorter;
         View = View.Details;
         FullRowSelect = true;
         UpdateStyles();
-
-        _headerSubClass = new();
-        WindowsHelper.UseImmersiveDarkMode(Handle, ColorScheme.BackColor.IsDark());
     }
 
     protected override void OnSelectedIndexChanged(EventArgs e)
@@ -64,16 +47,11 @@ public class ListView : System.Windows.Forms.ListView
         Invalidate();
     }
 
-    /// <summary>
-    /// Raises the <see cref="E:HandleCreated" /> event.
-    /// </summary>
-    /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-
-        _headerSubClass.AssignHandle(this.Handle);
-        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_DOUBLEBUFFER, LVS_EX_DOUBLEBUFFER);
+        EnableDoubleBuffering();
+        ApplyTheme();
     }
 
     protected override void OnNotifyMessage(Message m)
@@ -84,73 +62,46 @@ public class ListView : System.Windows.Forms.ListView
         }
     }
 
-    /// <summary>
-    /// Raises the <see cref="E:ColumnClick" /> event.
-    /// </summary>
-    /// <param name="e">The <see cref="ColumnClickEventArgs"/> instance containing the event data.</param>
     protected override void OnColumnClick(ColumnClickEventArgs e)
     {
         base.OnColumnClick(e);
-
         for (int i = 0; i < Columns.Count; i++)
             SetSortArrow(i, SortOrder.None);
 
-        // Determine if clicked column is already the column that is being sorted.
         if (e.Column == LvwColumnSorter.SortColumn)
         {
-            // Reverse the current sort direction for this column.
             LvwColumnSorter.Order =
                 (LvwColumnSorter.Order == SortOrder.Ascending) ? SortOrder.Descending : SortOrder.Ascending;
         }
         else
         {
-            // Set the column number that is to be sorted; default to ascending.
             LvwColumnSorter.SortColumn = e.Column;
             LvwColumnSorter.Order = SortOrder.Ascending;
         }
 
         SetSortArrow(e.Column, LvwColumnSorter.Order);
 
-        // Perform the sort with these new sort options.
         if (!VirtualMode)
             Sort();
     }
 
-    /// <summary>
-    /// Select all rows on the given listview
-    /// </summary>
-    /// <param name="list">The listview whose items are to be selected</param>
     public void SelectAllItems()
     {
-        var s = System.Diagnostics.Stopwatch.StartNew();
         Focus();
         SetItemState(-1, 2, 2);
-        //MessageBox.Show($"Selected in: {s.ElapsedMilliseconds} ms");
     }
 
-    /// <summary>
-    /// Deselect all rows on the given listview
-    /// </summary>
-    /// <param name="list">The listview whose items are to be deselected</param>
     public void DeselectAllItems()
     {
         SetItemState(-1, 2, 0);
     }
 
-    /// <summary>
-    /// Set the item state on the given item
-    /// </summary>
-    /// <param name="list">The listview whose item's state is to be changed</param>
-    /// <param name="itemIndex">The index of the item to be changed</param>
-    /// <param name="mask">Which bits of the value are to be set?</param>
-    /// <param name="value">The value to be set</param>
     public void SetItemState(int itemIndex, int mask, int value)
     {
         LVITEM lvItem = new LVITEM();
         lvItem.stateMask = mask;
         lvItem.state = value;
         SendMessageLVItem(Handle, LVM_SETITEMSTATE, itemIndex, ref lvItem);
-
         EnsureVisible(itemIndex);
     }
 
@@ -159,7 +110,6 @@ public class ListView : System.Windows.Forms.ListView
         var lvg = new LVGROUP();
         lvg.cbSize = (uint)Marshal.SizeOf(lvg);
         lvg.mask = LVGF_STATE | LVGF_GROUPID | LVGF_HEADER;
-        // for test
         SendMessage(hWnd, LVM_GETGROUPINFO, nGroupID, ref lvg);
         lvg.state = nSate;
         lvg.mask = LVGF_STATE;
@@ -167,140 +117,11 @@ public class ListView : System.Windows.Forms.ListView
         return -1;
     }
 
-    protected override void WndProc(ref Message m)
-    {
-        if (m.Msg == WM_REFLECT + WM_NOFITY)
-        {
-            var pnmhdr = (NMHDR)m.GetLParam(typeof(NMHDR));
-            if (pnmhdr.code == NM_CUSTOMDRAW)
-            {
-                var pnmlv = (NMLVCUSTOMDRAW)m.GetLParam(typeof(NMLVCUSTOMDRAW));
-                switch ((CDDS)pnmlv.nmcd.dwDrawStage)
-                {
-                    case CDDS.CDDS_PREPAINT:
-                        if (pnmlv.dwItemType == LVCDI_GROUP)
-                        {
-                            var rectHeader = new Rect { Top = LVGGR_HEADER };
-                            var nItem = (int)pnmlv.nmcd.dwItemSpec;
-
-                            SendMessage(m.HWnd, LVM_GETGROUPRECT, nItem, ref rectHeader);
-
-                            using (var graphics = Graphics.FromHdc(pnmlv.nmcd.hdc))
-                            {
-                                var rect = new Rectangle(
-                                    rectHeader.Left,
-                                    rectHeader.Top,
-                                    rectHeader.Right - rectHeader.Left,
-                                    rectHeader.Bottom - rectHeader.Top
-                                );
-
-                                //var backgroundBrush = new SolidBrush(_groupHeadingBackColor);
-                                //graphics.FillRectangle(backgroundBrush, rect);
-
-                                var lvg = new LVGROUP();
-                                lvg.cbSize = (uint)Marshal.SizeOf(lvg);
-                                lvg.mask = LVGF_STATE | LVGF_GROUPID | LVGF_HEADER;
-
-                                SendMessage(m.HWnd, LVM_GETGROUPINFO, nItem, ref lvg);
-                                var sText = Marshal.PtrToStringUni(lvg.pszHeader);
-                                var textSize = graphics.MeasureString(sText, Font);
-
-                                var rectHeightMiddle = (int)Math.Round((rect.Height - textSize.Height) / 2f);
-
-                                rect.Offset(10, rectHeightMiddle);
-
-                                var color = Color
-                                    .FromArgb(80, 1, 52, 153)
-                                    .Brightness(ColorScheme.BackColor.Determine().GetBrightness());
-                                using (var drawBrush = new SolidBrush(color))
-                                {
-                                    TextRenderer.DrawText(graphics, sText, Font, rect, color, TextFormatFlags.Left);
-
-                                    rect.Offset(0, -rectHeightMiddle);
-
-                                    using (var lineBrush = new SolidBrush(color))
-                                    {
-                                        graphics.DrawLine(
-                                            new Pen(lineBrush),
-                                            rect.X + graphics.MeasureString(sText, Font).Width + 10,
-                                            rect.Y + (int)Math.Round(rect.Height / 2d),
-                                            rect.X + (int)Math.Round(rect.Width * 95 / 100d),
-                                            rect.Y + (int)Math.Round(rect.Height / 2d)
-                                        );
-                                    }
-                                }
-                            }
-
-                            m.Result = new IntPtr((int)CDRF.CDRF_SKIPDEFAULT);
-                            return;
-                        }
-                        else
-                        {
-                            m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYITEMDRAW);
-                        }
-
-                        break;
-
-                    /*case CDDS.CDDS_ITEMPREPAINT:
-                        m.Result = new IntPtr((int)(CDRF.CDRF_NOTIFYSUBITEMDRAW | CDRF.CDRF_NOTIFYPOSTPAINT));
-
-                        ListView lv = this;
-                        IntPtr hHeader = GetHeaderControl(lv);
-                        IntPtr hdc = GetDC(hHeader);
-
-                        using (var graphics = Graphics.FromHdc(hdc))
-                        {
-                            graphics.FillRectangle(new SolidBrush(ColorScheme.BackColor), graphics.ClipBounds);
-
-                            var width = 0;
-                            foreach (ColumnHeader column in Columns)
-                            {
-                                var size = TextRenderer.MeasureText(column.Text, Font);
-                                var bounds = new Rectangle(new Point(width, 0), new Size(column.Width + 5, 24));
-
-                                if(column.TextAlign == HorizontalAlignment.Left)
-                                    TextRenderer.DrawText(graphics, column.Text, Font, bounds, ColorScheme.ForeColor, TextFormatFlags.Left | TextFormatFlags.LeftAndRightPadding | TextFormatFlags.PathEllipsis | TextFormatFlags.VerticalCenter);
-                                else if (column.TextAlign == HorizontalAlignment.Right)
-                                    TextRenderer.DrawText(graphics, column.Text, Font, bounds, ColorScheme.ForeColor, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
-                                else
-                                    TextRenderer.DrawText(graphics, column.Text, Font, bounds, ColorScheme.ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-
-                                var x = bounds.X - 2;
-                                graphics.DrawLine(new Pen(ColorScheme.BorderColor), x, 0, x, Height);
-
-                                width += column.Width;
-                            }
-                        }
-
-                        //ReleaseDC(hHeader, hdc);
-
-                            break;*/
-                }
-            }
-        }
-        else if (m.Msg == WM_THEMECHANGED)
-        {
-            //AllowDarkModeForWindow(m.HWnd, ColorScheme.BackColor.IsDark());
-            try
-            {
-                BackColor = ColorScheme.BackColor;
-                ForeColor = ColorScheme.ForeColor;
-            }
-            catch (Exception) { }
-        }
-        else if (m.Msg != WM_KILLFOCUS && (m.Msg == WM_HSCROLL || m.Msg == WM_VSCROLL))
-            Invalidate();
-
-        base.WndProc(ref m);
-    }
-
     public void SetSortArrow(int column, SortOrder sortOrder)
     {
         var pHeader = SendMessage(this.Handle, LVM_GETHEADER, 0, 0);
-
         var pColumn = new IntPtr(column);
         var headerItem = new HDITEM { mask = HDITEM.Mask.Format };
-
         SendMessage(pHeader, HDM_GETITEM, pColumn, ref headerItem);
 
         switch (sortOrder)
@@ -319,5 +140,117 @@ public class ListView : System.Windows.Forms.ListView
         }
 
         SendMessage(pHeader, HDM_SETITEM, pColumn, ref headerItem);
+    }
+
+    private void EnableDoubleBuffering()
+    {
+        IntPtr lParam = new IntPtr(LVS_EX_DOUBLEBUFFER | 0x00000020);
+        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, lParam);
+    }
+
+    internal void ApplyTheme()
+    {
+        if (!IsHandleCreated || DesignMode)
+            return;
+
+        var _isDarkMode = ColorScheme.BackColor.IsDark();
+
+        try
+        {
+            int useImmersiveDarkMode = _isDarkMode ? 1 : 0;
+
+            DwmSetWindowAttribute(Handle, DWMWINDOWATTRIBUTE.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                ref useImmersiveDarkMode, sizeof(int));
+            DwmSetWindowAttribute(Handle, DWMWINDOWATTRIBUTE.DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
+                ref useImmersiveDarkMode, sizeof(int));
+
+            if (_isDarkMode)
+            {
+                SetWindowTheme(Handle, "DarkMode_Explorer", null);
+                BackColor = Color.FromArgb(32, 32, 32);
+                ForeColor = Color.FromArgb(241, 241, 241);
+
+                IntPtr header = SendMessage(Handle, LVM_GETHEADER, IntPtr.Zero, IntPtr.Zero);
+                if (header != IntPtr.Zero)
+                {
+                    SetWindowTheme(header, "DarkMode_ItemsView", null);
+                }
+            }
+            else
+            {
+                SetWindowTheme(Handle, "Explorer", null);
+                BackColor = SystemColors.Window;
+                ForeColor = SystemColors.WindowText;
+
+                IntPtr header = SendMessage(Handle, LVM_GETHEADER, IntPtr.Zero, IntPtr.Zero);
+                if (header != IntPtr.Zero)
+                {
+                    SetWindowTheme(header, "ItemsView", null);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Theme application failed: {ex.Message}");
+
+            if (_isDarkMode)
+            {
+                BackColor = Color.FromArgb(32, 32, 32);
+                ForeColor = Color.FromArgb(241, 241, 241);
+            }
+            else
+            {
+                BackColor = SystemColors.Window;
+                ForeColor = SystemColors.WindowText;
+            }
+        }
+        finally
+        {
+            _isApplyingTheme = false;
+        }
+
+        Invalidate();
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        if (m.Msg == WM_NOTIFY)
+        {
+            var pnmhdr = (NMHDR)m.GetLParam(typeof(NMHDR));
+
+            if (pnmhdr.code == NM_CUSTOMDRAW)
+            {
+                var nmcd = (NMCUSTOMDRAW)m.GetLParam(typeof(NMCUSTOMDRAW));
+
+                switch (nmcd.dwDrawStage)
+                {
+                    case (int)CDDS.CDDS_PREPAINT:
+                        m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYITEMDRAW);
+                        break;
+                    case (int)CDDS.CDDS_ITEMPREPAINT:
+
+                        SetTextColor(nmcd.hdc, ColorTranslator.ToWin32(ColorScheme.ForeColor));
+
+                        m.Result = new IntPtr((int)CDRF.CDRF_DODEFAULT);
+
+                        break;
+                    default:
+                        m.Result = new IntPtr((int)CDRF.CDRF_NOTIFYPOSTPAINT);
+                        break;
+                }
+            }
+        }
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= 0x02000000;
+            return cp;
+        }
     }
 }

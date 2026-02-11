@@ -3,6 +3,7 @@ using SDUI.Helpers;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -1139,7 +1140,7 @@ public class UIWindow : UIWindowBase
         }
 
 
-        using var tempPen = new Pen(foreColor, 1.5f * DPI);
+        using var tempPen = new Pen(foreColor, 1.2f * DPI);
         tempPen.StartCap = LineCap.Round;
         tempPen.EndCap = LineCap.Round;
 
@@ -1232,24 +1233,24 @@ public class UIWindow : UIWindowBase
                 );
             }
 
-            var centerX = _extendBoxRect.Left - 2 + _extendBoxRect.Width  / 2;
+            var size = 5f * DPI;
+            var centerX = _extendBoxRect.Left - size / 2 + _extendBoxRect.Width / 2;
             var centerY = _extendBoxRect.Top + _extendBoxRect.Height / 2;
 
-            var size = 5f * DPI;
 
             graphics.DrawLine(
                 tempPen,
-                centerX + 10 - size,
+                centerX + (size * 2) - size,
                 centerY - size / 2,
-                centerX + 10,
+                centerX + (size * 2),
                 centerY + size / 2
             );
 
             graphics.DrawLine(
                 tempPen,
-                centerX + 10,
+                centerX + (size * 2),
                 centerY + size / 2,
-                centerX + 10 + size,
+                centerX + (size * 2) + size,
                 centerY - size / 2
             );
 

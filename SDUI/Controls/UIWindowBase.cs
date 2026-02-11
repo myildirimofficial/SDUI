@@ -289,13 +289,14 @@ public class UIWindowBase : Form
         control.Enabled = false;
 
         var isDark = ColorScheme.BackColor.IsDark();
-        if (control is ListView)
+        if (control is ListView listView)
         {
+
             if (WindowsHelper.IsModern)
             {
-                SendMessage(control.Handle, 0x0127, (1 << 16) | (1 & 0xffff), 0);
-
-                AllowDarkModeForWindow(control.Handle, true);
+                listView.ApplyTheme();
+                control.Enabled = true;
+                return;
             }
         }
 
