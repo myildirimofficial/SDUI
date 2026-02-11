@@ -1118,22 +1118,23 @@ public class UIWindow : UIWindowBase
                     _controlBoxRect
                 );
 
-            using var closePen = new Pen(_inCloseBox ? Color.White : foreColor, 1.5f * DPI);
+            using var closePen = new Pen(_inCloseBox ? Color.White : foreColor, 1.2f * DPI);
 
+            const int size = 5;
             graphics.DrawLine(
                 closePen,
-                _controlBoxRect.Left + _controlBoxRect.Width / 2 - (6 * DPI),
-                _controlBoxRect.Top + _controlBoxRect.Height / 2 - (6 * DPI),
-                _controlBoxRect.Left + _controlBoxRect.Width / 2 + (6 * DPI),
-                _controlBoxRect.Top + _controlBoxRect.Height / 2 + (6 * DPI)
+                _controlBoxRect.Left + _controlBoxRect.Width / 2 - (size * DPI),
+                _controlBoxRect.Top + _controlBoxRect.Height / 2 - (size * DPI),
+                _controlBoxRect.Left + _controlBoxRect.Width / 2 + (size * DPI),
+                _controlBoxRect.Top + _controlBoxRect.Height / 2 + (size * DPI)
             );
 
             graphics.DrawLine(
                 closePen,
-                _controlBoxRect.Left + _controlBoxRect.Width / 2 - (6 * DPI),
-                _controlBoxRect.Top + _controlBoxRect.Height / 2 + (6 * DPI),
-                _controlBoxRect.Left + _controlBoxRect.Width / 2 + (6 * DPI),
-                _controlBoxRect.Top + _controlBoxRect.Height / 2 - (6 * DPI)
+                _controlBoxRect.Left + _controlBoxRect.Width / 2 - (size * DPI),
+                _controlBoxRect.Top + _controlBoxRect.Height / 2 + (size * DPI),
+                _controlBoxRect.Left + _controlBoxRect.Width / 2 + (size * DPI),
+                _controlBoxRect.Top + _controlBoxRect.Height / 2 - (size * DPI)
             );
         }
 
@@ -1142,6 +1143,7 @@ public class UIWindow : UIWindowBase
         tempPen.StartCap = LineCap.Round;
         tempPen.EndCap = LineCap.Round;
 
+        graphics.SmoothingMode = SmoothingMode.None;
 
         // Maximize Box
         if (MaximizeBox)
@@ -1155,47 +1157,31 @@ public class UIWindow : UIWindowBase
                     _maximizeBoxRect
                 );
 
-            graphics.DrawRectangle(
-                tempPen,
-                _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 - (12 * DPI / 2),
-                _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (11 * DPI / 2),
-                12 * DPI,
-                11 * DPI
-            );
+            float size = 10.0f * DPI;
+            float offset = 2.4f * DPI;
 
-            if (WindowState == FormWindowState.Maximized)
+            float x = _maximizeBoxRect.Left + (_maximizeBoxRect.Width - size) / 2.0f;
+            float y = _maximizeBoxRect.Top + (_maximizeBoxRect.Height - size) / 2.0f;
+
+            if (WindowState != FormWindowState.Maximized)
             {
-                graphics.DrawLine(
-                    tempPen,
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 - (3 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (5 * DPI),
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 - (3 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (7 * DPI)
-                );
+                graphics.DrawRectangle(tempPen, x, y, size, size);
+            }
+            else
+            {
+                var frontRect = new RectangleF(x - offset / 2, y + offset / 2, size - offset, size - offset);
 
-                graphics.DrawLine(
-                    tempPen,
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 - (3 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (7 * DPI),
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 + (9 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (7 * DPI)
-                );
+                float rX = frontRect.X + offset;
+                float rY = frontRect.Y - offset;
+                float rW = frontRect.Width;
+                float rH = frontRect.Height;
 
-                graphics.DrawLine(
-                    tempPen,
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 + (9 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 - (6 * DPI),
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 + (9 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 + (4 * DPI)
-                );
+                graphics.DrawLine(tempPen, rX, rY, rX + rW, rY);
+                graphics.DrawLine(tempPen, rX + rW, rY, rX + rW, rY + rH);
+                graphics.DrawLine(tempPen, rX, rY, rX, frontRect.Y);
+                graphics.DrawLine(tempPen, frontRect.X + frontRect.Width, rY + rH, rX + rW, rY + rH);
 
-                graphics.DrawLine(
-                    tempPen,
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 + (8 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 + (5 * DPI),
-                    _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2 + (5 * DPI),
-                    _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2 + (5 * DPI)
-                );
+                graphics.DrawRectangle(tempPen, frontRect.X, frontRect.Y, frontRect.Width, frontRect.Height);
             }
         }
 
@@ -1220,6 +1206,8 @@ public class UIWindow : UIWindowBase
             );
         }
 
+        graphics.SetHighQuality();
+
         // Extend Box
         if (ExtendBox)
         {
@@ -1236,7 +1224,7 @@ public class UIWindow : UIWindowBase
                 graphics.FillPath(
                     brush,
                     new RectangleF(
-                        _extendBoxRect.X + 20,
+                        _extendBoxRect.X + 18 * DPI,
                         (_titleHeightDPI / 2) - (hoverSize / 2),
                         hoverSize,
                         hoverSize
