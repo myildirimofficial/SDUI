@@ -25,9 +25,9 @@ public readonly struct BoxShadow
 
     /// <summary>
     /// Per-edge spread distance. Expands the shadow shape outward (or inward for negative values).
-    /// Use uniform spread: <c>new Thickness(8)</c> or per-edge: <c>new Thickness(left, top, right, bottom)</c>.
+    /// Use uniform spread: <c>new Radius(8)</c> or per-edge: <c>new Radius(topLeft, topRight, bottomLeft, bottomRight)</c>.
     /// </summary>
-    public Thickness Spread { get; }
+    public Radius Spread { get; }
 
     /// <summary>
     /// Shadow color with alpha for opacity control.
@@ -44,7 +44,7 @@ public readonly struct BoxShadow
     /// </summary>
     public bool IsEmpty => Color.Alpha == 0 || (Blur == 0 && Spread.IsEmpty && OffsetX == 0 && OffsetY == 0);
 
-    public BoxShadow(float offsetX, float offsetY, float blur, Thickness spread, SKColor color, bool inset = false)
+    public BoxShadow(float offsetX, float offsetY, float blur, Radius spread, SKColor color, bool inset = false)
     {
         OffsetX = offsetX;
         OffsetY = offsetY;
@@ -55,13 +55,13 @@ public readonly struct BoxShadow
     }
 
     public BoxShadow(float offsetX, float offsetY, float blur, int spread, SKColor color, bool inset = false)
-        : this(offsetX, offsetY, blur, new Thickness(spread), color, inset) { }
+        : this(offsetX, offsetY, blur, new Radius(spread), color, inset) { }
 
     public BoxShadow(float blur, SKColor color)
-        : this(0, 0, blur, new Thickness(0), color) { }
+        : this(0, 0, blur, new Radius(0), color) { }
 
     public BoxShadow(float blur, int spread, SKColor color)
-        : this(0, 0, blur, new Thickness(spread), color) { }
+        : this(0, 0, blur, new Radius(spread), color) { }
 
     public static readonly BoxShadow None = default;
 }

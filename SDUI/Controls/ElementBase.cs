@@ -227,8 +227,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// <summary>
     /// Represents the thickness of the border. This field is initialized to zero thickness by default.
     /// </summary>
-    public Thickness _radius = new(0);
-    public Thickness Radius
+    public Radius _radius = new(0);
+    public Radius Radius
     {
         get => _radius;
         set
@@ -1383,32 +1383,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 child.InvalidateRenderTree();
     }
 
-
-
-    private SkiaSharp.SKColor ResolveBackgroundColor()
-    {
-        var color = BackColor;
-        return color == SKColors.Transparent
-            ? SKColors.Transparent
-            : color;
-    }
-
     protected virtual bool UseAutoScrollTranslation => true;
     protected virtual float ChildRenderScale => 1f;
     protected virtual bool UseChildScaleForInput => true;
-
-    private static SKRoundRect CreateRoundRect(SkiaSharp.SKRect rect, Thickness radius)
-    {
-        var rr = new SKRoundRect();
-        rr.SetRectRadii(rect,
-        [
-            new SKPoint(radius.Left, radius.Left),
-            new SKPoint(radius.Right, radius.Right),
-            new SKPoint(radius.Right, radius.Right),
-            new SKPoint(radius.Left, radius.Left)
-        ]);
-        return rr;
-    }
 
     private SKPoint GetScrollOffset()
     {
@@ -1516,27 +1493,28 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 }
             }
 
-            // ── Clip to element shape ──
+            // ── Prepare round rect once if needed ──
+            SKRoundRect? roundRect = null;
+
             if (hasRadius)
             {
-                var clipRRect = CreateRoundRect(elementRect, _radius);
-                targetCanvas.ClipRoundRect(clipRRect, antialias: true);
+                roundRect = _radius.ToRoundRect(elementRect);
+                targetCanvas.ClipRoundRect(roundRect, antialias: true);
             }
 
             // ── Background ──
-            var bg = ResolveBackgroundColor();
-            if (bg != SKColors.Transparent)
+            if (BackColor != SKColors.Transparent)
             {
-                using var paint = new SKPaint { Color = bg, IsAntialias = true };
-                if (hasRadius)
+                using var paint = new SKPaint
                 {
-                    var bgRRect = CreateRoundRect(elementRect, _radius);
-                    targetCanvas.DrawRoundRect(bgRRect, paint);
-                }
+                    Color = BackColor,
+                    IsAntialias = true
+                };
+
+                if (roundRect != null)
+                    targetCanvas.DrawRoundRect(roundRect, paint);
                 else
-                {
                     targetCanvas.DrawRect(elementRect, paint);
-                }
             }
 
             OnPaint(targetCanvas);
@@ -1558,8 +1536,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                         Math.Max(_border.Right, _border.Bottom));
                     borderPaint.StrokeWidth = maxStroke;
                     var inset = maxStroke / 2f;
-                    var borderRect = new SkiaSharp.SKRect(inset, inset, Width - inset, Height - inset);
-                    var borderRRect = CreateRoundRect(borderRect, _radius);
+                    var borderRect = new SKRect(inset, inset, Width - inset, Height - inset);
+                    var borderRRect = _radius.ToRoundRect(borderRect);
                     targetCanvas.DrawRoundRect(borderRRect, borderPaint);
                 }
                 else
@@ -1622,10 +1600,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     {
         var spread = shadow.Spread;
         var shadowRect = new SkiaSharp.SKRect(
-            elementRect.Left - spread.Left + shadow.OffsetX,
-            elementRect.Top - spread.Top + shadow.OffsetY,
-            elementRect.Right + spread.Right + shadow.OffsetX,
-            elementRect.Bottom + spread.Bottom + shadow.OffsetY);
+            elementRect.Left - spread.TopLeft + shadow.OffsetX,
+            elementRect.Top - spread.TopRight + shadow.OffsetY,
+            elementRect.Right + spread.BottomLeft + shadow.OffsetX,
+            elementRect.Bottom + spread.BottomRight + shadow.OffsetY);
 
         if (shadowRect.Width <= 0 || shadowRect.Height <= 0)
             return;
@@ -1643,7 +1621,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (hasRadius)
         {
             var scaledRadius = ScaleRadiusForSpread(_radius, spread);
-            var rr = CreateRoundRect(shadowRect, scaledRadius);
+            var rr = scaledRadius.ToRoundRect(shadowRect);
             canvas.DrawRoundRect(rr, paint);
         }
         else
@@ -1665,7 +1643,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         // Clip to element shape
         if (hasRadius)
         {
-            var clipRRect = CreateRoundRect(elementRect, _radius);
+            var clipRRect = _radius.ToRoundRect(elementRect);
             canvas.ClipRoundRect(clipRRect, antialias: true);
         }
         else
@@ -1676,10 +1654,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var spread = shadow.Spread;
         // Inset: shrink the "hole" by spread, then the area between the hole and element edge is the shadow
         var holeRect = new SkiaSharp.SKRect(
-            elementRect.Left + spread.Left + shadow.OffsetX,
-            elementRect.Top + spread.Top + shadow.OffsetY,
-            elementRect.Right - spread.Right + shadow.OffsetX,
-            elementRect.Bottom - spread.Bottom + shadow.OffsetY);
+            elementRect.Left + spread.TopLeft + shadow.OffsetX,
+            elementRect.Top + spread.TopRight + shadow.OffsetY,
+            elementRect.Right - spread.BottomLeft + shadow.OffsetX,
+            elementRect.Bottom - spread.BottomRight + shadow.OffsetY);
 
         using var paint = new SKPaint
         {
@@ -1705,7 +1683,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (hasRadius)
             {
                 var shrunkRadius = ShrinkRadiusForSpread(_radius, spread);
-                var holeRRect = CreateRoundRect(holeRect, shrunkRadius);
+                var holeRRect = shrunkRadius.ToRoundRect(holeRect);
                 using var holePath = new SKPath();
                 holePath.AddRoundRect(holeRRect);
                 outerPath.AddPath(holePath);
@@ -1726,26 +1704,26 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// Scales corner radii outward when spread expands the shadow rect.
     /// CSS spec: outer shadow radius = max(0, borderRadius + spread).
     /// </summary>
-    private static Thickness ScaleRadiusForSpread(Thickness radius, Thickness spread)
+    private static Radius ScaleRadiusForSpread(Radius radius, Radius spread)
     {
-        return new Thickness(
-            Math.Max(0, radius.Left + Math.Max(spread.Left, spread.Top)),
-            Math.Max(0, radius.Top + Math.Max(spread.Right, spread.Top)),
-            Math.Max(0, radius.Right + Math.Max(spread.Right, spread.Bottom)),
-            Math.Max(0, radius.Bottom + Math.Max(spread.Left, spread.Bottom)));
+        return new Radius(
+            Math.Max(0, radius.TopLeft + Math.Max(spread.TopLeft, spread.TopRight)),
+            Math.Max(0, radius.TopRight + Math.Max(spread.BottomLeft, spread.TopRight)),
+            Math.Max(0, radius.BottomLeft + Math.Max(spread.TopLeft, spread.BottomRight)),
+            Math.Max(0, radius.BottomRight + Math.Max(spread.BottomLeft, spread.BottomRight)));
     }
 
     /// <summary>
     /// Shrinks corner radii inward for inset shadow holes.
     /// CSS spec: inner radius = max(0, borderRadius - spread).
     /// </summary>
-    private static Thickness ShrinkRadiusForSpread(Thickness radius, Thickness spread)
+    private static Radius ShrinkRadiusForSpread(Radius radius, Radius spread)
     {
-        return new Thickness(
-            Math.Max(0, radius.Left - Math.Max(spread.Left, spread.Top)),
-            Math.Max(0, radius.Top - Math.Max(spread.Right, spread.Top)),
-            Math.Max(0, radius.Right - Math.Max(spread.Right, spread.Bottom)),
-            Math.Max(0, radius.Bottom - Math.Max(spread.Left, spread.Bottom)));
+        return new Radius(
+            Math.Max(0, radius.TopLeft - Math.Max(spread.TopLeft, spread.TopRight)),
+            Math.Max(0, radius.TopRight - Math.Max(spread.BottomLeft, spread.TopRight)),
+            Math.Max(0, radius.BottomLeft - Math.Max(spread.TopLeft, spread.BottomRight)),
+            Math.Max(0, radius.BottomRight - Math.Max(spread.BottomLeft, spread.BottomRight)));
     }
 
     public virtual void Focus()
