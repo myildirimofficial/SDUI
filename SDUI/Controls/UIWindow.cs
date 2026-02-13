@@ -205,12 +205,6 @@ public partial class UIWindow : UIWindowBase
 
     private bool _showPerfOverlay = true;
 
-    /// <summary>
-    ///     The size of the window before it is maximized
-    /// </summary>
-    private SKSize _sizeOfBeforeMaximized;
-    private SKPoint _locationOfBeforeMaximized;
-
     // Prevent Invalidate()->Update() storms in Software backend
     private bool _softwareUpdateQueued;
 
@@ -1782,37 +1776,18 @@ public partial class UIWindow : UIWindowBase
 
     private void ShowMaximize(bool IsOnMoving = false)
     {
-        var screen = Screen.FromPoint(MousePosition);
-        base.MaximumSize = screen.WorkingArea.Size;
-        if (screen.IsPrimary)
-            MaximizedBounds = screen.WorkingArea;
-        else
-            MaximizedBounds = SKRectI.Empty;
+        // Cancel any active drag operation
+        _formMoveMouseDown = false;
+        ReleaseCapture();
 
         if (WindowState == FormWindowState.Normal)
         {
-            _sizeOfBeforeMaximized = Size;
-            _locationOfBeforeMaximized = IsOnMoving ? _dragStartLocation : Location;
+            // Native maximize handles bounds via WM_GETMINMAXINFO
             WindowState = FormWindowState.Maximized;
         }
         else if (WindowState == FormWindowState.Maximized)
         {
-            if (_sizeOfBeforeMaximized.Width == 0 || _sizeOfBeforeMaximized.Height == 0)
-            {
-                var w = 800;
-                if (MinimumSize.Width > 0) w = (int)MinimumSize.Width;
-                var h = 600;
-                if (MinimumSize.Height > 0) h = (int)MinimumSize.Height;
-                _sizeOfBeforeMaximized = new SKSize(w, h);
-            }
-
-            Size = _sizeOfBeforeMaximized;
-            if (_locationOfBeforeMaximized.X == 0 && _locationOfBeforeMaximized.Y == 0)
-                _locationOfBeforeMaximized = new SKPoint(
-                    screen.Bounds.Left + screen.Bounds.Width / 2 - _sizeOfBeforeMaximized.Width / 2,
-                    screen.Bounds.Top + screen.Bounds.Height / 2 - _sizeOfBeforeMaximized.Height / 2);
-
-            Location = _locationOfBeforeMaximized;
+            // Native restore handles returning to previous size/position
             WindowState = FormWindowState.Normal;
         }
 
@@ -2674,13 +2649,13 @@ public partial class UIWindow : UIWindowBase
     {
         base.OnSizeChanged(e);
         CalcSystemBoxPos();
+        _needsFullRedraw = true;
         PerformLayout();
 
-        if (_renderBackend != RenderBackend.Software)
-        {
-            _renderer?.Resize((int)ClientSize.Width, (int)ClientSize.Height);
-            Invalidate();
-        }
+        if (_renderBackend != RenderBackend.Software && _renderer != null)
+            _renderer.Resize((int)ClientSize.Width, (int)ClientSize.Height);
+
+        Invalidate();
     }
 
     protected override void OnShown(EventArgs e)

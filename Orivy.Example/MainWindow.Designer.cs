@@ -84,7 +84,6 @@ internal partial class MainWindow
         this.Height = 450;
         this.DwmMargin = -1;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
-        this.FormBorderStyle = SDUI.FormBorderStyle.FixedSingle;
         this.Controls.Add(this.panel);
         this.Controls.Add(this.buttonOpenGL);
         this.Controls.Add(this.buttonSoftware);

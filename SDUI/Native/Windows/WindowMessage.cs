@@ -42,6 +42,7 @@ public enum WindowMessage : uint
     WM_ERASEBKGND = 0x0014,
     WM_NCHITTEST = 0x84,
     WM_NCCALCSIZE = 0x0083,
+    WM_GETMINMAXINFO = 0x0024,
     /// <summary>
     /// The WM_DISPLAYCHANGE message is sent to all windows when the display resolution has changed.
     /// </summary>

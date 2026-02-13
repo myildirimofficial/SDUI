@@ -94,119 +94,17 @@ public partial class UIWindowBase : ElementBase, IDisposable
         }
     }
 
-    private FormBorderStyle _formBorderStyle = FormBorderStyle.Sizable;
-    public FormBorderStyle FormBorderStyle
-    {
-        get => _formBorderStyle;
-        set
-        {
-            if (_formBorderStyle == value)
-                return;
-
-            _formBorderStyle = value;
-
-            // Apply border style to native window if handle is created
-            if (IsHandleCreated)
-            {
-                ApplyFormBorderStyle();
-            }
-        }
-    }
+    private FormBorderStyle _formBorderStyle = FormBorderStyle.None;
+    // FormBorderStyle public removed - always use borderless (WS_POPUP)
 
     /// <summary>
-    /// Applies the current FormBorderStyle to the native window.
-    /// </summary>
-    private void ApplyFormBorderStyle()
-    {
-        if (!IsHandleCreated)
-            return;
-
-        var (style, exStyle) = GetWindowStylesForBorderStyle(_formBorderStyle);
-
-        // Set window style
-        if (IntPtr.Size == 8)
-        {
-            SetWindowLongPtr64(Handle, (int)WindowLongIndexFlags.GWL_STYLE, (IntPtr)style);
-            SetWindowLongPtr64(Handle, (int)WindowLongIndexFlags.GWL_EXSTYLE, (IntPtr)exStyle);
-        }
-        else
-        {
-            SetWindowLong32(Handle, (int)WindowLongIndexFlags.GWL_STYLE, (int)style);
-            SetWindowLong32(Handle, (int)WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
-        }
-
-        // Update window to reflect style changes
-        SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0,
-            SetWindowPosFlags.SWP_FRAMECHANGED | SetWindowPosFlags.SWP_NOMOVE |
-            SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOZORDER |
-            SetWindowPosFlags.SWP_NOACTIVATE);
-    }
-
-    /// <summary>
-    /// Gets the native Windows styles for the specified FormBorderStyle.
+    /// Gets the native Windows styles. Uses WS_OVERLAPPEDWINDOW for proper Windows animations
+    /// (minimize/maximize/restore). The native caption bar is hidden via WM_NCCALCSIZE.
     /// </summary>
     private static (uint style, uint exStyle) GetWindowStylesForBorderStyle(FormBorderStyle borderStyle)
     {
-        uint style = (uint)WindowStyles.WS_VISIBLE;
+        uint style = (uint)(WindowStyles.WS_OVERLAPPEDWINDOW | WindowStyles.WS_VISIBLE);
         uint exStyle = 0;
-
-        switch (borderStyle)
-        {
-            case FormBorderStyle.None:
-                // Borderless popup window
-                style |= (uint)WindowStyles.WS_POPUP;
-                break;
-
-            case FormBorderStyle.FixedSingle:
-                // Fixed size window with caption and system menu
-                style |= (uint)(WindowStyles.WS_OVERLAPPED |
-                               WindowStyles.WS_CAPTION |
-                               WindowStyles.WS_SYSMENU |
-                               WindowStyles.WS_MINIMIZEBOX);
-                exStyle |= (uint)SetWindowLongFlags.WS_EX_WINDOWEDGE;
-                break;
-
-            case FormBorderStyle.Fixed3D:
-                // Fixed size with 3D border
-                style |= (uint)(WindowStyles.WS_OVERLAPPED |
-                               WindowStyles.WS_CAPTION |
-                               WindowStyles.WS_SYSMENU |
-                               WindowStyles.WS_MINIMIZEBOX |
-                               WindowStyles.WS_BORDER);
-                exStyle |= (uint)(SetWindowLongFlags.WS_EX_WINDOWEDGE |
-                                 SetWindowLongFlags.WS_EX_CLIENTEDGE);
-                break;
-
-            case FormBorderStyle.FixedDialog:
-                // Dialog style - fixed size with thick caption
-                style |= (uint)(WindowStyles.WS_POPUP |
-                               WindowStyles.WS_CAPTION |
-                               WindowStyles.WS_SYSMENU);
-                exStyle |= (uint)(SetWindowLongFlags.WS_EX_DLGMODALFRAME |
-                                 SetWindowLongFlags.WS_EX_WINDOWEDGE);
-                break;
-
-            case FormBorderStyle.Sizable:
-                // Standard resizable window
-                style |= (uint)WindowStyles.WS_OVERLAPPEDWINDOW;
-                break;
-
-            case FormBorderStyle.FixedToolWindow:
-                // Fixed size tool window (small caption)
-                style |= (uint)(WindowStyles.WS_POPUP |
-                               WindowStyles.WS_CAPTION |
-                               WindowStyles.WS_SYSMENU);
-                exStyle |= (uint)(SetWindowLongFlags.WS_EX_TOOLWINDOW |
-                                 SetWindowLongFlags.WS_EX_WINDOWEDGE);
-                break;
-
-            case FormBorderStyle.SizableToolWindow:
-                // Resizable tool window (small caption)
-                style |= (uint)WindowStyles.WS_OVERLAPPEDWINDOW;
-                exStyle |= (uint)SetWindowLongFlags.WS_EX_TOOLWINDOW;
-                break;
-        }
-
         return (style, exStyle);
     }
 
@@ -777,6 +675,46 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     // Dragging is handled by UIWindow via DragForm() in mouse event handlers
                     return (IntPtr)HTCLIENT;
                 }
+            case WindowMessage.WM_NCCALCSIZE:
+                {
+                    // When wParam is TRUE, returning 0 makes the client area fill the entire
+                    // window rect, effectively hiding the native caption bar and borders.
+                    // This preserves WS_OVERLAPPEDWINDOW animations (minimize/maximize/restore).
+                    if (wParam != IntPtr.Zero)
+                    {
+                        // When maximized, adjust for the window frame that extends off-screen
+                        if (_windowState == FormWindowState.Maximized)
+                        {
+                            var screen = Screen.FromHandle(hWnd);
+                            var work = screen.WorkingArea;
+                            var ncParams = Marshal.PtrToStructure<NCCALCSIZE_PARAMS>(lParam);
+                            ncParams.rgrc0.Left = work.Left;
+                            ncParams.rgrc0.Top = work.Top;
+                            ncParams.rgrc0.Right = work.Right;
+                            ncParams.rgrc0.Bottom = work.Bottom;
+                            Marshal.StructureToPtr(ncParams, lParam, true);
+                        }
+                        return IntPtr.Zero;
+                    }
+                    return DefWindowProc(hWnd, msg, wParam, lParam);
+                }
+            case WindowMessage.WM_GETMINMAXINFO:
+                {
+                    // Tell Windows the correct maximized bounds so the taskbar isn't covered
+                    var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+                    var screen = Screen.FromHandle(hWnd);
+                    var work = screen.WorkingArea;
+                    mmi.ptMaxPosition = new POINT { X = work.Left, Y = work.Top };
+                    mmi.ptMaxSize = new POINT { X = work.Width, Y = work.Height };
+                    if (MinimumSize.Width > 0 || MinimumSize.Height > 0)
+                        mmi.ptMinTrackSize = new POINT
+                        {
+                            X = (int)MinimumSize.Width,
+                            Y = (int)MinimumSize.Height
+                        };
+                    Marshal.StructureToPtr(mmi, lParam, true);
+                    return IntPtr.Zero;
+                }
             case WindowMessage.WM_MOUSEMOVE:
                 {
                     var point = GetClientMousePosition(lParam);
@@ -1037,10 +975,10 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 }
             case WindowMessage.WM_SIZE:
                 {
-                    // wParam contains the resize type
                     var sizeType = wParam.ToInt32();
-                    int width = (short)(lParam.ToInt64() & 0xFFFF);
-                    int height = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+                    // Use ushort to support window dimensions > 32767 (4K+ screens)
+                    int width = (int)(lParam.ToInt64() & 0xFFFF);
+                    int height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
                     // Update WindowState from native notification without triggering ShowWindow
                     switch (sizeType)
@@ -1056,7 +994,9 @@ public partial class UIWindowBase : ElementBase, IDisposable
                             break;
                     }
 
-                    // Prevent recursion when updating from native window
+                    if (width <= 0 || height <= 0)
+                        return IntPtr.Zero;
+
                     _updatingFromNative = true;
                     try
                     {
