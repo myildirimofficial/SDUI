@@ -32,7 +32,6 @@ public partial class UIWindow : UIWindowBase
     private const float HOVER_ANIMATION_OPACITY = 0.4f;
 
     // Hot-path caches (avoid per-frame LINQ allocations)
-    private readonly List<ElementBase> _frameElements = new();
     private readonly List<ElementBase> _hitTestElements = new();
     private readonly Dictionary<string, SKPaint> _paintCache = new();
     private readonly object _softwareCacheLock = new();
@@ -135,7 +134,7 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     Gradient header colors
     /// </summary>
-    private SKColor[] _gradient = new[] { SKColors.Transparent, SKColors.Transparent };
+    private SKColor[] _gradient = [SKColors.Transparent, SKColors.Transparent];
 
     private HatchStyle _hatch = HatchStyle.Percent80;
 
@@ -188,8 +187,6 @@ public partial class UIWindow : UIWindowBase
     ///     The position of the mouse when the left mouse button is pressed
     /// </summary>
     private SKPoint _mouseOffset;
-
-    private bool _needsFullRedraw = true;
 
     /// <summary>
     ///     The rectangle of extend box
@@ -785,7 +782,7 @@ public partial class UIWindow : UIWindowBase
             // Invalidate layout measurements on DPI change
             PerformLayout();
 
-            _needsFullRedraw = true;
+            NeedsFullChildRedraw = true;
             Invalidate();
         }
         finally
@@ -878,7 +875,7 @@ public partial class UIWindow : UIWindowBase
         if (_renderer == null)
         {
             DisposeSoftwareBackBuffer();
-            _needsFullRedraw = true;
+            NeedsFullChildRedraw = true;
         }
 
         // 3. Purge global Skia resource cache if requested
@@ -910,25 +907,6 @@ public partial class UIWindow : UIWindowBase
         {
             _softwareUpdateQueued = false;
         }
-    }
-
-    private void StableSortByZOrderAscending(List<ElementBase> list)
-    {
-        _zOrderSortBuffer.Clear();
-        for (var i = 0; i < list.Count; i++)
-        {
-            var element = list[i];
-            _zOrderSortBuffer.Add(new ZOrderSortItem(element, element.ZOrder, i));
-        }
-
-        _zOrderSortBuffer.Sort(static (a, b) =>
-        {
-            var cmp = a.ZOrder.CompareTo(b.ZOrder);
-            return cmp != 0 ? cmp : a.Sequence.CompareTo(b.Sequence);
-        });
-
-        for (var i = 0; i < list.Count; i++)
-            list[i] = _zOrderSortBuffer[i].Element;
     }
 
     private void StableSortByZOrderDescending(List<ElementBase> list)
@@ -1082,7 +1060,7 @@ public partial class UIWindow : UIWindowBase
             _cacheBitmap = new SKBitmap(info);
             var pixels = _cacheBitmap.GetPixels();
             _cacheSurface = SKSurface.Create(info, pixels, _cacheBitmap.RowBytes);
-            _needsFullRedraw = true;
+            NeedsFullChildRedraw = true;
         }
     }
 
@@ -1812,28 +1790,9 @@ public partial class UIWindow : UIWindowBase
 
     // REMOVED: WndProc - using UIWindowBase native WndProc instead
 
-    protected override void OnLayout(LayoutEventArgs levent)
-    {
-        base.OnLayout(levent);
-
-        var clientArea = ClientRectangle;
-        var clientPadding = Padding;
-
-        var adjustedArea = SKRect.Create(
-            clientArea.Left + clientPadding.Left,
-            clientArea.Top + clientPadding.Top,
-            clientArea.Width - clientPadding.Horizontal,
-            clientArea.Height - clientPadding.Vertical);
-
-        var remainingArea = adjustedArea;
-
-        // WinForms dock order: Reverse z-order (last added first) in a single pass
-        // This matches WinForms DefaultLayout behavior where docking is z-order dependent
-        // and processed in reverse (children.Count - 1 down to 0)
-        for (var i = Controls.Count - 1; i >= 0; i--)
-            if (Controls[i] is ElementBase control && control.Visible)
-                PerformDefaultLayout(control, adjustedArea, ref remainingArea);
-    }
+    // Layout is fully handled by ElementBase.OnLayout via DisplayRectangle.
+    // CalcSystemBoxPos sets Padding.Top = titleHeight, which DisplayRectangle uses
+    // to compute the correct child layout area. No override needed.
 
     protected override void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
@@ -1955,54 +1914,18 @@ public partial class UIWindow : UIWindowBase
             canvas.Save();
             canvas.ResetMatrix();
             canvas.ClipRect(SkiaSharp.SKRect.Create(info.Width, info.Height));
-            // Ensure we clear to an opaque color to avoid any potential transparency artifacts or ghosting
-            // from previous frames, especially in DirectX swapchains where buffer contents may be undefined.
             canvas.Clear(ColorScheme.BackColor);
+
+            // Draw title bar, control buttons, tabs (window chrome)
             PaintSurface(canvas, info);
             canvas.Restore();
-            _frameElements.Clear();
-            for (var i = 0; i < Controls.Count; i++)
-                if (Controls[i] is ElementBase element)
-                    _frameElements.Add(element);
 
-            StableSortByZOrderAscending(_frameElements);
-
-            if (_needsFullRedraw)
-            {
-                for (var i = 0; i < _frameElements.Count; i++)
-                    _frameElements[i].InvalidateRenderTree();
-                _needsFullRedraw = false;
-            }
-
-
-            // DEBUG: Count renders
-            var renderedCount = 0;
-            var needsRedrawBefore = 0;
-            var needsRedrawAfter = 0;
-
-            for (var i = 0; i < _frameElements.Count; i++)
-            {
-                var element = _frameElements[i];
-                if (!element.Visible || element.Width <= 0 || element.Height <= 0)
-                    continue;
-
-                renderedCount++;
-                if (element.NeedsRedraw) needsRedrawBefore++;
-
-                element.Render(canvas);
-
-                if (element.NeedsRedraw) needsRedrawAfter++;
-            }
+            // Delegate child rendering to ElementBase.RenderChildren
+            // which handles Z-order sorting, scroll offset, and render tree invalidation.
+            RenderChildren(canvas);
 
             if (_showPerfOverlay)
-            {
                 DrawPerfOverlay(canvas);
-                // Show render stats
-                var statsPaint = new SKPaint { Color = SKColors.Yellow, TextSize = 12, IsAntialias = true };
-                canvas.DrawText($"Rendered: {renderedCount} | Before: {needsRedrawBefore} | After: {needsRedrawAfter}",
-                    10, info.Height - 20, statsPaint);
-                statsPaint.Dispose();
-            }
         }
         finally
         {
@@ -2649,7 +2572,7 @@ public partial class UIWindow : UIWindowBase
     {
         base.OnSizeChanged(e);
         CalcSystemBoxPos();
-        _needsFullRedraw = true;
+        NeedsFullChildRedraw = true;
         PerformLayout();
 
         if (_renderBackend != RenderBackend.Software && _renderer != null)
@@ -2791,7 +2714,7 @@ public partial class UIWindow : UIWindowBase
 
         element.InvalidateRenderTree();
 
-        if (!_needsFullRedraw)
+        if (!NeedsFullChildRedraw)
             Invalidate();
     }
 

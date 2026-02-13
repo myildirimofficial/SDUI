@@ -550,8 +550,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             return new SKRect(
                 padding.Left,
                 padding.Top,
-                Math.Max(0, Size.Width - padding.Horizontal),
-                Math.Max(0, Size.Height - padding.Vertical)
+                Math.Max(padding.Left, Size.Width - padding.Right),
+                Math.Max(padding.Top, Size.Height - padding.Bottom)
             );
         }
     }
@@ -1164,6 +1164,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public bool NeedsRedraw { get; set; } = true;
 
+    /// <summary>
+    /// When true, all children will have their render tree invalidated on the next render pass.
+    /// Set this after size changes, DPI changes, or other events that require a full repaint.
+    /// </summary>
+    protected bool NeedsFullChildRedraw { get; set; }
+
     private readonly List<ValidationRule> _validationRules = new();
 
     [Browsable(false)] public IReadOnlyList<ValidationRule> ValidationRules => _validationRules.AsReadOnly();
@@ -1247,6 +1253,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     public event EventHandler CursorChanged;
 
     public event UILayoutEventHandler Layout;
+
     public event UIElementEventHandler ControlAdded;
     public event UIElementEventHandler ControlRemoved;
 
@@ -1418,13 +1425,33 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         return control is ScrollBar;
     }
 
-    private void RenderChildren(SKCanvas canvas)
+    // Cached buffer for child rendering — avoids per-frame allocations
+    private readonly List<ElementBase> _childRenderBuffer = new();
+
+    protected void RenderChildren(SKCanvas canvas)
     {
-        var children = Controls
-            .OfType<IElement>()
-            .OrderBy(el => el.ZOrder)
-            .ThenBy(el => el.TabIndex)
-            .ToList();
+        _childRenderBuffer.Clear();
+        for (var i = 0; i < Controls.Count; i++)
+            if (Controls[i] is ElementBase child && child.Visible && child.Width > 0 && child.Height > 0)
+                _childRenderBuffer.Add(child);
+
+        if (_childRenderBuffer.Count == 0)
+            return;
+
+        // Invalidate all children if a full redraw was requested
+        if (NeedsFullChildRedraw)
+        {
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
+                _childRenderBuffer[i].InvalidateRenderTree();
+            NeedsFullChildRedraw = false;
+        }
+
+        // Stable sort by ZOrder ascending, then by original index
+        _childRenderBuffer.Sort(static (a, b) =>
+        {
+            var cmp = a.ZOrder.CompareTo(b.ZOrder);
+            return cmp != 0 ? cmp : a.TabIndex.CompareTo(b.TabIndex);
+        });
 
         var scrollOffset = GetScrollOffset();
         var shouldTranslate = UseAutoScrollTranslation && AutoScroll && (scrollOffset.X != 0 || scrollOffset.Y != 0);
@@ -1439,25 +1466,26 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (shouldScale)
                 canvas.Scale(scale, scale);
 
-            foreach (var child in children)
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
             {
-                if (child is ElementBase element && IsScrollBar(element))
-                    continue;
-                child.Render(canvas);
+                var child = _childRenderBuffer[i];
+                if (!IsScrollBar(child))
+                    child.Render(canvas);
             }
 
             canvas.RestoreToCount(saved);
 
-            foreach (var child in children)
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
             {
-                if (child is ElementBase element && IsScrollBar(element))
+                var child = _childRenderBuffer[i];
+                if (IsScrollBar(child))
                     child.Render(canvas);
             }
         }
         else
         {
-            foreach (var child in children)
-                child.Render(canvas);
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
+                _childRenderBuffer[i].Render(canvas);
         }
     }
 

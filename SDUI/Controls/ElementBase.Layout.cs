@@ -8,22 +8,21 @@ public abstract partial class ElementBase
     protected void PerformDefaultLayout(ElementBase control, SKRect clientArea, ref SKRect remainingArea)
     {
         var dock = control.Dock;
-        
+
         // Handle Dock first (WinForms priority)
         if (dock != DockStyle.None)
         {
             var newBounds = SKRect.Empty;
-            
+
             switch (dock)
             {
                 case DockStyle.Top:
-                    newBounds = new SKRect(
-                        remainingArea.Location.X,
-                        remainingArea.Location.Y,
+                    newBounds = SKRect.Create(
+                        remainingArea.Left,
+                        remainingArea.Top,
                         remainingArea.Width,
                         control.Height);
 
-                    // With the following, which uses SKRect's properties correctly:
                     remainingArea = new SKRect(
                         remainingArea.Left,
                         remainingArea.Top + control.Height,
@@ -31,16 +30,14 @@ public abstract partial class ElementBase
                         remainingArea.Bottom
                     );
                     break;
-                    
+
                 case DockStyle.Bottom:
-                    newBounds = new SKRect(
-                        remainingArea.Location.X,
+                    newBounds = SKRect.Create(
+                        remainingArea.Left,
                         remainingArea.Bottom - control.Height,
                         remainingArea.Width,
                         control.Height);
 
-                    // Fix: Instead of assigning to remainingArea.Height (which is read-only), 
-                    // create a new SKRect with adjusted Bottom.
                     remainingArea = new SKRect(
                         remainingArea.Left,
                         remainingArea.Top,
@@ -48,18 +45,14 @@ public abstract partial class ElementBase
                         remainingArea.Bottom - control.Height
                     );
                     break;
-                    
+
                 case DockStyle.Left:
                     newBounds = SKRect.Create(
-                        remainingArea.Location,
-                        new SKSize(control.Width,
-                        remainingArea.Height));
+                        remainingArea.Left,
+                        remainingArea.Top,
+                        control.Width,
+                        remainingArea.Height);
 
-                    // Replace these two lines:
-                    // remainingArea.X += control.Width;
-                    // remainingArea.Width -= control.Width;
-
-                    // With the following, which creates a new SKRect with adjusted Left and keeps Right unchanged:
                     remainingArea = new SKRect(
                         remainingArea.Left + control.Width,
                         remainingArea.Top,
@@ -67,18 +60,14 @@ public abstract partial class ElementBase
                         remainingArea.Bottom
                     );
                     break;
-                    
+
                 case DockStyle.Right:
                     newBounds = SKRect.Create(
                         remainingArea.Right - control.Width,
-                        remainingArea.Location.Y,
+                        remainingArea.Top,
                         control.Width,
                         remainingArea.Height);
 
-                    // Replace this line:
-                    // remainingArea.Width -= control.Width;
-
-                    // With the following, which creates a new SKRect with adjusted Right and keeps Left unchanged:
                     remainingArea = new SKRect(
                         remainingArea.Left,
                         remainingArea.Top,
@@ -86,12 +75,12 @@ public abstract partial class ElementBase
                         remainingArea.Bottom
                     );
                     break;
-                    
+
                 case DockStyle.Fill:
                     newBounds = remainingArea;
                     break;
             }
-            
+
             if (control.Bounds != newBounds)
                 control.Bounds = newBounds;
         }
@@ -103,7 +92,7 @@ public abstract partial class ElementBase
             var y = control.Location.Y;
             float width = control.Width;
             float height = control.Height;
-            
+
             // Left anchor
             if ((anchor & AnchorStyles.Left) == AnchorStyles.Left)
             {
@@ -114,7 +103,7 @@ public abstract partial class ElementBase
                 // Move with right edge
                 x = clientArea.Right - (clientArea.Width - control.Location.X - control.Width) - control.Width;
             }
-            
+
             // Top anchor
             if ((anchor & AnchorStyles.Top) == AnchorStyles.Top)
             {
@@ -125,21 +114,21 @@ public abstract partial class ElementBase
                 // Move with bottom edge
                 y = clientArea.Bottom - (clientArea.Height - control.Location.Y - control.Height) - control.Height;
             }
-            
+
             // Width resize
             if ((anchor & AnchorStyles.Left) == AnchorStyles.Left && 
                 (anchor & AnchorStyles.Right) == AnchorStyles.Right)
             {
                 width = clientArea.Width - control.Location.X - (clientArea.Width - control.Location.X - control.Width);
             }
-            
+
             // Height resize
             if ((anchor & AnchorStyles.Top) == AnchorStyles.Top && 
                 (anchor & AnchorStyles.Bottom) == AnchorStyles.Bottom)
             {
                 height = clientArea.Height - control.Location.Y - (clientArea.Height - control.Location.Y - control.Height);
             }
-            
+
             var newBounds = SKRect.Create(x, y, width, height);
             if (control.Bounds != newBounds)
                 control.Bounds = newBounds;
