@@ -236,11 +236,6 @@ public partial class UIWindow : UIWindowBase
     private SKPoint animationSource;
 
     /// <summary>
-    ///     The title color
-    /// </summary>
-    private SKColor borderColor = SKColors.Transparent;
-
-    /// <summary>
     ///     Whether to trigger the stay event on the edge of the display
     /// </summary>
     private bool IsStayAtTopBorder;
@@ -357,9 +352,9 @@ public partial class UIWindow : UIWindowBase
         //WindowsHelper.ApplyRoundCorner(this.Handle);
     }
 
-    private float _titleHeightDPI => _titleHeight * DPI;
-    private float _iconWidthDPI => _iconWidth * DPI;
-    private float _symbolSizeDPI => _symbolSize * DPI;
+    private float _titleHeightDPI => _titleHeight * ScaleFactor;
+    private float _iconWidthDPI => _iconWidth * ScaleFactor;
+    private float _symbolSizeDPI => _symbolSize * ScaleFactor;
 
     [DefaultValue(42)]
     [Description("Gets or sets the header bar icon width")]
@@ -501,7 +496,7 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     Whether to show the maximize button of the form
     /// </summary>
-    public new bool MaximizeBox
+    public bool MaximizeBox
     {
         get => _maximizeBox;
         set
@@ -519,7 +514,7 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     Whether to show the minimize button of the form
     /// </summary>
-    public new bool MinimizeBox
+    public bool MinimizeBox
     {
         get => _minimizeBox;
         set
@@ -569,25 +564,6 @@ public partial class UIWindow : UIWindowBase
         set
         {
             titleColor = value;
-            Invalidate();
-        }
-    }
-
-    /// <summary>
-    ///     Gets or sets the title color
-    /// </summary>
-    [Description("Border Color")]
-    [DefaultValue(typeof(SKColor), "Transparent")]
-    public SKColor BorderColor
-    {
-        get => borderColor;
-        set
-        {
-            borderColor = value;
-
-            if (value != SKColors.Transparent && !OperatingSystem.IsWindows())
-                SDUI.Native.Windows.Helpers.ApplyBorderColor(Handle, borderColor);
-
             Invalidate();
         }
     }
@@ -747,14 +723,21 @@ public partial class UIWindow : UIWindowBase
 
     public override void Invalidate()
     {
-        // Avoid synchronous Update() storms (especially with multiple animations). In software
-        // backend we still want snappy repaint, but we coalesce to one Update per message loop.
-        if (IsHandleCreated && !IsDisposed && !Disposing && _suppressImmediateUpdateCount <= 0)
-            if (_renderBackend == RenderBackend.Software && ShouldForceSoftwareUpdate())
-                QueueSoftwareUpdate();
-    }
+        if (!IsHandleCreated || IsDisposed || Disposing)
+            return;
 
-    // REMOVED: Render method - using UIWindowBase.OnPaintCanvas instead
+        if (_renderBackend == RenderBackend.Software)
+        {
+            if (_suppressImmediateUpdateCount <= 0 && ShouldForceSoftwareUpdate())
+                QueueSoftwareUpdate();
+            else
+                InvalidateWindow();
+        }
+        else
+        {
+            InvalidateWindow();
+        }
+    }
 
     /// <summary>
     ///     If extend box clicked invoke the event
@@ -976,12 +959,12 @@ public partial class UIWindow : UIWindowBase
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        ApplyRenderStyles();
+        //ApplyRenderStyles();
         RecreateRenderer();
 
         // Initial DPI sync: Ensure controls match the window's actual DPI 
         // (which might differ from System DPI captured during initialization).
-        var dpi = DpiHelper.GetDpiForWindowInternal(Handle);
+        var dpi = Screen.GetDpiForWindowHandle(Handle);
         foreach (var control in Controls.OfType<ElementBase>())
         {
             var oldDpi = control.ScaleFactor * 96f;
@@ -1197,10 +1180,10 @@ public partial class UIWindow : UIWindowBase
         else
         {
             _extendBoxRect = _maximizeBoxRect =
-                _minimizeBoxRect = _controlBoxRect = SKRect.Create(Width + 1, Height + 1, 1, 1);
+            _minimizeBoxRect = _controlBoxRect = SKRect.Create(Width + 1, Height + 1, 1, 1);
         }
 
-        var titleIconSize = 24 * DPI;
+        var titleIconSize = 24 * ScaleFactor;
         _formMenuRect = SKRect.Create(10, _titleHeightDPI / 2 - titleIconSize / 2, titleIconSize, titleIconSize);
 
         Padding = new Thickness(Padding.Left, (int)(showTitle ? _titleHeightDPI : 0), Padding.Right, Padding.Bottom);
@@ -1223,8 +1206,6 @@ public partial class UIWindow : UIWindowBase
         // Stable ordering prevents subtle behavior changes when ZOrder ties exist.
         StableSortByZOrderDescending(_hitTestElements);
     }
-
-
 
     protected internal override void OnMouseClick(MouseEventArgs e)
     {
@@ -2004,22 +1985,20 @@ public partial class UIWindow : UIWindowBase
             canvas.Clear(ColorScheme.BackColor);
             PaintSurface(canvas, info);
             canvas.Restore();
-
-            if (_needsFullRedraw)
-            {
-                for (var i = 0; i < Controls.Count; i++)
-                    if (Controls[i] is ElementBase child)
-                        child.InvalidateRenderTree();
-                _needsFullRedraw = false;
-            }
-
             _frameElements.Clear();
             for (var i = 0; i < Controls.Count; i++)
                 if (Controls[i] is ElementBase element)
                     _frameElements.Add(element);
 
-            // Match LINQ OrderBy stability (ties keep original order).
             StableSortByZOrderAscending(_frameElements);
+
+            if (_needsFullRedraw)
+            {
+                for (var i = 0; i < _frameElements.Count; i++)
+                    _frameElements[i].InvalidateRenderTree();
+                _needsFullRedraw = false;
+            }
+
 
             // DEBUG: Count renders
             var renderedCount = 0;
@@ -2170,7 +2149,7 @@ public partial class UIWindow : UIWindowBase
             using var closePaint = new SKPaint
             {
                 Color = _inCloseBox ? SKColors.White : foreColor,
-                StrokeWidth = 1.1f * DPI,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true,
                 StrokeCap = SKStrokeCap.Round
             };
@@ -2178,7 +2157,7 @@ public partial class UIWindow : UIWindowBase
             // �arp� i�areti
             var centerX = _controlBoxRect.Left + _controlBoxRect.Width / 2;
             var centerY = _controlBoxRect.Top + _controlBoxRect.Height / 2;
-            var size = 5 * DPI;
+            var size = 5 * ScaleFactor;
 
             canvas.DrawLine(
                 centerX - size,
@@ -2211,7 +2190,7 @@ public partial class UIWindow : UIWindowBase
             {
                 Color = foreColor,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.1f * DPI,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true,
                 StrokeCap = SKStrokeCap.Round
             };
@@ -2219,12 +2198,12 @@ public partial class UIWindow : UIWindowBase
             // Maximize simgesi
             var centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
             var centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
-            var size = 5 * DPI;
+            var size = 5 * ScaleFactor;
 
             if (WindowState == FormWindowState.Maximized)
             {
                 // Restore simgesi
-                var offset = 2 * DPI;
+                var offset = 2 * ScaleFactor;
                 canvas.DrawRect(
                     centerX - size + offset,
                     centerY - size - offset,
@@ -2265,14 +2244,14 @@ public partial class UIWindow : UIWindowBase
             using var minPaint = new SKPaint
             {
                 Color = foreColor,
-                StrokeWidth = 1.1f * DPI,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true,
                 StrokeCap = SKStrokeCap.Round
             };
 
             var centerX = _minimizeBoxRect.Left + _minimizeBoxRect.Width / 2;
             var centerY = _minimizeBoxRect.Top + _minimizeBoxRect.Height / 2;
-            var size = 5 * DPI;
+            var size = 5 * ScaleFactor;
 
             canvas.DrawLine(
                 centerX - size,
@@ -2288,7 +2267,7 @@ public partial class UIWindow : UIWindowBase
             var color = foreColor;
             if (_inExtendBox)
             {
-                var hoverSize = 24 * DPI;
+                var hoverSize = 24 * ScaleFactor;
                 using var paint = new SKPaint
                 {
                     Color = hoverColor.WithAlpha((byte)(extendBoxHoverAnimationManager.GetProgress() * 60)),
@@ -2297,47 +2276,47 @@ public partial class UIWindow : UIWindowBase
 
                 using var path = new SKPath();
                 path.AddRoundRect(SKRect.Create(
-                    _extendBoxRect.Left + 20 * DPI,
+                    _extendBoxRect.Left + 20 * ScaleFactor,
                     _titleHeightDPI / 2 - hoverSize / 2,
-                    _extendBoxRect.Left + 20 * DPI + hoverSize,
+                    _extendBoxRect.Left + 20 * ScaleFactor + hoverSize,
                     _titleHeightDPI / 2 + hoverSize / 2
                 ), 15, 15);
 
                 canvas.DrawPath(path, paint);
             }
 
-            var size = 16 * DPI;
+            var size = 16 * ScaleFactor;
             using var extendPaint = new SKPaint
             {
                 Color = foreColor,
-                StrokeWidth = 1.1f * DPI,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true,
                 StrokeCap = SKStrokeCap.Round
             };
 
             var iconRect = new SkiaSharp.SKRect(
-                _extendBoxRect.Left + 24 * DPI,
+                _extendBoxRect.Left + 24 * ScaleFactor,
                 _titleHeightDPI / 2 - size / 2,
-                _extendBoxRect.Left + 24 * DPI + size,
+                _extendBoxRect.Left + 24 * ScaleFactor + size,
                 _titleHeightDPI / 2 + size / 2);
 
             canvas.DrawLine(
-                iconRect.Left + iconRect.Width / 2 - 5 * DPI - 1,
-                iconRect.Top + iconRect.Height / 2 - 2 * DPI,
-                iconRect.Left + iconRect.Width / 2 - 1 * DPI,
-                iconRect.Top + iconRect.Height / 2 + 3 * DPI,
+                iconRect.Left + iconRect.Width / 2 - 5 * ScaleFactor - 1,
+                iconRect.Top + iconRect.Height / 2 - 2 * ScaleFactor,
+                iconRect.Left + iconRect.Width / 2 - 1 * ScaleFactor,
+                iconRect.Top + iconRect.Height / 2 + 3 * ScaleFactor,
                 extendPaint);
 
             canvas.DrawLine(
-                iconRect.Left + iconRect.Width / 2 + 5 * DPI - 1,
-                iconRect.Top + iconRect.Height / 2 - 2 * DPI,
-                iconRect.Left + iconRect.Width / 2 - 1 * DPI,
-                iconRect.Top + iconRect.Height / 2 + 3 * DPI,
+                iconRect.Left + iconRect.Width / 2 + 5 * ScaleFactor - 1,
+                iconRect.Top + iconRect.Height / 2 - 2 * ScaleFactor,
+                iconRect.Left + iconRect.Width / 2 - 1 * ScaleFactor,
+                iconRect.Top + iconRect.Height / 2 + 3 * ScaleFactor,
                 extendPaint);
         }
 
         // Form Menu veya Icon �izimi
-        var faviconSize = 16 * DPI;
+        var faviconSize = 16 * ScaleFactor;
         if (showMenuInsteadOfIcon)
         {
             using var paint = new SKPaint
@@ -2353,23 +2332,23 @@ public partial class UIWindow : UIWindowBase
             using var menuPaint = new SKPaint
             {
                 Color = foreColor,
-                StrokeWidth = 1.1f * DPI,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true,
                 StrokeCap = SKStrokeCap.Round
             };
 
             canvas.DrawLine(
-                _formMenuRect.Left + _formMenuRect.Width / 2 - 5 * DPI - 1,
-                _formMenuRect.Top + _formMenuRect.Height / 2 - 2 * DPI,
-                _formMenuRect.Left + _formMenuRect.Width / 2 - 1 * DPI,
-                _formMenuRect.Top + _formMenuRect.Height / 2 + 3 * DPI,
+                _formMenuRect.Left + _formMenuRect.Width / 2 - 5 * ScaleFactor - 1,
+                _formMenuRect.Top + _formMenuRect.Height / 2 - 2 * ScaleFactor,
+                _formMenuRect.Left + _formMenuRect.Width / 2 - 1 * ScaleFactor,
+                _formMenuRect.Top + _formMenuRect.Height / 2 + 3 * ScaleFactor,
                 menuPaint);
 
             canvas.DrawLine(
-                _formMenuRect.Left + _formMenuRect.Width / 2 + 5 * DPI - 1,
-                _formMenuRect.Top + _formMenuRect.Height / 2 - 2 * DPI,
-                _formMenuRect.Left + _formMenuRect.Width / 2 - 1 * DPI,
-                _formMenuRect.Top + _formMenuRect.Height / 2 + 3 * DPI,
+                _formMenuRect.Left + _formMenuRect.Width / 2 + 5 * ScaleFactor - 1,
+                _formMenuRect.Top + _formMenuRect.Height / 2 - 2 * ScaleFactor,
+                _formMenuRect.Left + _formMenuRect.Width / 2 - 1 * ScaleFactor,
+                _formMenuRect.Top + _formMenuRect.Height / 2 + 3 * ScaleFactor,
                 menuPaint);
         }
         else
@@ -2403,8 +2382,8 @@ public partial class UIWindow : UIWindowBase
             var bounds = new SkiaSharp.SKRect();
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
-                ? _formMenuRect.Left + _formMenuRect.Width + 8 * DPI
-                : faviconSize + 14 * DPI;
+                ? _formMenuRect.Left + _formMenuRect.Width + 8 * ScaleFactor
+                : faviconSize + 14 * ScaleFactor;
             var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
             TextRenderer.DrawText(canvas, Text, textX, textY, SKTextAlign.Left, font, textPaint);
@@ -2491,7 +2470,7 @@ public partial class UIWindow : UIWindowBase
                 };
 
                 var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
-                var radius = 9 * DPI;
+                var radius = 9 * ScaleFactor;
 
                 using var path = new SKPath();
                 path.AddRoundRect(tabRect, radius, radius);
@@ -2521,7 +2500,7 @@ public partial class UIWindow : UIWindowBase
             {
                 var currentTabIndex = _windowPageControl.Controls.IndexOf(page);
                 var rect = pageRect[currentTabIndex];
-                var closeIconSize = 24 * DPI;
+                var closeIconSize = 24 * ScaleFactor;
 
                 if (_drawTabIcons)
                 {
@@ -2540,9 +2519,9 @@ public partial class UIWindow : UIWindowBase
 
                     var startingIconBounds = new SkiaSharp.SKRect();
                     font.MeasureText("", out startingIconBounds);
-                    var iconX = rect.Left + TAB_HEADER_PADDING * DPI;
+                    var iconX = rect.Left + TAB_HEADER_PADDING * ScaleFactor;
 
-                    var inlinePaddingX = startingIconBounds.Width + TAB_HEADER_PADDING * DPI;
+                    var inlinePaddingX = startingIconBounds.Width + TAB_HEADER_PADDING * ScaleFactor;
                     var adjustedRect = SKRect.Create(
                         rect.Left + inlinePaddingX,
                         rect.Top,
@@ -2583,7 +2562,7 @@ public partial class UIWindow : UIWindowBase
             // Tab close button
             if (_tabCloseButton)
             {
-                var size = 20 * DPI;
+                var size = 20 * ScaleFactor;
                 var closeHoverColor = hoverColor;
 
                 using var buttonPaint = new SKPaint
@@ -2601,12 +2580,12 @@ public partial class UIWindow : UIWindowBase
                 using var linePaint = new SKPaint
                 {
                     Color = foreColor,
-                    StrokeWidth = 1.1f * DPI,
+                    StrokeWidth = 1.1f * ScaleFactor,
                     IsAntialias = true,
                     StrokeCap = SKStrokeCap.Round
                 };
 
-                size = 4f * DPI;
+                size = 4f * ScaleFactor;
                 canvas.DrawLine(
                     buttonRect.MidX - size,
                     buttonRect.MidY - size,
@@ -2625,7 +2604,7 @@ public partial class UIWindow : UIWindowBase
             // New tab button
             if (_newTabButton)
             {
-                var size = 24 * DPI;
+                var size = 24 * ScaleFactor;
                 var newHoverColor = hoverColor.WithAlpha(20);
 
                 using var buttonPaint = new SKPaint
@@ -2647,12 +2626,12 @@ public partial class UIWindow : UIWindowBase
                 using var linePaint = new SKPaint
                 {
                     Color = foreColor,
-                    StrokeWidth = 1.1f * DPI,
+                    StrokeWidth = 1.1f * ScaleFactor,
                     IsAntialias = true,
                     StrokeCap = SKStrokeCap.Round
                 };
 
-                size = 6 * DPI;
+                size = 6 * ScaleFactor;
                 canvas.DrawLine(
                     buttonRect.MidX - size,
                     buttonRect.MidY,
@@ -2722,7 +2701,7 @@ public partial class UIWindow : UIWindowBase
         if (_windowPageControl == null || _windowPageControl.Count == 0)
             return;
 
-        var occupiedWidth = 44 * DPI;
+        var occupiedWidth = 44 * ScaleFactor;
 
         if (controlBox)
             occupiedWidth += _controlBoxRect.Width;
@@ -2736,10 +2715,10 @@ public partial class UIWindow : UIWindowBase
         if (ExtendBox)
             occupiedWidth += _extendBoxRect.Width;
 
-        occupiedWidth += 30 * DPI;
+        occupiedWidth += 30 * ScaleFactor;
 
         var availableWidth = Width - occupiedWidth;
-        var maxSize = 250f * DPI;
+        var maxSize = 250f * ScaleFactor;
 
         using var font = new SKFont
         {
@@ -2757,13 +2736,13 @@ public partial class UIWindow : UIWindowBase
             var bounds = new SkiaSharp.SKRect();
             font.MeasureText(page.Text ?? "", out bounds);
 
-            var width = bounds.Width + (20 * DPI);
+            var width = bounds.Width + (20 * ScaleFactor);
 
             if (_drawTabIcons)
-                width += 30 * DPI;
+                width += 30 * ScaleFactor;
 
             if (_tabCloseButton)
-                width += 24 * DPI;
+                width += 24 * ScaleFactor;
 
             desiredWidths.Add(width);
             totalDesiredWidth += width;
@@ -2782,7 +2761,7 @@ public partial class UIWindow : UIWindowBase
             extraPerTab = extra / _windowPageControl.Count;
         }
 
-        var currentX = 44 * DPI;
+        var currentX = 44 * ScaleFactor;
 
         for (int i = 0; i < desiredWidths.Count; i++)
         {

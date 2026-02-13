@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using SDUI.Native.Windows;
 using SkiaSharp;
 using static SDUI.Native.Windows.Methods;
@@ -264,4 +265,83 @@ public sealed class Screen
     {
         return $"Screen[{DeviceName}, Bounds={Bounds}, DPI={DpiX}x{DpiY}, Primary={IsPrimary}]";
     }
+
+    #region DPI Helpers
+
+    private const int LOGPIXELSX = 88;
+    private const int LOGPIXELSY = 90;
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDeviceCaps(IntPtr hdc, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    /// <summary>
+    /// Gets the system-wide DPI (primary monitor, legacy fallback).
+    /// </summary>
+    public static int GetSystemDpi()
+    {
+        var screenDC = GetDC(IntPtr.Zero);
+        try
+        {
+            return Math.Max(
+                GetDeviceCaps(screenDC, LOGPIXELSX),
+                GetDeviceCaps(screenDC, LOGPIXELSY));
+        }
+        finally
+        {
+            ReleaseDC(IntPtr.Zero, screenDC);
+        }
+    }
+
+    /// <summary>
+    /// Gets the effective DPI for a specific window handle.
+    /// Falls back to monitor DPI, then system DPI.
+    /// </summary>
+    public static int GetDpiForWindowHandle(IntPtr handle)
+    {
+        if (handle != IntPtr.Zero)
+        {
+            try
+            {
+                return checked((int)GetDpiForWindow(handle));
+            }
+            catch (EntryPointNotFoundException) { }
+            catch (DllNotFoundException) { }
+        }
+
+        var monitor = handle != IntPtr.Zero
+            ? MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST)
+            : IntPtr.Zero;
+
+        if (monitor != IntPtr.Zero)
+        {
+            try
+            {
+                if (GetDpiForMonitor(monitor, MonitorDpiType.EffectiveDpi, out var dpiX, out _) == 0)
+                    return (int)dpiX;
+            }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+        }
+
+        return GetSystemDpi();
+    }
+
+    /// <summary>
+    /// Gets the scale factor for a specific window handle (1.0 = 96 DPI).
+    /// </summary>
+    public static float GetScaleFactorForWindow(IntPtr handle)
+    {
+        return GetDpiForWindowHandle(handle) / 96f;
+    }
+
+    #endregion
 }

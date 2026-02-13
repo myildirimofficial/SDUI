@@ -8,94 +8,84 @@ namespace SDUI.Controls;
 
 public partial class UIWindowBase
 {
+    // Cached GDI resources for flicker-free double buffering.
+    // Re-created only when client size changes.
+    private IntPtr _cachedMemDC;
+    private IntPtr _cachedBitmap;
+    private IntPtr _cachedPixels;
+    private int _cachedWidth;
+    private int _cachedHeight;
+
     /// <summary>
     /// Handles WM_PAINT message - creates Skia surface and renders to native HDC.
-    /// Uses Memory DC + BitBlt for zero-copy rendering.
+    /// Uses a cached Memory DC + DIB section for flicker-free double buffering.
+    /// The GDI resources are retained between frames and only re-allocated on resize.
     /// </summary>
     private IntPtr HandlePaint(IntPtr hWnd)
     {
         PAINTSTRUCT ps;
         var hdc = BeginPaint(hWnd, out ps);
-        
+
         if (hdc == IntPtr.Zero)
             return IntPtr.Zero;
 
         try
         {
-            // Get client dimensions
             var clientRect = new Rect();
             GetClientRect(hWnd, ref clientRect);
-            
+
             int width = clientRect.Right - clientRect.Left;
             int height = clientRect.Bottom - clientRect.Top;
 
             if (width <= 0 || height <= 0)
                 return IntPtr.Zero;
 
-            // Create memory DC
-            var memDC = CreateCompatibleDC(hdc);
-            if (memDC == IntPtr.Zero)
-                return IntPtr.Zero;
-
-            try
+            // Re-create cached DIB only when size changes
+            if (_cachedMemDC == IntPtr.Zero || width != _cachedWidth || height != _cachedHeight)
             {
-                // Create BITMAPINFO for DIB section
-                var bmi = new BITMAPINFO();
-                bmi.biSize = Marshal.SizeOf<BITMAPINFOHEADER>();
-                bmi.biWidth = width;
-                bmi.biHeight = -height; // Negative for top-down DIB
-                bmi.biPlanes = 1;
-                bmi.biBitCount = 32;
-                bmi.biCompression = 0; // BI_RGB
+                DisposeCachedDIB();
 
-                // Create DIB section - Skia will render directly to these pixels
-                IntPtr pixels;
-                var hBitmap = CreateDIBSection(hdc, ref bmi, 0, out pixels, IntPtr.Zero, 0);
-                
-                if (hBitmap == IntPtr.Zero || pixels == IntPtr.Zero)
+                _cachedMemDC = CreateCompatibleDC(hdc);
+                if (_cachedMemDC == IntPtr.Zero)
                     return IntPtr.Zero;
 
-                try
+                var bmi = new BITMAPINFO
                 {
-                    var oldBitmap = SelectObject(memDC, hBitmap);
+                    biSize = Marshal.SizeOf<BITMAPINFOHEADER>(),
+                    biWidth = width,
+                    biHeight = -height,
+                    biPlanes = 1,
+                    biBitCount = 32,
+                    biCompression = 0
+                };
 
-                    // Create Skia surface directly on DIB section pixels (zero copy!)
-                    var info = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
-                    int rowBytes = width * 4;
-                    
-                    using (var surface = SKSurface.Create(info, pixels, rowBytes))
-                    {
-                        if (surface != null)
-                        {
-                            var canvas = surface.Canvas;
-                            
-                            // Clear and render
-                            canvas.Clear(BackColor);
-                            
-                            // Virtual method for derived classes to override
-                            OnPaintCanvas(canvas, info);
-                            
-                            canvas.Flush();
-                        }
-                    }
-
-                    // Hardware-accelerated blit from memory DC to screen
-                    BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
-
-                    SelectObject(memDC, oldBitmap);
-                    DeleteObject(hBitmap);
-                }
-                catch
+                _cachedBitmap = CreateDIBSection(hdc, ref bmi, 0, out _cachedPixels, IntPtr.Zero, 0);
+                if (_cachedBitmap == IntPtr.Zero || _cachedPixels == IntPtr.Zero)
                 {
-                    if (hBitmap != IntPtr.Zero)
-                        DeleteObject(hBitmap);
-                    throw;
+                    DisposeCachedDIB();
+                    return IntPtr.Zero;
                 }
+
+                SelectObject(_cachedMemDC, _cachedBitmap);
+                _cachedWidth = width;
+                _cachedHeight = height;
             }
-            finally
+
+            // Render via Skia directly into the cached DIB pixels
+            var info = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using (var surface = SKSurface.Create(info, _cachedPixels, width * 4))
             {
-                DeleteDC(memDC);
+                if (surface != null)
+                {
+                    var canvas = surface.Canvas;
+                    canvas.Clear(BackColor);
+                    OnPaintCanvas(canvas, info);
+                    canvas.Flush();
+                }
             }
+
+            // Single
+            BitBlt(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, SRCCOPY);
         }
         finally
         {
@@ -105,12 +95,30 @@ public partial class UIWindowBase
         return IntPtr.Zero;
     }
 
+    private void DisposeCachedDIB()
+    {
+        if (_cachedBitmap != IntPtr.Zero)
+        {
+            DeleteObject(_cachedBitmap);
+            _cachedBitmap = IntPtr.Zero;
+        }
+
+        if (_cachedMemDC != IntPtr.Zero)
+        {
+            DeleteDC(_cachedMemDC);
+            _cachedMemDC = IntPtr.Zero;
+        }
+
+        _cachedPixels = IntPtr.Zero;
+        _cachedWidth = 0;
+        _cachedHeight = 0;
+    }
+
     /// <summary>
     /// Virtual method for derived classes to implement custom rendering.
     /// </summary>
     protected virtual void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
-        // Base implementation draws nothing - derived classes override
     }
 
     #region Native Structures and Methods for GDI Drawing
@@ -123,7 +131,7 @@ public partial class UIWindowBase
         if (!IsHandleCreated || IsDisposed || Disposing)
             return;
 
-        InvalidateRect(Handle, new Rect(), false);
+        InvalidateRect(Handle, IntPtr.Zero, false);
     }
 
     /// <summary>

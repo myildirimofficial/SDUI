@@ -204,6 +204,10 @@ public partial class Methods
     public static extern bool InvalidateRect(IntPtr hWnd, Rect rect, bool bErase);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+    [DllImport("user32.dll")]
     public static extern bool GetClientRect(IntPtr hWnd, ref Rect rect);
 
     [DllImport(user32, CharSet = CharSet.Unicode, SetLastError = true)]

@@ -1,9 +1,6 @@
-﻿using SDUI.Controls;
+﻿using SDUI;
+using SDUI.Controls;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Orivy.Example
 {
@@ -12,6 +9,21 @@ namespace Orivy.Example
         internal MainWindow()
         {
             InitializeComponent();
+        }
+
+        private void ButtonSoftware_Click(object sender, EventArgs e)
+        {
+            this.RenderBackend = SDUI.Rendering.RenderBackend.Software;
+        }
+
+        private void ButtonOpenGL_Click(object sender, EventArgs e)
+        {
+            this.RenderBackend = SDUI.Rendering.RenderBackend.OpenGL;
+        }
+
+        private void ButtonDarkMode_Click(object sender, EventArgs e)
+        {
+            ColorScheme.IsDarkMode = !ColorScheme.IsDarkMode;
         }
     }
 }

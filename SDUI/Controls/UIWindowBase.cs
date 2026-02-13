@@ -19,12 +19,26 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
     private WndProc _wndProcDelegate;
 
+    /// <summary>
+    /// Gets the window handle associated with this window instance.
+    /// </summary>
     public IntPtr Handle => _hWnd;
 
     private FocusManager? _focusManager;
     private bool _mouseInClient;
     protected bool enableFullDraggable;
 
+    /// <summary>
+    /// Gets or sets the result value returned when the window is closed by the user.
+    /// </summary>
+    /// <remarks>Set this property to indicate how the user closed the window, such as confirming or canceling
+    /// an action. This value is typically used by the calling code to determine the outcome of the dialog
+    /// interaction.</remarks>
+    public DialogResult DialogResult { get; set; }
+
+    /// <summary>
+    /// Gets the current position of the mouse cursor relative to the control.
+    /// </summary>
     public SKPoint MousePosition { get; private set; }
 
     /// <summary>
@@ -39,6 +53,46 @@ public partial class UIWindowBase : ElementBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Enable or disable win10 ver 1809 + mica backdrop efeckts
+    /// </summary>
+    private bool _enableMica;
+    private bool EnableMica
+    {
+        get => _enableMica;
+        set
+        {
+            if (_enableMica == value)
+                return;
+            _enableMica = value;
+
+            if (IsHandleCreated)
+            {
+                if (value)
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle);
+                else
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Represents the color used for the border.
+    /// </summary>
+    private SKColor borderColor = SKColors.Transparent;
+    public SKColor BorderColor
+    {
+        get => borderColor;
+        set
+        {
+            borderColor = value;
+
+            if (value != SKColors.Transparent && !OperatingSystem.IsWindows())
+                SDUI.Native.Windows.Helpers.ApplyBorderColor(Handle, borderColor);
+
+            Invalidate();
+        }
+    }
 
     private FormBorderStyle _formBorderStyle = FormBorderStyle.Sizable;
     public FormBorderStyle FormBorderStyle
@@ -179,10 +233,12 @@ public partial class UIWindowBase : ElementBase, IDisposable
                         break;
                 }
             }
-            // If handle not created yet, CreateParams will use this value
         }
     }
 
+    /// <summary>
+    /// Represents the current state of the window, such as normal, minimized, or maximized.
+    /// </summary>
     private FormWindowState _windowState = FormWindowState.Normal;
     public FormWindowState WindowState
     {
@@ -234,12 +290,12 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// </summary>
     public bool IsLoaded { get; private set; }
 
-    public int DwmMargin { get; set; } = -1;
-
     /// <summary>
-    ///     Get DPI
+    /// Gets or sets the width, in pixels, of the window's Desktop Window Manager (DWM) margin.
     /// </summary>
-    public float DPI => DpiHelper.GetScaleFactor();
+    /// <remarks>A value of -1 typically indicates that the default system margin should be used. Adjusting
+    /// this property can affect how window shadows and glass effects are rendered.</remarks>
+    public int DwmMargin { get; set; } = -1;
 
     /// <summary>
     ///     Has aero enabled by windows <c>true</c>; otherwise <c>false</c>
@@ -285,7 +341,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
         get
         {
             var cp = new CreateParams();
-            cp.ClassName = "CoreWindow_" + Guid.NewGuid().ToString();
+            cp.ClassName =  $"{Name}_Orivy_CoreWindow_{Guid.NewGuid()}";
             cp.Caption = Text;
 
             // Apply FormStartPosition
@@ -324,14 +380,13 @@ public partial class UIWindowBase : ElementBase, IDisposable
             // Class styles
             if (!_aeroEnabled)
                 cp.ClassStyle |= CS_DROPSHADOW;
+
             cp.ClassStyle |= CS_DBLCLKS;
-            cp.ClassStyle |= CS_HREDRAW | CS_VREDRAW;
 
             return cp;
         }
     }
 
-    public DialogResult DialogResult { get; set; }
 
     private Icon? _icon;
     private bool _showIcon = true;
@@ -386,6 +441,11 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
     public event EventHandler Activated;
     public event EventHandler Deactivated;
+
+    static UIWindowBase()
+    {
+        Application.EnableDpiAwareness();
+    }
 
     public UIWindowBase()
     {
@@ -484,13 +544,6 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
         IsHandleCreated = true;
         OnHandleCreated(EventArgs.Empty);
-
-        // If CenterScreen, position the window before showing it
-        if (_formStartPosition == FormStartPosition.CenterScreen)
-        {
-            CenterToScreen();
-            ShowWindow(_hWnd, 5); // SW_SHOW
-        }
     }
 
     public void CenterToScreen()
@@ -1043,29 +1096,34 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 OnFormClosed(new FormClosedEventArgs(CloseReason.UserClosing));
                 PostQuitMessage(0);
                 return IntPtr.Zero;
+            case WindowMessage.WM_ERASEBKGND:
+                // Return non-zero to tell Windows we handled background erase.
+                // Prevents the default white fill that causes flicker between frames.
+                return (IntPtr)1;
             case WindowMessage.WM_PAINT:
                 {
                     // Native rendering - delegate to rendering partial class
                     return HandlePaint(hWnd);
                 }
             case WindowMessage.WM_DPICHANGED:
-                var newDpi = (float)(wParam.ToInt32() & 0xFFFF);
-                var oldDpi = DeviceDpi;
-
-                if (Math.Abs(newDpi - oldDpi) > 0.001f)
                 {
-                    var rect = Marshal.PtrToStructure<Rect>(lParam);
-                    SetWindowPos(Handle, IntPtr.Zero,
-                        rect.Left, rect.Top,
-                        rect.Width, rect.Height,
-                        SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+                    var newDpi = (float)(wParam.ToInt32() & 0xFFFF);
+                    var oldDpi = (float)DeviceDpi;
 
-                    OnDpiChanged(newDpi, oldDpi);
-                    Invalidate();
+                    if (Math.Abs(newDpi - oldDpi) > 0.001f)
+                    {
+                        var rect = Marshal.PtrToStructure<Rect>(lParam);
+                        SetWindowPos(Handle, IntPtr.Zero,
+                            rect.Left, rect.Top,
+                            rect.Width, rect.Height,
+                            SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+
+                        OnDpiChanged(newDpi, oldDpi);
+                        InvalidateWindow();
+                    }
+
+                    return IntPtr.Zero;
                 }
-
-                return IntPtr.Zero;
-                break;
         }
 
         return DefWindowProc(hWnd, msg, wParam, lParam);
@@ -1108,12 +1166,11 @@ public partial class UIWindowBase : ElementBase, IDisposable
         // Set window icon if available
         UpdateWindowIcon();
 
-        // Ensure child elements receive the correct initial DPI now that the window handle is available.
-        // Use InitializeDpi on first load to set DPI without scaling (design-time sizes are for 96 DPI)
+        // Ensure this window and child elements receive the correct initial DPI.
         try
         {
-            float windowDpi = DpiHelper.GetDpiForWindowInternal(Handle);
-            foreach (var child in Controls.OfType<ElementBase>()) child.InitializeDpi(windowDpi);
+            float windowDpi = Screen.GetDpiForWindowHandle(Handle);
+            InitializeDpi(windowDpi);
         }
         catch
         {
@@ -1199,7 +1256,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// </summary>
     protected virtual void OnHandleDestroyed(EventArgs e)
     {
-        // Default implementation does nothing; derived classes can override
+        DisposeCachedDIB();
     }
 
     /// <summary>
@@ -1250,7 +1307,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// <summary>
     /// Converts a point from screen coordinates to this window's client coordinates using native Windows API.
     /// </summary>
-    public SKPoint PointToClient(SKPoint screenPoint)
+    public new SKPoint PointToClient(SKPoint screenPoint)
     {
         if (!IsHandleCreated)
             return screenPoint;

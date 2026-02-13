@@ -189,9 +189,9 @@ public static class Helpers
             ref data);
     }
 
-    public static void EnableBackdropType(IntPtr windowHandle, uint backdropType)
+    public static void EnableBackdropType(IntPtr windowHandle, uint backdropType = DWMSBT_TABBEDWINDOW)
     {
-        var flag = DWMSBT_TABBEDWINDOW;
+        var flag = backdropType;
         DwmSetWindowAttribute(
             windowHandle,
             DWMWINDOWATTRIBUTE.DWMWA_SYSTEMBACKDROP_TYPE,

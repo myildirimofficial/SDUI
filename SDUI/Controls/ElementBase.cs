@@ -50,7 +50,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         _font = new Font("Segoe UI", 9f);
         _cursor = Cursors.Default;
-        _currentDpi = DpiHelper.GetSystemDpi();
+        _currentDpi = Screen.GetSystemDpi();
 
         InitializeScrollBars();
     }
@@ -238,6 +238,37 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
     }
 
+    private BoxShadow[] _shadows = Array.Empty<BoxShadow>();
+
+    /// <summary>
+    /// CSS-like box shadows. Supports multiple shadows rendered back-to-front.
+    /// Outer shadows render outside the element bounds; inset shadows render inside.
+    /// </summary>
+    [Browsable(false)]
+    public BoxShadow[] Shadows
+    {
+        get => _shadows;
+        set
+        {
+            _shadows = value ?? Array.Empty<BoxShadow>();
+            Invalidate();
+        }
+    }
+
+    /// <summary>
+    /// Convenience property: sets a single box shadow.
+    /// </summary>
+    [Category("Appearance")]
+    public BoxShadow Shadow
+    {
+        get => _shadows.Length > 0 ? _shadows[0] : BoxShadow.None;
+        set
+        {
+            _shadows = value.IsEmpty ? Array.Empty<BoxShadow>() : [value];
+            Invalidate();
+        }
+    }
+
     /// <summary>
     /// DELETE
     /// </summary>
@@ -293,11 +324,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     private void UpdateCurrentDpiFromParent()
     {
         if (_parent is UIWindowBase window && window.IsHandleCreated)
-            _currentDpi = DpiHelper.GetDpiForWindowInternal(window.Handle);
+            _currentDpi = Screen.GetDpiForWindowHandle(window.Handle);
         else if (_parent is ElementBase element)
             _currentDpi = element.ScaleFactor * 96f;
         else
-            _currentDpi = DpiHelper.GetSystemDpi();
+            _currentDpi = Screen.GetSystemDpi();
     }
 
     /// <summary>
@@ -1359,6 +1390,19 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     protected virtual float ChildRenderScale => 1f;
     protected virtual bool UseChildScaleForInput => true;
 
+    private static SKRoundRect CreateRoundRect(SkiaSharp.SKRect rect, Thickness radius)
+    {
+        var rr = new SKRoundRect();
+        rr.SetRectRadii(rect,
+        [
+            new SKPoint(radius.Left, radius.Left),
+            new SKPoint(radius.Right, radius.Right),
+            new SKPoint(radius.Right, radius.Right),
+            new SKPoint(radius.Left, radius.Left)
+        ]);
+        return rr;
+    }
+
     private SKPoint GetScrollOffset()
     {
         if (!AutoScroll || _vScrollBar == null || _hScrollBar == null)
@@ -1419,36 +1463,117 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public void Render(SKCanvas targetCanvas)
     {
-        // Disposed, null canvas ve geçersiz boyutları kontrol et
         if (IsDisposed || targetCanvas == null || !Visible || Width <= 0 || Height <= 0)
-        {
             return;
-        }
 
         try
         {
             var saved = targetCanvas.Save();
-
-            // Translate to element bounds
             targetCanvas.Translate(Location.X, Location.Y);
 
-            // Draw background
+            var hasRadius = !_radius.IsEmpty;
+            var elementRect = new SkiaSharp.SKRect(0, 0, Width, Height);
+            var hasShadows = _shadows.Length > 0;
+
+            // ── Outer shadows (drawn BEFORE clip so they extend beyond element bounds) ──
+            if (hasShadows)
+            {
+                for (var si = 0; si < _shadows.Length; si++)
+                {
+                    var shadow = _shadows[si];
+                    if (shadow.IsEmpty || shadow.Inset)
+                        continue;
+
+                    RenderOuterShadow(targetCanvas, elementRect, shadow, hasRadius);
+                }
+            }
+
+            // ── Clip to element shape ──
+            if (hasRadius)
+            {
+                var clipRRect = CreateRoundRect(elementRect, _radius);
+                targetCanvas.ClipRoundRect(clipRRect, antialias: true);
+            }
+
+            // ── Background ──
             var bg = ResolveBackgroundColor();
             if (bg != SKColors.Transparent)
             {
-                using var paint = new SKPaint { Color = bg };
-                targetCanvas.DrawRect(0, 0, Width, Height, paint);
+                using var paint = new SKPaint { Color = bg, IsAntialias = true };
+                if (hasRadius)
+                {
+                    var bgRRect = CreateRoundRect(elementRect, _radius);
+                    targetCanvas.DrawRoundRect(bgRRect, paint);
+                }
+                else
+                {
+                    targetCanvas.DrawRect(elementRect, paint);
+                }
             }
 
             OnPaint(targetCanvas);
 
+            // ── Border ──
             if (!_border.IsEmpty)
             {
+                using var borderPaint = new SKPaint
+                {
+                    Color = ColorScheme.BorderColor,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = true
+                };
 
+                if (hasRadius)
+                {
+                    var maxStroke = Math.Max(
+                        Math.Max(_border.Left, _border.Top),
+                        Math.Max(_border.Right, _border.Bottom));
+                    borderPaint.StrokeWidth = maxStroke;
+                    var inset = maxStroke / 2f;
+                    var borderRect = new SkiaSharp.SKRect(inset, inset, Width - inset, Height - inset);
+                    var borderRRect = CreateRoundRect(borderRect, _radius);
+                    targetCanvas.DrawRoundRect(borderRRect, borderPaint);
+                }
+                else
+                {
+                    if (_border.Top > 0)
+                    {
+                        borderPaint.StrokeWidth = _border.Top;
+                        targetCanvas.DrawLine(0, _border.Top / 2f, Width, _border.Top / 2f, borderPaint);
+                    }
+                    if (_border.Bottom > 0)
+                    {
+                        borderPaint.StrokeWidth = _border.Bottom;
+                        targetCanvas.DrawLine(0, Height - _border.Bottom / 2f, Width, Height - _border.Bottom / 2f, borderPaint);
+                    }
+                    if (_border.Left > 0)
+                    {
+                        borderPaint.StrokeWidth = _border.Left;
+                        targetCanvas.DrawLine(_border.Left / 2f, 0, _border.Left / 2f, Height, borderPaint);
+                    }
+                    if (_border.Right > 0)
+                    {
+                        borderPaint.StrokeWidth = _border.Right;
+                        targetCanvas.DrawLine(Width - _border.Right / 2f, 0, Width - _border.Right / 2f, Height, borderPaint);
+                    }
+                }
             }
 
-            // Clip children to bounds
-            targetCanvas.ClipRect(SkiaSharp.SKRect.Create(0, 0, Width, Height));
+            // ── Inset shadows (drawn AFTER border, clipped to element shape) ──
+            if (hasShadows)
+            {
+                for (var si = 0; si < _shadows.Length; si++)
+                {
+                    var shadow = _shadows[si];
+                    if (shadow.IsEmpty || !shadow.Inset)
+                        continue;
+
+                    RenderInsetShadow(targetCanvas, elementRect, shadow, hasRadius);
+                }
+            }
+
+            // ── Children ──
+            targetCanvas.ClipRect(elementRect);
             RenderChildren(targetCanvas);
 
             targetCanvas.RestoreToCount(saved);
@@ -1459,6 +1584,140 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 DebugSettings.Log(
                     $"UIElementBase: Render failed for element {GetType().Name} ({Width}x{Height}): {ex.GetType().Name} - {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Renders an outer (drop) shadow by expanding the element rect with spread, offsetting, and applying Gaussian blur.
+    /// CSS equivalent: <c>box-shadow: offsetX offsetY blur spread color;</c>
+    /// </summary>
+    private void RenderOuterShadow(SKCanvas canvas, SkiaSharp.SKRect elementRect, BoxShadow shadow, bool hasRadius)
+    {
+        var spread = shadow.Spread;
+        var shadowRect = new SkiaSharp.SKRect(
+            elementRect.Left - spread.Left + shadow.OffsetX,
+            elementRect.Top - spread.Top + shadow.OffsetY,
+            elementRect.Right + spread.Right + shadow.OffsetX,
+            elementRect.Bottom + spread.Bottom + shadow.OffsetY);
+
+        if (shadowRect.Width <= 0 || shadowRect.Height <= 0)
+            return;
+
+        using var paint = new SKPaint
+        {
+            Color = shadow.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        };
+
+        if (shadow.Blur > 0)
+            paint.MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, shadow.Blur * 0.5f);
+
+        if (hasRadius)
+        {
+            var scaledRadius = ScaleRadiusForSpread(_radius, spread);
+            var rr = CreateRoundRect(shadowRect, scaledRadius);
+            canvas.DrawRoundRect(rr, paint);
+        }
+        else
+        {
+            canvas.DrawRect(shadowRect, paint);
+        }
+    }
+
+    /// <summary>
+    /// Renders an inset shadow inside the element bounds.
+    /// Uses an inverted fill technique: draws a large rect with blur that is clipped to the element shape,
+    /// offset inward so the blurred edge creates the shadow effect.
+    /// CSS equivalent: <c>box-shadow: inset offsetX offsetY blur spread color;</c>
+    /// </summary>
+    private void RenderInsetShadow(SKCanvas canvas, SkiaSharp.SKRect elementRect, BoxShadow shadow, bool hasRadius)
+    {
+        var innerSaved = canvas.Save();
+
+        // Clip to element shape
+        if (hasRadius)
+        {
+            var clipRRect = CreateRoundRect(elementRect, _radius);
+            canvas.ClipRoundRect(clipRRect, antialias: true);
+        }
+        else
+        {
+            canvas.ClipRect(elementRect);
+        }
+
+        var spread = shadow.Spread;
+        // Inset: shrink the "hole" by spread, then the area between the hole and element edge is the shadow
+        var holeRect = new SkiaSharp.SKRect(
+            elementRect.Left + spread.Left + shadow.OffsetX,
+            elementRect.Top + spread.Top + shadow.OffsetY,
+            elementRect.Right - spread.Right + shadow.OffsetX,
+            elementRect.Bottom - spread.Bottom + shadow.OffsetY);
+
+        using var paint = new SKPaint
+        {
+            Color = shadow.Color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        };
+
+        if (shadow.Blur > 0)
+            paint.MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, shadow.Blur * 0.5f);
+
+        // Draw a frame: large outer path minus inner hole
+        using var outerPath = new SKPath();
+        var inflated = new SkiaSharp.SKRect(
+            elementRect.Left - shadow.Blur * 2,
+            elementRect.Top - shadow.Blur * 2,
+            elementRect.Right + shadow.Blur * 2,
+            elementRect.Bottom + shadow.Blur * 2);
+        outerPath.AddRect(inflated);
+
+        if (holeRect.Width > 0 && holeRect.Height > 0)
+        {
+            if (hasRadius)
+            {
+                var shrunkRadius = ShrinkRadiusForSpread(_radius, spread);
+                var holeRRect = CreateRoundRect(holeRect, shrunkRadius);
+                using var holePath = new SKPath();
+                holePath.AddRoundRect(holeRRect);
+                outerPath.AddPath(holePath);
+            }
+            else
+            {
+                outerPath.AddRect(holeRect);
+            }
+
+            outerPath.FillType = SKPathFillType.EvenOdd;
+        }
+
+        canvas.DrawPath(outerPath, paint);
+        canvas.RestoreToCount(innerSaved);
+    }
+
+    /// <summary>
+    /// Scales corner radii outward when spread expands the shadow rect.
+    /// CSS spec: outer shadow radius = max(0, borderRadius + spread).
+    /// </summary>
+    private static Thickness ScaleRadiusForSpread(Thickness radius, Thickness spread)
+    {
+        return new Thickness(
+            Math.Max(0, radius.Left + Math.Max(spread.Left, spread.Top)),
+            Math.Max(0, radius.Top + Math.Max(spread.Right, spread.Top)),
+            Math.Max(0, radius.Right + Math.Max(spread.Right, spread.Bottom)),
+            Math.Max(0, radius.Bottom + Math.Max(spread.Left, spread.Bottom)));
+    }
+
+    /// <summary>
+    /// Shrinks corner radii inward for inset shadow holes.
+    /// CSS spec: inner radius = max(0, borderRadius - spread).
+    /// </summary>
+    private static Thickness ShrinkRadiusForSpread(Thickness radius, Thickness spread)
+    {
+        return new Thickness(
+            Math.Max(0, radius.Left - Math.Max(spread.Left, spread.Top)),
+            Math.Max(0, radius.Top - Math.Max(spread.Right, spread.Top)),
+            Math.Max(0, radius.Right - Math.Max(spread.Right, spread.Bottom)),
+            Math.Max(0, radius.Bottom - Math.Max(spread.Left, spread.Bottom)));
     }
 
     public virtual void Focus()
@@ -2205,7 +2464,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// </summary>
     internal void InitializeDpi(float dpi)
     {
-        _currentDpi = dpi > 0 ? dpi : DpiHelper.GetSystemDpi();
+        _currentDpi = dpi > 0 ? dpi : Screen.GetSystemDpi();
 
         // Invalidate font caches so they rebuild with correct DPI
         InvalidateFontCache();
@@ -2221,10 +2480,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnDpiChanged(float newDpi, float oldDpi)
     {
         if (oldDpi <= 0)
-            oldDpi = _currentDpi <= 0 ? DpiHelper.GetSystemDpi() : _currentDpi;
+            oldDpi = _currentDpi <= 0 ? Screen.GetSystemDpi() : _currentDpi;
 
         if (newDpi <= 0)
-            newDpi = DpiHelper.GetSystemDpi();
+            newDpi = Screen.GetSystemDpi();
 
         var scaleFactor = oldDpi <= 0 ? 1f : newDpi / oldDpi;
         _currentDpi = newDpi;

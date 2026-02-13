@@ -15,6 +15,16 @@ public class Application
     private static UIWindowBase _activeForm;
     private static bool _dpiAwarenessSet;
 
+    /// <summary>
+    /// Static constructor ensures DPI awareness is set before ANY window is created.
+    /// This runs the first time any Application member is accessed, including
+    /// when UIWindowBase constructor references Application indirectly.
+    /// </summary>
+    static Application()
+    {
+        EnableDpiAwareness();
+    }
+
     public static IReadOnlyList<UIWindowBase> OpenForms => _openForms.AsReadOnly();
 
     public static UIWindowBase ActiveForm
