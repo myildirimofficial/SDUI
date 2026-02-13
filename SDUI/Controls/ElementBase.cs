@@ -1168,7 +1168,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// When true, all children will have their render tree invalidated on the next render pass.
     /// Set this after size changes, DPI changes, or other events that require a full repaint.
     /// </summary>
-    protected bool NeedsFullChildRedraw { get; set; }
+    protected bool NeedsFullChildRedraw { get; set; } = true;
 
     private readonly List<ValidationRule> _validationRules = new();
 

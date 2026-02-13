@@ -965,7 +965,6 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     try
                     {
                         Location = new SKPoint(x, y);
-                        OnLocationChanged(EventArgs.Empty);
                     }
                     finally
                     {
@@ -1000,8 +999,9 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     _updatingFromNative = true;
                     try
                     {
+                        // Size setter already triggers OnSizeChanged internally.
+                        // No need to call OnSizeChanged again.
                         Size = new SKSize(width, height);
-                        OnSizeChanged(EventArgs.Empty);
                         InvalidateWindow();
                     }
                     finally

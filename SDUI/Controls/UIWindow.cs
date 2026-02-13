@@ -38,32 +38,32 @@ public partial class UIWindow : UIWindowBase
     private readonly List<ZOrderSortItem> _zOrderSortBuffer = new();
 
     /// <summary>
-    ///     Close tab hover animation manager
+    /// Close tab hover animation manager
     /// </summary>
     private readonly AnimationManager closeBoxHoverAnimationManager;
 
     /// <summary>
-    ///     Whether to display the control buttons of the form
+    /// Whether to display the control buttons of the form
     /// </summary>
     private readonly bool controlBox = true;
 
     /// <summary>
-    ///     Min Box hover animation manager
+    /// Min Box hover animation manager
     /// </summary>
     private readonly AnimationManager extendBoxHoverAnimationManager;
 
     /// <summary>
-    ///     tab area animation manager
+    /// tab area animation manager
     /// </summary>
     private readonly AnimationManager formMenuHoverAnimationManager;
 
     /// <summary>
-    ///     Min Box hover animation manager
+    /// Min Box hover animation manager
     /// </summary>
     private readonly AnimationManager maxBoxHoverAnimationManager;
 
     /// <summary>
-    ///     Min Box hover animation manager
+    /// Min Box hover animation manager
     /// </summary>
     private readonly AnimationManager minBoxHoverAnimationManager;
 
@@ -1918,14 +1918,15 @@ public partial class UIWindow : UIWindowBase
 
             // Draw title bar, control buttons, tabs (window chrome)
             PaintSurface(canvas, info);
-            canvas.Restore();
 
-            // Delegate child rendering to ElementBase.RenderChildren
-            // which handles Z-order sorting, scroll offset, and render tree invalidation.
+            // Child rendering within the same clip region.
+            // RenderChildren handles Z-order sorting, scroll offset, and render tree invalidation.
             RenderChildren(canvas);
 
             if (_showPerfOverlay)
                 DrawPerfOverlay(canvas);
+
+            canvas.Restore();
         }
         finally
         {
