@@ -248,7 +248,7 @@ namespace SDUI.Controls
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            ButtonRenderer.DrawParentBackground(e.Graphics, Bounds, this);
+            ButtonRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
 
             Graphics gfx = e.Graphics;
 

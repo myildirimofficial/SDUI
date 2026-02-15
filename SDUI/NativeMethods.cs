@@ -46,6 +46,9 @@ public class NativeMethods
     public const int LVM_SETBKCOLOR = LVM_FIRST + 1;
     public const int LVM_GETHEADER = LVM_FIRST + 31;
     public const int LVM_SETITEMSTATE = LVM_FIRST + 43;
+    public const int LVM_INSERTITEM = LVM_FIRST + 77;
+    public const int LVM_DELETEITEM = LVM_FIRST + 8;
+    public const int LVM_DELETEALLITEMS = LVM_FIRST + 9;
     public const int LVM_GETGROUPRECT = LVM_FIRST + 98;
     public const int LVM_ENABLEGROUPVIEW = LVM_FIRST + 157;
     public const int LVM_SETGROUPINFO = LVM_FIRST + 147;

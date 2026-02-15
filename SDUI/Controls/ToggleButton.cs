@@ -24,14 +24,12 @@ public class ToggleButton : System.Windows.Forms.CheckBox
     {
         SetStyle(
             ControlStyles.SupportsTransparentBackColor
-                | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.UserPaint,
             true
         );
 
-        this.DoubleBuffered = true;
         this.MinimumSize = new Size(46, 22);
 
         animationManager = new Animation.AnimationEngine()
@@ -97,7 +95,7 @@ public class ToggleButton : System.Windows.Forms.CheckBox
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        CheckBoxRenderer.DrawParentBackground(e.Graphics, ClientRectangle, this);
+        CheckBoxRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
         int toggleSize = this.Height - 5;
 
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;

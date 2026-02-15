@@ -182,7 +182,7 @@ public class TextBox : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        ButtonRenderer.DrawParentBackground(e.Graphics, ClientRectangle, this);
+        ButtonRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
 
         var color = Color.CornflowerBlue;
 

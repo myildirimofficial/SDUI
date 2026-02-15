@@ -52,7 +52,8 @@ public class UIWindowBase : Form
 
     public UIWindowBase()
     {
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        DoubleBuffered = true;
         BackColor = Color.FromArgb(0, 0, 0, 0);
         ResizeRedraw = true;
     }
@@ -275,11 +276,9 @@ public class UIWindowBase : Form
         }
         catch { }
 
-        if (control.HasChildren)
-        {
-            foreach (Control subControl in control.Controls)
-                ChangeControlsTheme(subControl);
-        }
+
+        foreach (Control subControl in control.Controls)
+            ChangeControlsTheme(subControl);
     }
 
     protected override void OnHandleCreated(EventArgs e)

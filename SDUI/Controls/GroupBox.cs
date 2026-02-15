@@ -48,9 +48,9 @@ public class GroupBox : System.Windows.Forms.GroupBox
             ControlStyles.SupportsTransparentBackColor
                 | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.DoubleBuffer
                 | ControlStyles.ResizeRedraw
-                | ControlStyles.UserPaint,
+                | ControlStyles.UserPaint
+                | ControlStyles.EnableNotifyMessage,
             true
         );
 
@@ -58,6 +58,26 @@ public class GroupBox : System.Windows.Forms.GroupBox
         DoubleBuffered = true;
         BackColor = Color.Transparent;
         Padding = new Padding(3, 8, 3, 3);
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            // WS_EX_COMPOSITED - enables double-buffered painting for smooth child control rendering
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
+    }
+
+    protected override void OnNotifyMessage(Message m)
+    {
+        // Filter out WM_ERASEBKGND to prevent child control flickering
+        if (m.Msg != 0x14)
+        {
+            base.OnNotifyMessage(m);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -154,7 +174,7 @@ public class GroupBox : System.Windows.Forms.GroupBox
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        // Draw parent background only in clip rectangle
+        // Draw parent background only in the invalidated region
         GroupBoxRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
 
         if (ColorScheme.DrawDebugBorders)

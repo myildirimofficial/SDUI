@@ -77,11 +77,33 @@ public class Panel : System.Windows.Forms.Panel
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.UserPaint
-                | ControlStyles.ResizeRedraw,
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.EnableNotifyMessage,
             true
         );
 
+        DoubleBuffered = true;
         BackColor = Color.Transparent;
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            // WS_EX_COMPOSITED - enables double-buffered painting for smooth child control rendering
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
+    }
+
+    protected override void OnNotifyMessage(Message m)
+    {
+        // Filter out WM_ERASEBKGND to prevent child control flickering
+        if (m.Msg != 0x14)
+        {
+            base.OnNotifyMessage(m);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -125,7 +147,6 @@ public class Panel : System.Windows.Forms.Panel
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        // base.OnParentBackColorChanged already triggers repaint
     }
 
     protected override void WndProc(ref Message m)
@@ -192,7 +213,7 @@ public class Panel : System.Windows.Forms.Panel
         }
 
         var rect = ClientRectangle.ToRectangleF();
-        var color = BackColor == Color.Transparent ? ColorScheme.BackColor2 : BackColor;
+        var color = (BackColor == Color.Transparent || BackColor.A < 255) ? ColorScheme.BackColor2 : BackColor;
         var borderColor = _borderColor == Color.Transparent ? ColorScheme.BorderColor : _borderColor;
 
         if (_radius > 0)

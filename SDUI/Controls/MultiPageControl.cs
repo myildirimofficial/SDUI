@@ -279,7 +279,7 @@ public class MultiPageControl : UserControl
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        GroupBoxRenderer.DrawParentBackground(e.Graphics, ClientRectangle, this);
+        GroupBoxRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
 
         base.OnPaint(e);
         var graphics = e.Graphics;

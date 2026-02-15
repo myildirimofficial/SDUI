@@ -132,12 +132,23 @@ public class ProgressBar : Control
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.Opaque
                 | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.UserPaint,
+                | ControlStyles.UserPaint
+                | ControlStyles.EnableNotifyMessage,
             true
         );
 
+        DoubleBuffered = true;
         UpdateStyles();
         BackColor = Color.Transparent;
+    }
+
+    protected override void OnNotifyMessage(Message m)
+    {
+        // Filter out WM_ERASEBKGND (0x14) to reduce flicker
+        if (m.Msg != 0x14)
+        {
+            base.OnNotifyMessage(m);
+        }
     }
 
     private void Timer_Tick(object? sender, EventArgs e)
@@ -148,7 +159,17 @@ public class ProgressBar : Control
     protected override void OnParentBackColorChanged(EventArgs e)
     {
         base.OnParentBackColorChanged(e);
-        Invalidate();
+        // base.OnParentBackColorChanged already triggers repaint
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0014) // WM_ERASEBKGND
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+        base.WndProc(ref m);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -156,7 +177,7 @@ public class ProgressBar : Control
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        ButtonRenderer.DrawParentBackground(graphics, ClientRectangle, this);
+        ButtonRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
 
         var intValue = ((_value / (float)_maximum) * Width);
         var percent = ((100.0f * Value) / Maximum);

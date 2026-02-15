@@ -75,13 +75,15 @@ namespace SDUI.Controls
             SetStyle(
                 ControlStyles.UserPaint
                     | ControlStyles.SupportsTransparentBackColor
-                    | ControlStyles.OptimizedDoubleBuffer,
+                    | ControlStyles.OptimizedDoubleBuffer
+                    | ControlStyles.AllPaintingInWmPaint
+                    | ControlStyles.ResizeRedraw,
                 true
             );
 
             SetStyle(ControlStyles.FixedHeight | ControlStyles.Selectable, false);
-
-            SetStyle(ControlStyles.ResizeRedraw, true);
+            
+            DoubleBuffered = true;
 
             animationManager = new Animation.AnimationEngine
             {
@@ -170,6 +172,16 @@ namespace SDUI.Controls
                 MouseLocation = args.Location;
                 Cursor = IsMouseInCheckArea() ? Cursors.Hand : Cursors.Default;
             };
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0014) // WM_ERASEBKGND
+            {
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         protected override void OnPaint(PaintEventArgs pevent)

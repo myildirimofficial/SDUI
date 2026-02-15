@@ -99,7 +99,6 @@ public class ShapeProgressBar : Control
         SetStyle(
             ControlStyles.UserPaint
                 | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.SupportsTransparentBackColor,
             true
         );
@@ -109,8 +108,6 @@ public class ShapeProgressBar : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var graphics = e.Graphics;
-
-        ButtonRenderer.DrawParentBackground(graphics, ClientRectangle, this);
 
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 

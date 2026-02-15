@@ -222,11 +222,21 @@ namespace SDUI.Controls
             _downButtonRect = new(Width - SIZE * _dpi * 2, 0, SIZE * _dpi, Height);
         }
 
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0014) // WM_ERASEBKGND
+            {
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             //base.OnPaint(e);
             var graphics = e.Graphics;
-            ButtonRenderer.DrawParentBackground(e.Graphics, Bounds, this);
+            ButtonRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
 
             using var borderPen = new Pen(ColorScheme.BorderColor);
             using var backColorBrush = ColorScheme.BackColor.Alpha(90).Brush();

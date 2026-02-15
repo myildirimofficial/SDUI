@@ -137,7 +137,7 @@ public class FormControlBox : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        GroupBoxRenderer.DrawParentBackground(e.Graphics, ClientRectangle, this);
+        GroupBoxRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
 
         var graphics = e.Graphics;
 

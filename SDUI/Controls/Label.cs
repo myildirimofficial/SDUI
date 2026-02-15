@@ -64,10 +64,24 @@ public class Label : System.Windows.Forms.Label
         // base.OnTextChanged already triggers repaint
     }
 
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0014) // WM_ERASEBKGND
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
-        ButtonRenderer.DrawParentBackground(e.Graphics, ClientRectangle, this);
-        e.Graphics.FillRectangle(BackColor.Brush(), ClientRectangle);
+        // Only draw parent background if truly transparent
+        if (BackColor == Color.Transparent || BackColor.A < 255)
+            ButtonRenderer.DrawParentBackground(e.Graphics, e.ClipRectangle, this);
+
+        if (BackColor != Color.Transparent && BackColor.A == 255)
+            e.Graphics.FillRectangle(BackColor.Brush(), ClientRectangle);
 
         if (GradientAnimation)
             Angle = Angle % 360 + 1;

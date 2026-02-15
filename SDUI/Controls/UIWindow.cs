@@ -134,6 +134,7 @@ public class UIWindow : UIWindowBase
         {
             _iconWidth = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -155,6 +156,7 @@ public class UIWindow : UIWindowBase
         {
             _extendBox = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -182,6 +184,7 @@ public class UIWindow : UIWindowBase
         {
             _tabCloseButton = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -196,6 +199,7 @@ public class UIWindow : UIWindowBase
         {
             _newTabButton = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -253,6 +257,7 @@ public class UIWindow : UIWindowBase
         {
             showTitle = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -272,6 +277,7 @@ public class UIWindow : UIWindowBase
         {
             showMenuInsteadOfIcon = value;
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -344,6 +350,7 @@ public class UIWindow : UIWindowBase
                 _minimizeBox = true;
 
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -367,6 +374,7 @@ public class UIWindow : UIWindowBase
                 _maximizeBox = false;
 
             CalcSystemBoxPos();
+            _needsLayoutUpdate = true;
             Invalidate();
         }
     }
@@ -385,6 +393,7 @@ public class UIWindow : UIWindowBase
         set
         {
             _titleHeight = Math.Max(value, 31);
+            _needsLayoutUpdate = true;
             Invalidate();
             CalcSystemBoxPos();
         }
@@ -627,14 +636,14 @@ public class UIWindow : UIWindowBase
 
         formMenuHoverAnimationManager = new() { Increment = 0.15, AnimationType = AnimationType.Linear };
 
-        minBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        maxBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        closeBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        extendBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        tabCloseHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        newTabHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        pageAreaAnimationManager.OnAnimationProgress += sender => Invalidate();
-        formMenuHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
+        minBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_minimizeBoxRect));
+        maxBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_maximizeBoxRect));
+        closeBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_controlBoxRect));
+        extendBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_extendBoxRect));
+        tabCloseHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_closeTabBoxRect));
+        newTabHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_newTabBoxRect));
+        pageAreaAnimationManager.OnAnimationProgress += sender => Invalidate(new Rectangle(0, 0, Width, (int)_cachedMetrics.TitleHeightDPI));
+        formMenuHoverAnimationManager.OnAnimationProgress += sender => Invalidate(Rectangle.Round(_formMenuRect));
 
         //WindowsHelper.ApplyRoundCorner(this.Handle);
     }
@@ -747,8 +756,9 @@ public class UIWindow : UIWindowBase
         _formMenuRect = new(10, _cachedMetrics.TitleHeightDPI / 2 - (titleIconSize / 2), titleIconSize, titleIconSize);
 
         Padding = new Padding(Padding.Left, (int)(showTitle ? _cachedMetrics.TitleHeightDPI : 0), Padding.Right, Padding.Bottom);
-        
-        _needsLayoutUpdate = true;
+
+        // Don't automatically mark layout as needing update - let specific events do that
+        // _needsLayoutUpdate = true; // Removed - causes tabs to shift on every paint
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
@@ -819,8 +829,9 @@ public class UIWindow : UIWindowBase
             OnNewTabBoxClick?.Invoke(this, EventArgs.Empty);
         }
 
-        if (pageRect == null)
-            UpdateTabRects();
+        // Ensure pageRect is initialized before checking clicks
+        if (pageRect == null || pageRect.Count == 0)
+            return;
 
         for (int i = 0; i < pageRect.Count; i++)
         {
@@ -1134,15 +1145,20 @@ public class UIWindow : UIWindowBase
         var contentTop = (int)_cachedMetrics.TitleHeightDPI;
         var contentRect = new Rectangle(0, showTitle ? contentTop : 0, Width, Height - (showTitle ? contentTop : 0));
 
-        if (FullDrawHatch)
+        // Optimize: Only redraw background in the clip area
+        var drawRect = Rectangle.Intersect(contentRect, e.ClipRectangle);
+        if (drawRect.Width > 0 && drawRect.Height > 0)
         {
-            using var hatchBrush = new HatchBrush(_hatch, ColorScheme.BackColor, hoverColor);
-            graphics.FillRectangle(hatchBrush, contentRect);
-        }
-        else
-        {
-            using var backBrush = ColorScheme.BackColor.Brush();
-            graphics.FillRectangle(backBrush, contentRect);
+            if (FullDrawHatch)
+            {
+                using var hatchBrush = new HatchBrush(_hatch, ColorScheme.BackColor, hoverColor);
+                graphics.FillRectangle(hatchBrush, drawRect);
+            }
+            else
+            {
+                using var backBrush = ColorScheme.BackColor.Brush();
+                graphics.FillRectangle(backBrush, drawRect);
+            }
         }
 
         if (!ShowTitle)
@@ -1150,26 +1166,32 @@ public class UIWindow : UIWindowBase
 
         graphics.SetHighQuality();
 
-        // Title bar background
-        if (titleColor != Color.Empty)
-        {
-            foreColor = titleColor.Determine();
-            hoverColor = foreColor.Alpha(20);
-            using var titleBrush = titleColor.Brush();
-            graphics.FillRectangle(titleBrush, 0, 0, Width, _cachedMetrics.TitleHeightDPI);
-        }
-        else if (_gradient.Length == 2 && !(_gradient[0] == Color.Transparent && _gradient[1] == Color.Transparent))
-        {
-            using var brush = new LinearGradientBrush(
-                new RectangleF(0, 0, Width, _cachedMetrics.TitleHeightDPI),
-                _gradient[0],
-                _gradient[1],
-                45
-            );
-            graphics.FillRectangle(brush, 0, 0, Width, _cachedMetrics.TitleHeightDPI);
+        // Title bar background optimization
+        var titleRect = new Rectangle(0, 0, Width, (int)_cachedMetrics.TitleHeightDPI);
+        var titleDrawRect = Rectangle.Intersect(titleRect, e.ClipRectangle);
 
-            foreColor = _gradient[0].Determine();
-            hoverColor = foreColor.Alpha(20);
+        if (titleDrawRect.Width > 0 && titleDrawRect.Height > 0)
+        {
+            if (titleColor != Color.Empty)
+            {
+                foreColor = titleColor.Determine();
+                hoverColor = foreColor.Alpha(20);
+                using var titleBrush = titleColor.Brush();
+                graphics.FillRectangle(titleBrush, titleDrawRect);
+            }
+            else if (_gradient.Length == 2 && !(_gradient[0] == Color.Transparent && _gradient[1] == Color.Transparent))
+            {
+                using var brush = new LinearGradientBrush(
+                    new RectangleF(0, 0, Width, _cachedMetrics.TitleHeightDPI),
+                    _gradient[0],
+                    _gradient[1],
+                    45
+                );
+                graphics.FillRectangle(brush, titleDrawRect);
+
+                foreColor = _gradient[0].Determine();
+                hoverColor = foreColor.Alpha(20);
+            }
         }
 
         RenderControlBoxes(graphics, foreColor, hoverColor);
@@ -1365,13 +1387,21 @@ public class UIWindow : UIWindowBase
         }
     }
 
-    private void RenderTabs(Graphics graphics, Color foreColor, Color hoverColor)
-    {
-        if (_needsLayoutUpdate || pageRect == null || pageRect.Count != _windowPageControl.Count)
-        {
-            UpdateTabRects();
-            _needsLayoutUpdate = false;
-        }
+     private void RenderTabs(Graphics graphics, Color foreColor, Color hoverColor)
+     {
+         // Only recalculate tab rects if count changes or layout is explicitly marked dirty
+         // This prevents the animation from causing tab position shifts
+         if (pageRect == null || pageRect.Count != _windowPageControl.Count)
+         {
+             UpdateTabRects();
+             _needsLayoutUpdate = false;
+         }
+         else if (_needsLayoutUpdate)
+         {
+             // Only update if explicitly needed (e.g., DPI change, size change)
+             UpdateTabRects();
+             _needsLayoutUpdate = false;
+         }
 
         var animationProgress = pageAreaAnimationManager.GetProgress();
 
@@ -1414,9 +1444,9 @@ public class UIWindow : UIWindowBase
         if (_tabDesingMode == TabDesingMode.Rectangle)
         {
             using var hoverBrush = hoverColor.Brush();
-            graphics.DrawRectangle(hoverColor, activePageRect.X, 0, width, _cachedMetrics.TitleHeightDPI);
+            // Use animated x and width for consistency
             graphics.FillRectangle(hoverBrush, x, 0, width, _cachedMetrics.TitleHeightDPI);
-            
+
             using var indicatorBrush = Color.DodgerBlue.Brush();
             graphics.FillRectangle(indicatorBrush, x, _cachedMetrics.TitleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT);
         }
@@ -1446,18 +1476,24 @@ public class UIWindow : UIWindowBase
 
         // Draw tab headers
         using var foreBrush = foreColor.Brush();
-        
-        foreach (Control page in _windowPageControl.Controls)
+        using var defaultTabFormat = new StringFormat()
         {
-            var currentTabIndex = _windowPageControl.Controls.IndexOf(page);
-            var rect = pageRect[currentTabIndex];
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisCharacter,
+        };
+
+        for (int tabIdx = 0; tabIdx < _windowPageControl.Count; tabIdx++)
+        {
+            var page = _windowPageControl.GetPage(tabIdx);
+            var rect = pageRect[tabIdx];
 
             if (_drawTabIcons)
             {
                 var iconMeasure = graphics.MeasureString("", Font);
                 var iconX = rect.X + (TAB_HEADER_PADDING * DPI);
                 var inlinePaddingX = iconMeasure.Width + (TAB_HEADER_PADDING * DPI);
-                
+
                 rect.X += inlinePaddingX;
                 rect.Width -= inlinePaddingX + (24 * DPI);
 
@@ -1476,7 +1512,7 @@ public class UIWindow : UIWindowBase
             }
             else
             {
-                page.DrawString(graphics, foreColor, rect);
+                graphics.DrawString(page.Text, Font, foreBrush, rect, defaultTabFormat);
             }
         }
 
@@ -1575,6 +1611,7 @@ public class UIWindow : UIWindowBase
         InvalidateMetrics();
         base.OnSizeChanged(e);
         CalcSystemBoxPos();
+        _needsLayoutUpdate = true; // Size changed, tabs need recalculation
     }
 
     protected override void OnShown(EventArgs e)
@@ -1638,53 +1675,63 @@ public class UIWindow : UIWindowBase
             };
             _windowPageControl.ControlAdded += delegate
             {
+                _needsLayoutUpdate = true;
                 Invalidate();
             };
             _windowPageControl.ControlRemoved += delegate
             {
+                _needsLayoutUpdate = true;
                 Invalidate();
             };
         }
     }
 
-    private void UpdateTabRects()
-    {
-        if (pageRect == null)
-            pageRect = new();
-        else
-            pageRect.Clear();
+     private void UpdateTabRects()
+     {
+         if (pageRect == null)
+             pageRect = new();
+         else
+             pageRect.Clear();
 
-        //If there isn't a base tab control, the rects shouldn't be calculated
-        //If there aren't tab pages in the base tab control, the list should just be empty which has been set already; exit the void
-        if (_windowPageControl == null || _windowPageControl.Count == 0)
-            return;
+         //If there isn't a base tab control, the rects shouldn't be calculated
+         //If there aren't tab pages in the base tab control, the list should just be empty which has been set already; exit the void
+         if (_windowPageControl == null || _windowPageControl.Count == 0)
+             return;
 
-        //Calculate the bounds of each tab header specified in the base tab control
+         //Calculate the bounds of each tab header specified in the base tab control
 
-        float tabAreaWidth = 44;
+         EnsureMetrics(); // Make sure DPI metrics are fresh
 
-        if (controlBox)
-            tabAreaWidth += _controlBoxRect.Width;
+         float leftOffset = 44 * DPI;
+         float rightPadding = 30 * DPI;
 
-        if (MinimizeBox)
-            tabAreaWidth += _minimizeBoxRect.Width;
+         // Calculate reserved width for control boxes using cached metrics (stable values)
+         float boxesWidth = 0;
 
-        if (MaximizeBox)
-            tabAreaWidth += _maximizeBoxRect.Width;
+         if (controlBox)
+             boxesWidth += _cachedMetrics.IconWidthDPI;
 
-        if (ExtendBox)
-            tabAreaWidth += _extendBoxRect.Width;
+         if (MinimizeBox)
+             boxesWidth += _cachedMetrics.IconWidthDPI + 2; // +2 for spacing
 
-        float maxSize = 200f * DPI;
+         if (MaximizeBox)
+             boxesWidth += _cachedMetrics.IconWidthDPI + 2; // +2 for spacing
 
-        tabAreaWidth = (Width - tabAreaWidth - 30) / _windowPageControl.Count;
-        if (tabAreaWidth > maxSize)
-            tabAreaWidth = maxSize;
+         if (ExtendBox)
+             boxesWidth += _cachedMetrics.IconWidthDPI + 2; // +2 for spacing
 
-        pageRect.Add(new(44, 0, tabAreaWidth, _cachedMetrics.TitleHeightDPI));
-        for (int i = 1; i < _windowPageControl.Count; i++)
-            pageRect.Add(new(pageRect[i - 1].Right, 0, tabAreaWidth, _cachedMetrics.TitleHeightDPI));
+         float maxSize = 200f * DPI;
 
-        _needsLayoutUpdate = false;
-    }
+         // Ensure we have minimum space for tabs
+         float availableWidth = Math.Max(Width - (leftOffset + boxesWidth + rightPadding), 100);
+         float tabAreaWidth = availableWidth / _windowPageControl.Count;
+         if (tabAreaWidth > maxSize)
+             tabAreaWidth = maxSize;
+
+         pageRect.Add(new(leftOffset, 0, tabAreaWidth, _cachedMetrics.TitleHeightDPI));
+         for (int i = 1; i < _windowPageControl.Count; i++)
+             pageRect.Add(new(pageRect[i - 1].Right, 0, tabAreaWidth, _cachedMetrics.TitleHeightDPI));
+
+         _needsLayoutUpdate = false;
+     }
 }

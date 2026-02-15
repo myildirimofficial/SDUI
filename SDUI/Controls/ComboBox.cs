@@ -35,6 +35,25 @@ public class ComboBox : System.Windows.Forms.ComboBox
         }
     }
 
+    public new int ItemHeight
+    {
+        get => base.ItemHeight;
+        set
+        {
+            if(value < 22)
+                value = 22;
+
+            if (!IsHandleCreated)
+                return;
+
+            if (base.ItemHeight == value)
+                return;
+     
+            base.ItemHeight = value;
+            Invalidate();
+        }
+    }
+
     public ComboBox()
     {
         SetStyle(
@@ -43,12 +62,15 @@ public class ComboBox : System.Windows.Forms.ComboBox
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.Selectable
-                | ControlStyles.SupportsTransparentBackColor,
+                | ControlStyles.SupportsTransparentBackColor
+                | ControlStyles.EnableNotifyMessage,
             true
         );
 
+        DoubleBuffered = true;
         DrawMode = DrawMode.OwnerDrawVariable;
         DropDownStyle = ComboBoxStyle.DropDownList;
+        ItemHeight = 22;
     }
 
     protected override void OnDrawItem(DrawItemEventArgs e)
@@ -96,6 +118,36 @@ public class ComboBox : System.Windows.Forms.ComboBox
         SuspendLayout();
         Update();
         ResumeLayout();
+    }
+
+    protected override void OnNotifyMessage(Message m)
+    {
+        // Filter out WM_ERASEBKGND (0x14) to reduce flicker
+        if (m.Msg != 0x14)
+        {
+            base.OnNotifyMessage(m);
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0014) // WM_ERASEBKGND
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams cp = base.CreateParams;
+            // WS_EX_COMPOSITED for smoother rendering (reduces flicker)
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
     }
 
     protected override void OnPaint(PaintEventArgs e)

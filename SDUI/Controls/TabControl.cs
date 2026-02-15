@@ -27,10 +27,12 @@ public class TabControl : System.Windows.Forms.TabControl
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.UserPaint,
+                | ControlStyles.UserPaint
+                | ControlStyles.EnableNotifyMessage,
             true
         );
 
+        DoubleBuffered = true;
         UpdateStyles();
     }
 
@@ -50,6 +52,16 @@ public class TabControl : System.Windows.Forms.TabControl
         Alignment = TabAlignment.Top;
     }
 
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0014) // WM_ERASEBKGND
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         if (TabCount <= 0 || SelectedTab == null)
@@ -57,7 +69,7 @@ public class TabControl : System.Windows.Forms.TabControl
 
         var graphics = e.Graphics;
 
-        GroupBoxRenderer.DrawParentBackground(graphics, this.ClientRectangle, this);
+        GroupBoxRenderer.DrawParentBackground(graphics, e.ClipRectangle, this);
 
         graphics.SetHighQuality();
         using var borderBrush = new Pen(Color.FromArgb(70, 0, 0, 0));
@@ -107,8 +119,18 @@ public class TabControl : System.Windows.Forms.TabControl
         get
         {
             var parms = base.CreateParams;
-            parms.Style &= ~0x02000000; // Turn off WS_CLIPCHILDREN
+            // WS_EX_COMPOSITED for smoother rendering (reduces flicker)
+            parms.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
             return parms;
+        }
+    }
+
+    protected override void OnNotifyMessage(Message m)
+    {
+        // Filter out WM_ERASEBKGND (0x14) to reduce flicker
+        if (m.Msg != 0x14)
+        {
+            base.OnNotifyMessage(m);
         }
     }
 }

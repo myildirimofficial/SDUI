@@ -26,12 +26,24 @@ public class Button : System.Windows.Forms.Button
         {
             if (base.Text == value)
                 return;
-                
+
             base.Text = value;
             textSize = TextRenderer.MeasureText(value, Font);
             if (AutoSize)
                 Size = GetPreferredSize();
             Invalidate();
+        }
+    }
+
+    public override Size MinimumSize
+    {
+        get => base.MinimumSize;
+        set
+        {
+            if (value.Height < 23)
+                value.Height = 23;
+
+            base.MinimumSize = value;
         }
     }
 
@@ -76,12 +88,14 @@ public class Button : System.Windows.Forms.Button
     {
         SetStyle(
             ControlStyles.UserPaint
-                | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.SupportsTransparentBackColor
                 | ControlStyles.ResizeRedraw,
             true
         );
+        
+        DoubleBuffered = true;
 
         animationManager = new Animation.AnimationEngine(false)
         {
@@ -157,8 +171,8 @@ public class Button : System.Windows.Forms.Button
         var currentBounds = Rectangle.Round(rect);
         var currentDpi = DeviceDpi;
 
-        if (_cachedPath != null && 
-            _cachedBounds == currentBounds && 
+        if (_cachedPath != null &&
+            _cachedBounds == currentBounds &&
             Math.Abs(_cachedDpi - currentDpi) < 0.01f)
         {
             return _cachedPath;
@@ -262,7 +276,7 @@ public class Button : System.Windows.Forms.Button
         if (animationManager.IsAnimating())
         {
             using var ripplePath = (GraphicsPath)path.Clone();
-            
+
             for (int i = 0; i < animationManager.GetAnimationCount(); i++)
             {
                 var animationValue = animationManager.GetProgress(i);
@@ -272,7 +286,7 @@ public class Button : System.Windows.Forms.Button
                 if (rippleAlpha > 0)
                 {
                     using var rippleBrush = new SolidBrush(ColorScheme.BackColor.Alpha(rippleAlpha));
-                    
+
                     var rippleSize = (float)(animationValue * Width * 2.0);
                     var rippleRect = new RectangleF(
                         animationSource.X - rippleSize / 2,
@@ -280,11 +294,11 @@ public class Button : System.Windows.Forms.Button
                         rippleSize,
                         rippleSize
                     );
-                    
+
                     ripplePath.Reset();
                     ripplePath.AddPath(path, false);
                     ripplePath.AddEllipse(rippleRect);
-                    
+
                     graphics.FillPath(rippleBrush, ripplePath);
                 }
             }
@@ -296,7 +310,7 @@ public class Button : System.Windows.Forms.Button
             foreColor = Color.Gray;
 
         var textRect = rectf.ToRectangle();
-        
+
         if (Image != null)
         {
             var dpiScale = DeviceDpi / 96f;

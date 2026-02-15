@@ -19,9 +19,12 @@ public class ListView : System.Windows.Forms.ListView
         SetStyle(
                  ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.EnableNotifyMessage,
+                | ControlStyles.EnableNotifyMessage
+                | ControlStyles.ResizeRedraw,
             true
         );
+        
+        DoubleBuffered = true;
         LvwColumnSorter = new ListViewColumnSorter();
         ListViewItemSorter = LvwColumnSorter;
         View = View.Details;
@@ -64,7 +67,10 @@ public class ListView : System.Windows.Forms.ListView
             base.EndUpdate();
             SendMessage(Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
             _isUpdating = false;
-            Invalidate();
+            
+            // Use RedrawWindow for proper refresh after WM_SETREDRAW
+            RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 
+                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME);
         }
         catch (Exception ex)
         {
@@ -83,7 +89,6 @@ public class ListView : System.Windows.Forms.ListView
     {
         base.OnHandleCreated(e);
         EnableDoubleBuffering();
-        EnableExtendedStyles();
         ApplyTheme();
     }
 
@@ -222,22 +227,25 @@ public class ListView : System.Windows.Forms.ListView
         if (!IsHandleCreated)
             return;
 
-        // Enable double buffering and other performance optimizations
-        IntPtr lParam = new IntPtr(LVS_EX_DOUBLEBUFFER | 0x00000020);
-        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, lParam);
-    }
-
-    private void EnableExtendedStyles()
-    {
-        if (!IsHandleCreated)
-            return;
-
-        // Additional performance extended styles
+        // Get current extended styles first
+        const int LVM_GETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 55;
+        IntPtr currentStyles = SendMessage(Handle, LVM_GETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, IntPtr.Zero);
+        
+        // Extended styles for double buffering and smooth scrolling
+        const int LVS_EX_FULLROWSELECT = 0x00000020;
         const int LVS_EX_BORDERSELECT = 0x00008000;
         const int LVS_EX_LABELTIP = 0x00004000;
+        const int LVS_EX_TRANSPARENTBKGND = 0x00400000; // Better for themed controls
+        const int LVS_EX_TRANSPARENTSHADOWTEXT = 0x00800000;
         
-        IntPtr styles = new IntPtr(LVS_EX_DOUBLEBUFFER | 0x00000020 | LVS_EX_BORDERSELECT | LVS_EX_LABELTIP);
-        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, styles);
+        // Combine with existing styles - LVS_EX_DOUBLEBUFFER is the key for scroll flicker
+        int newStyles = currentStyles.ToInt32() 
+            | LVS_EX_DOUBLEBUFFER 
+            | LVS_EX_FULLROWSELECT 
+            | LVS_EX_BORDERSELECT 
+            | LVS_EX_LABELTIP;
+        
+        SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, new IntPtr(newStyles));
     }
 
     internal void ApplyTheme()
@@ -364,10 +372,9 @@ public class ListView : System.Windows.Forms.ListView
         get
         {
             CreateParams cp = base.CreateParams;
-            // WS_EX_COMPOSITED for smoother rendering
-            cp.ExStyle |= 0x02000000;
-            // WS_CLIPCHILDREN to prevent child control flicker
-            cp.Style |= 0x02000000;
+            // WS_EX_COMPOSITED - enables double-buffered painting for the window and all its children
+            // This is key for smooth scrolling without flicker
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
             return cp;
         }
     }

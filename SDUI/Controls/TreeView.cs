@@ -16,10 +16,12 @@ public class TreeView : System.Windows.Forms.TreeView
                  ControlStyles.SupportsTransparentBackColor
                 | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.EnableNotifyMessage,
+                | ControlStyles.EnableNotifyMessage
+                | ControlStyles.ResizeRedraw,
             true
         );
 
+        DoubleBuffered = true;
         FullRowSelect = true;
         UpdateStyles();
     }
@@ -58,7 +60,10 @@ public class TreeView : System.Windows.Forms.TreeView
             base.EndUpdate();
             SendMessage(Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
             _isUpdating = false;
-            Invalidate();
+            
+            // Use RedrawWindow for proper refresh after WM_SETREDRAW
+            RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 
+                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME);
         }
         catch (Exception ex)
         {
@@ -140,6 +145,11 @@ public class TreeView : System.Windows.Forms.TreeView
     {
         switch (m.Msg)
         {
+            case 0x0014: // WM_ERASEBKGND
+                // Prevent flicker - return 1 to indicate handled
+                m.Result = (IntPtr)1;
+                return;
+
             case WM_NOTIFY:
                 if (!IsHandleCreated || IsDisposed)
                 {
@@ -180,6 +190,8 @@ public class TreeView : System.Windows.Forms.TreeView
         get
         {
             CreateParams cp = base.CreateParams;
+            // WS_CLIPCHILDREN prevents child control flicker
+            cp.Style |= 0x02000000; // WS_CLIPCHILDREN
             return cp;
         }
     }

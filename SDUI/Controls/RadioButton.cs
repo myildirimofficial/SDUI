@@ -59,9 +59,15 @@ public class Radio : RadioButton
     public Radio()
     {
         SetStyle(
-            ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint,
+            ControlStyles.UserPaint 
+                | ControlStyles.SupportsTransparentBackColor 
+                | ControlStyles.OptimizedDoubleBuffer 
+                | ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.ResizeRedraw,
             true
         );
+        
+        DoubleBuffered = true;
 
         animationManager = new Animation.AnimationEngine { AnimationType = AnimationType.EaseInOut, Increment = 0.06 };
         rippleAnimationManager = new Animation.AnimationEngine(false)
@@ -126,13 +132,23 @@ public class Radio : RadioButton
         };
     }
 
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0014) // WM_ERASEBKGND
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+
     protected override void OnPaint(PaintEventArgs pevent)
     {
         var graphics = pevent.Graphics;
         graphics.SmoothingMode = SmoothingMode.HighQuality;
         graphics.TextRenderingHint = TextRenderingHint.SystemDefault;
 
-        RadioButtonRenderer.DrawParentBackground(pevent.Graphics, ClientRectangle, this);
+        RadioButtonRenderer.DrawParentBackground(pevent.Graphics, pevent.ClipRectangle, this);
 
         var RADIOBUTTON_CENTER = boxOffset + RADIOBUTTON_SIZE_HALF;
 

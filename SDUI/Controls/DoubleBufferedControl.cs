@@ -6,9 +6,21 @@ namespace SDUI.Controls
     {
         public DoubleBufferedControl()
         {
-            SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
-            SetStyle(ControlStyles.AllPaintingInWmPaint, true);
-            SetStyle(ControlStyles.DoubleBuffer, true);
+            SetStyle(
+                 ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.EnableNotifyMessage,
+            true
+        );
+        }
+
+        protected override void OnNotifyMessage(Message m)
+        {
+            // Filter out WM_ERASEBKGND (0x14) to reduce flicker
+            if (m.Msg != 0x14)
+            {
+                base.OnNotifyMessage(m);
+            }
         }
 
         protected override CreateParams CreateParams

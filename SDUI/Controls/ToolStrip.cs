@@ -11,7 +11,6 @@ public class ToolStrip : System.Windows.Forms.ToolStrip
         Renderer = new MenuRenderer();
         SetStyle(
             ControlStyles.SupportsTransparentBackColor
-                | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.UserPaint,
             true
