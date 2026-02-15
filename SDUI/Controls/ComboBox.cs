@@ -106,12 +106,6 @@ public class ComboBox : System.Windows.Forms.ComboBox
         e.Graphics.DrawString(Items[index].ToString(), e.Font, textBrush, e.Bounds, stringFormat);
     }
 
-    protected override void OnParentBackColorChanged(EventArgs e)
-    {
-        base.OnParentBackColorChanged(e);
-        // base.OnParentBackColorChanged already triggers repaint
-    }
-
     protected override void OnLostFocus(EventArgs e)
     {
         base.OnLostFocus(e);
@@ -137,17 +131,6 @@ public class ComboBox : System.Windows.Forms.ComboBox
             return;
         }
         base.WndProc(ref m);
-    }
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            CreateParams cp = base.CreateParams;
-            // WS_EX_COMPOSITED for smoother rendering (reduces flicker)
-            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
-            return cp;
-        }
     }
 
     protected override void OnPaint(PaintEventArgs e)
