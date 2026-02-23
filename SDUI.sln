@@ -5,11 +5,11 @@ VisualStudioVersion = 18.2.11415.280 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SDUI", "SDUI\SDUI.csproj", "{38B06E05-D80D-4E99-9F62-8B3AF0B7AC53}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orivy.Example", "Orivy.Example\Orivy.Example.csproj", "{20E977AE-1A8C-47FE-AA09-44A79C1C8149}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SDUI.Demo", "SDUI.Test\SDUI.Demo.csproj", "{EDA32308-A09D-4FF8-B5F9-22ECCB9FD622}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SDUI.Designer", "SDUI.Designer\SDUI.Designer.csproj", "{B8C7E1A3-2D4F-4E6B-9A8D-1F3C5E7D9B2A}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orivy.Example", "Orivy.Example\Orivy.Example.csproj", "{20E977AE-1A8C-47FE-AA09-44A79C1C8149}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

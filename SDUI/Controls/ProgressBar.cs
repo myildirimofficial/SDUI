@@ -182,15 +182,8 @@ public class ProgressBar : UIElementBase
             // Hatch pattern çizimi
             if (_drawHatch)
             {
-                using var hatchPaint = new SKPaint
-                {
-                    Color = SKColors.White.WithAlpha(50),
-                    IsAntialias = true,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = 1,
-                    PathEffect = SKPathEffect.Create2DLine(2, new SKMatrix(1, 1, 0, -1, 1, 0, 0, 0, 1))
-                };
-
+                using var brush = new HatchBrush(_hatchType, SKColors.White.WithAlpha(50), SKColors.Transparent);
+                using var hatchPaint = brush.CreatePaint();
                 canvas.DrawRoundRect(progressRect, _radius, _radius, hatchPaint);
             }
         }
