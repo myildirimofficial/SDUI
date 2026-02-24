@@ -34,8 +34,14 @@ public partial class UIWindow : UIWindowBase
     // Hot-path caches (avoid per-frame LINQ allocations)
     private readonly List<ElementBase> _hitTestElements = new();
     private readonly Dictionary<string, SKPaint> _paintCache = new();
+    private readonly Dictionary<string, SKFont> _fontCache = new();
     private readonly object _softwareCacheLock = new();
     private readonly List<ZOrderSortItem> _zOrderSortBuffer = new();
+    // scratch buffer used by UpdateTabRects
+    private readonly List<float> _tabWidthBuffer = new();
+    // reusable temporary path for rounded rectangles
+    private readonly SKPath _tempPath = new SKPath();
+
 
     /// <summary>
     /// Close tab hover animation manager
@@ -82,6 +88,9 @@ public partial class UIWindow : UIWindowBase
     /// </summary>
     private readonly AnimationManager tabCloseHoverAnimationManager;
 
+    // Collection of hover animation managers to simplify bulk operations
+    private readonly List<AnimationManager> _hoverAnimationManagers = new();
+
     private SKBitmap _cacheBitmap;
     private SKSurface _cacheSurface;
 
@@ -100,7 +109,6 @@ public partial class UIWindow : UIWindowBase
     /// </summary>
     private SkiaSharp.SKRect _controlBoxRect;
 
-    private Cursor _currentCursor;
 
     private bool _drawTabIcons;
 
@@ -147,11 +155,8 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     Is form active <c>true</c>; otherwise <c>false</c>
     /// </summary>
-    private bool _isActive;
 
-    private ElementBase _lastHoveredElement;
 
-    private int _layoutSuspendCount;
 
     /// <summary>
     ///     The starting location when form drag begins
@@ -168,7 +173,6 @@ public partial class UIWindow : UIWindowBase
     /// </summary>
     private SkiaSharp.SKRect _maximizeBoxRect;
 
-    private int _maxZOrder;
 
     /// <summary>
     ///     Whether to show the minimize button of the form
@@ -180,8 +184,6 @@ public partial class UIWindow : UIWindowBase
     /// </summary>
     private SkiaSharp.SKRect _minimizeBoxRect;
 
-    // Element that has explicitly captured mouse input (via SetMouseCapture)
-    private ElementBase? _mouseCapturedElement;
 
     /// <summary>
     ///     The position of the mouse when the left mouse button is pressed
@@ -267,78 +269,30 @@ public partial class UIWindow : UIWindowBase
         ApplyRenderStyles();
         enableFullDraggable = false;
 
-        pageAreaAnimationManager = new AnimationManager
-        {
-            AnimationType = AnimationType.EaseOut,
-            Increment = 0.07,
-            Singular = true,
-            InterruptAnimation = true
-        };
+        // allocate pageRect once to avoid repeated allocations
+        pageRect = new List<SKRect>();
 
-        minBoxHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
+        // create individual hover managers then register for bulk operations
+        pageAreaAnimationManager = CreateHoverAnimation();
+        minBoxHoverAnimationManager = CreateHoverAnimation();
+        maxBoxHoverAnimationManager = CreateHoverAnimation();
+        closeBoxHoverAnimationManager = CreateHoverAnimation();
+        extendBoxHoverAnimationManager = CreateHoverAnimation();
+        tabCloseHoverAnimationManager = CreateHoverAnimation();
+        newTabHoverAnimationManager = CreateHoverAnimation();
+        formMenuHoverAnimationManager = CreateHoverAnimation();
 
-        maxBoxHoverAnimationManager = new AnimationManager
+        _hoverAnimationManagers.AddRange(new[]
         {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        closeBoxHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        extendBoxHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        tabCloseHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        newTabHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        formMenuHoverAnimationManager = new AnimationManager
-        {
-            Increment = HOVER_ANIMATION_SPEED,
-            AnimationType = AnimationType.EaseInOut,
-            Singular = true,
-            InterruptAnimation = true
-        };
-
-        minBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        maxBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        closeBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        extendBoxHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        tabCloseHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        newTabHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
-        pageAreaAnimationManager.OnAnimationProgress += sender => Invalidate();
-        formMenuHoverAnimationManager.OnAnimationProgress += sender => Invalidate();
+            pageAreaAnimationManager,
+            minBoxHoverAnimationManager,
+            maxBoxHoverAnimationManager,
+            closeBoxHoverAnimationManager,
+            extendBoxHoverAnimationManager,
+            tabCloseHoverAnimationManager,
+            newTabHoverAnimationManager,
+            formMenuHoverAnimationManager
+        });
 
         //WindowsHelper.ApplyRoundCorner(this.Handle);
     }
@@ -603,18 +557,6 @@ public partial class UIWindow : UIWindowBase
     public SKSize CanvasSize =>
         _cacheBitmap == null ? SKSize.Empty : new SKSize(_cacheBitmap.Width, _cacheBitmap.Height);
 
-    public ElementBase LastHoveredElement
-    {
-        get => _lastHoveredElement;
-        internal set
-        {
-            if (_lastHoveredElement != value)
-            {
-                _lastHoveredElement = value;
-                UpdateCursor(value);
-            }
-        }
-    }
 
     public WindowPageControl WindowPageControl
     {
@@ -803,20 +745,26 @@ public partial class UIWindow : UIWindowBase
         foreach (ElementBase child in element.Controls) InvalidateMeasureRecursiveInternal(child);
     }
 
-    public override void SetMouseCapture(ElementBase element)
+    // Helper to toggle hover animations consistently
+    private static void SetHoverState(AnimationManager manager, bool enter)
     {
-        _mouseCapturedElement = element;
-        SetCapture(Handle);
+        if (manager == null)
+            return;
+
+        manager.StartNewAnimation(enter ? AnimationDirection.In : AnimationDirection.Out);
     }
 
-    public override void ReleaseMouseCapture(ElementBase element)
+    // End all hover animations (used on mouse leave)
+    private void EndAllHoverAnimations()
     {
-        if (_mouseCapturedElement == element)
+        for (var i = 0; i < _hoverAnimationManagers.Count; i++)
         {
-            _mouseCapturedElement = null;
-            ReleaseCapture();
+            var mgr = _hoverAnimationManagers[i];
+            mgr?.StartNewAnimation(AnimationDirection.Out);
         }
     }
+
+
 
     private bool ShouldForceSoftwareUpdate()
     {
@@ -931,19 +879,38 @@ public partial class UIWindow : UIWindowBase
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        //ApplyRenderStyles();
         RecreateRenderer();
+        EnsureInitialLayoutAndDpiSync();
+    }
 
-        // Initial DPI sync: Ensure controls match the window's actual DPI 
-        // (which might differ from System DPI captured during initialization).
-        var dpi = Screen.GetDpiForWindowHandle(Handle);
-        foreach (var control in Controls.OfType<ElementBase>())
+    private void EnsureInitialLayoutAndDpiSync()
+    {
+        // ensure measurements are fresh now that handle (and correct client size) exist
+        InvalidateMeasureRecursive();
+        PerformLayout();
+        Invalidate();
+
+        // Initial DPI sync: Ensure controls match the window's actual DPI
+        try
         {
-            var oldDpi = control.ScaleFactor * 96f;
-            if (Math.Abs(oldDpi - dpi) > 0.001f)
+            var dpi = Screen.GetDpiForWindowHandle(Handle);
+            foreach (var control in Controls.OfType<ElementBase>())
             {
-                control.OnDpiChanged(dpi, oldDpi);
+                var oldDpi = control.ScaleFactor * 96f;
+                if (Math.Abs(oldDpi - dpi) > 0.001f)
+                {
+                    control.OnDpiChanged(dpi, oldDpi);
+                }
             }
+
+            // layout again after DPI adjustments (child OnDpiChanged may alter desired sizes)
+            InvalidateMeasureRecursive();
+            PerformLayout();
+            Invalidate();
+        }
+        catch
+        {
+            // keep best-effort behavior: if DPI helpers fail, leave layout as-is
         }
     }
 
@@ -1571,102 +1538,56 @@ public partial class UIWindow : UIWindowBase
             {
                 _inCloseBox = inCloseBox;
                 isChange = true;
-                if (inCloseBox)
-                    closeBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    closeBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(closeBoxHoverAnimationManager, inCloseBox);
             }
 
             if (inMaxBox != _inMaxBox)
             {
                 _inMaxBox = inMaxBox;
                 isChange = true;
-                if (inMaxBox)
-                    maxBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    maxBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(maxBoxHoverAnimationManager, inMaxBox);
             }
 
             if (inMinBox != _inMinBox)
             {
                 _inMinBox = inMinBox;
                 isChange = true;
-                if (inMinBox)
-                    minBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    minBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(minBoxHoverAnimationManager, inMinBox);
             }
 
             if (inExtendBox != _inExtendBox)
             {
                 _inExtendBox = inExtendBox;
                 isChange = true;
-                if (inExtendBox)
-                    extendBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    extendBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(extendBoxHoverAnimationManager, inExtendBox);
             }
 
             if (inCloseTabBox != _inTabCloseBox)
             {
                 _inTabCloseBox = inCloseTabBox;
                 isChange = true;
-                if (inCloseTabBox)
-                    tabCloseHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    tabCloseHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(tabCloseHoverAnimationManager, inCloseTabBox);
             }
 
             if (inNewTabBox != _inNewTabBox)
             {
                 _inNewTabBox = inNewTabBox;
                 isChange = true;
-                if (inNewTabBox)
-                    newTabHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    newTabHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(newTabHoverAnimationManager, inNewTabBox);
             }
 
             if (inFormMenuBox != _inFormMenuBox)
             {
                 _inFormMenuBox = inFormMenuBox;
                 isChange = true;
-                if (inFormMenuBox)
-                    formMenuHoverAnimationManager.StartNewAnimation(AnimationDirection.In);
-                else
-                    formMenuHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
+                SetHoverState(formMenuHoverAnimationManager, inFormMenuBox);
             }
 
             if (isChange)
                 Invalidate();
         }
 
-        ElementBase hoveredElement = null;
-
-        // Z-order'a g�re tersten kontrol et
-        foreach (var element in Controls.OfType<ElementBase>().OrderByDescending(el => el.ZOrder)
-                     .Where(el => el.Visible && el.Enabled))
-            if (GetWindowRelativeBoundsStatic(element).Contains(e.Location))
-            {
-                hoveredElement = element;
-                var localEvent = CreateChildMouseEvent(e, element);
-                element.OnMouseMove(localEvent);
-                break; // �lk hover edilen elementten sonra di�erlerini kontrol etmeye gerek yok
-            }
-
-        // Cursor should reflect the deepest hovered child (e.g., TextBox -> IBeam)
-        var cursorElement = hoveredElement;
-        while (cursorElement?.LastHoveredElement != null)
-            cursorElement = cursorElement.LastHoveredElement;
-        UpdateCursor(cursorElement);
-
-        if (hoveredElement != _lastHoveredElement)
-        {
-            _lastHoveredElement?.OnMouseLeave(EventArgs.Empty);
-            hoveredElement?.OnMouseEnter(EventArgs.Empty);
-            LastHoveredElement = hoveredElement;
-        }
-
+        // let element base propagate the mouse move and manage hover/cursor
         base.OnMouseMove(e);
     }
 
@@ -1674,16 +1595,9 @@ public partial class UIWindow : UIWindowBase
     {
         base.OnMouseLeave(e);
         _inExtendBox = _inCloseBox = _inMaxBox = _inMinBox = _inTabCloseBox = _inNewTabBox = _inFormMenuBox = false;
-        closeBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        minBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        maxBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        extendBoxHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        tabCloseHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        newTabHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
-        formMenuHoverAnimationManager.StartNewAnimation(AnimationDirection.Out);
 
-        _lastHoveredElement?.OnMouseLeave(e);
-        LastHoveredElement = null;
+        // End all hover animations in a single loop to avoid repetition
+        EndAllHoverAnimations();
 
         Invalidate();
     }
@@ -1775,14 +1689,12 @@ public partial class UIWindow : UIWindowBase
     protected override void OnActivated(EventArgs e)
     {
         base.OnActivated(e);
-        _isActive = true;
         Invalidate();
     }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        _isActive = false;
         Invalidate();
     }
 
@@ -1955,12 +1867,13 @@ public partial class UIWindow : UIWindowBase
 
         var fps = 1000.0 / Math.Max(0.001, _perfSmoothedFrameMs);
 
-        using var paint = new SKPaint
+        var paint = GetOrCreatePaint("perfOverlay", () => new SKPaint
         {
-            IsAntialias = true,
-            Color = ColorScheme.ForeColor,
-            TextSize = 12
-        };
+            IsAntialias = true
+        });
+        // update dynamic properties each frame
+        paint.Color = ColorScheme.ForeColor;
+        paint.TextSize = 12;
 
         var backendLabel = _renderBackend.ToString();
         if (_renderBackend == RenderBackend.DirectX11 && _renderer is DirectX11WindowRenderer dx)
@@ -2265,18 +2178,16 @@ public partial class UIWindow : UIWindowBase
         // Form ba�l��� �izimi
         if (_windowPageControl == null || _windowPageControl.Count == 0)
         {
-            using var font = new SKFont
+            var font = GetOrCreateFont("title", () => new SKFont
             {
-                Size = Font.Size.Topx(this),
                 Typeface = Font.SKTypeface,
                 Subpixel = true,
                 Edging = SKFontEdging.SubpixelAntialias
-            };
-            using var textPaint = new SKPaint
-            {
-                Color = foreColor,
-                IsAntialias = true
-            };
+            });
+            font.Size = Font.Size.Topx(this);
+
+            var textPaint = GetOrCreatePaint("titleText", () => new SKPaint { IsAntialias = true });
+            textPaint.Color = foreColor;
 
             var bounds = new SkiaSharp.SKRect();
             font.MeasureText(Text, out bounds);
@@ -2300,11 +2211,8 @@ public partial class UIWindow : UIWindowBase
             // Click feedback
             if (pageAreaAnimationManager.IsAnimating())
             {
-                using var ripplePaint = new SKPaint
-                {
-                    Color = foreColor.WithAlpha((byte)(31 - animationProgress * 30)),
-                    IsAntialias = true
-                };
+                var ripplePaint = GetOrCreatePaint("tabRipple", () => new SKPaint { IsAntialias = true });
+                ripplePaint.Color = foreColor.WithAlpha((byte)(31 - animationProgress * 30));
 
                 var rippleSize = (int)(animationProgress * pageRect[_windowPageControl.SelectedIndex].Width * 1.75);
                 var rippleRect = new SkiaSharp.SKRect(
@@ -2340,60 +2248,45 @@ public partial class UIWindow : UIWindowBase
             
             if (_tabDesingMode == TabDesingMode.Rectangle)
             {
-                using var tabPaint = new SKPaint
+                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f);
+
+                    canvas.DrawRect(activePageRect.Location.X, 0, width, _titleHeightDPI, tabPaint);
+                    canvas.DrawRect(x, 0, width, _titleHeightDPI, tabPaint);
+
+                    var indicatorPaint = GetOrCreatePaint("tabIndicator", () => new SKPaint { Color = SKColors.DodgerBlue, IsAntialias = true });
+                    canvas.DrawRect(x, _titleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
+                }
+                else if (_tabDesingMode == TabDesingMode.Rounded)
                 {
-                    Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f),
-                    IsAntialias = true
-                };
+                    if (titleColor != SKColor.Empty && !titleColor.IsDark())
+                        hoverColor = foreColor.WithAlpha(60);
 
-                canvas.DrawRect(activePageRect.Location.X, 0, width, _titleHeightDPI, tabPaint);
-                canvas.DrawRect(x, 0, width, _titleHeightDPI, tabPaint);
+                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                using var indicatorPaint = new SKPaint
+                    var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
+                    var radius = 9 * ScaleFactor;
+
+                    _tempPath.Reset();
+                    _tempPath.AddRoundRect(tabRect, radius, radius);
+                    canvas.DrawPath(_tempPath, tabPaint);
+                }
+                else // Chromed
                 {
-                    Color = SKColors.DodgerBlue,
-                    IsAntialias = true
-                };
+                    if (titleColor != SKColor.Empty && !titleColor.IsDark())
+                        hoverColor = foreColor.WithAlpha(60);
 
-                canvas.DrawRect(x, _titleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
-            }
-            else if (_tabDesingMode == TabDesingMode.Rounded)
-            {
-                if (titleColor != SKColor.Empty && !titleColor.IsDark())
-                    hoverColor = foreColor.WithAlpha(60);
+                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                using var tabPaint = new SKPaint
-                {
-                    Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f),
-                    IsAntialias = true
-                };
+                    var tabRect = new SkiaSharp.SKRect(x, 5, x + width, _titleHeightDPI - 7);
+                    var radius = 12;
 
-                var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
-                var radius = 9 * ScaleFactor;
-
-                using var path = new SKPath();
-                path.AddRoundRect(tabRect, radius, radius);
-                canvas.DrawPath(path, tabPaint);
-            }
-            else // Chromed
-            {
-                if (titleColor != SKColor.Empty && !titleColor.IsDark())
-                    hoverColor = foreColor.WithAlpha(60);
-
-                using var tabPaint = new SKPaint
-                {
-                    Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f),
-                    IsAntialias = true
-                };
-
-                var tabRect = new SkiaSharp.SKRect(x, 5, x + width, _titleHeightDPI - 7);
-                var radius = 12;
-
-                using var path = new SKPath();
-                path.AddRoundRect(tabRect, radius, radius);
-                canvas.DrawPath(path, tabPaint);
-            }
-
+                    _tempPath.Reset();
+                    _tempPath.AddRoundRect(tabRect, radius, radius);
+                    canvas.DrawPath(_tempPath, tabPaint);
+                }
             // Draw tab headers
             foreach (ElementBase page in _windowPageControl.Controls)
             {
@@ -2403,18 +2296,16 @@ public partial class UIWindow : UIWindowBase
 
                 if (_drawTabIcons)
                 {
-                    using var font = new SKFont
+                    var font = GetOrCreateFont("tabIcon", () => new SKFont
                     {
-                        Size = 12f.Topx(this),
                         Typeface = Font.SKTypeface,
                         Subpixel = true,
                         Edging = SKFontEdging.SubpixelAntialias
-                    };
-                    using var textPaint = new SKPaint
-                    {
-                        Color = foreColor,
-                        IsAntialias = true
-                    };
+                    });
+                    font.Size = 12f.Topx(this);
+
+                    var textPaint = GetOrCreatePaint("tabText", () => new SKPaint { IsAntialias = true });
+                    textPaint.Color = foreColor;
 
                     var startingIconBounds = new SkiaSharp.SKRect();
                     font.MeasureText("", out startingIconBounds);
@@ -2437,18 +2328,16 @@ public partial class UIWindow : UIWindowBase
                 }
                 else
                 {
-                    using var font = new SKFont
+                    var font = GetOrCreateFont("tab", () => new SKFont
                     {
-                        Size = 9f.Topx(this),
                         Typeface = Font.SKTypeface,
                         Subpixel = true,
                         Edging = SKFontEdging.SubpixelAntialias
-                    };
-                    using var textPaint = new SKPaint
-                    {
-                        Color = foreColor,
-                        IsAntialias = true
-                    };
+                    });
+                    font.Size = 9f.Topx(this);
+
+                    var textPaint = GetOrCreatePaint("tabText", () => new SKPaint { IsAntialias = true });
+                    textPaint.Color = foreColor;
 
                     var bounds = new SkiaSharp.SKRect();
                     font.MeasureText(page.Text, out bounds);
@@ -2550,14 +2439,14 @@ public partial class UIWindow : UIWindowBase
         // Title border
         if (_drawTitleBorder)
         {
-            using var borderPaint = new SKPaint
+            var borderPaint = GetOrCreatePaint("titleBorder", () => new SKPaint
             {
-                Color = titleColor != SKColor.Empty
-                    ? titleColor.Determine().WithAlpha(30)
-                    : ColorScheme.BorderColor,
                 StrokeWidth = 1,
                 IsAntialias = true
-            };
+            });
+            borderPaint.Color = titleColor != SKColor.Empty
+                ? titleColor.Determine().WithAlpha(30)
+                : ColorScheme.BorderColor;
 
             canvas.DrawLine(Width, _titleHeightDPI - 1, 0, _titleHeightDPI - 1, borderPaint);
         }
@@ -2591,11 +2480,24 @@ public partial class UIWindow : UIWindowBase
         // Trigger initial layout with current DPI
         InvalidateMeasureRecursive();
         PerformLayout();
+
+        // some controls may be added by startup logic after OnShown; schedule one
+        // more layout on the message queue so that final positions update correctly.
+        this.BeginInvoke((Action)(() =>
+        {
+            InvalidateMeasureRecursive();
+            PerformLayout();
+            Invalidate();
+        }));
     }
 
     private void UpdateTabRects()
     {
-        pageRect = new List<SkiaSharp.SKRect>();
+        // reuse existing list to avoid allocating every time
+        if (pageRect == null)
+            pageRect = new List<SKRect>();
+        else
+            pageRect.Clear();
 
         if (_windowPageControl == null || _windowPageControl.Count == 0)
             return;
@@ -2619,15 +2521,17 @@ public partial class UIWindow : UIWindowBase
         var availableWidth = Width - occupiedWidth;
         var maxSize = 250f * ScaleFactor;
 
-        using var font = new SKFont
+        var font = GetOrCreateFont("tabMeasure", () => new SKFont
         {
-            Size = (_drawTabIcons ? 12f : 9f).Topx(this),
             Typeface = Font.SKTypeface,
             Subpixel = true,
             Edging = SKFontEdging.SubpixelAntialias
-        };
+        });
+        font.Size = (_drawTabIcons ? 12f : 9f).Topx(this);
 
-        var desiredWidths = new List<float>();
+        // reuse buffer to avoid allocation every layout pass
+        _tabWidthBuffer.Clear();
+        var desiredWidths = _tabWidthBuffer;
         float totalDesiredWidth = 0;
 
         foreach (ElementBase page in _windowPageControl.Controls)
@@ -2674,49 +2578,61 @@ public partial class UIWindow : UIWindowBase
         }
     }
 
-    public override void UpdateCursor(ElementBase element)
-    {
-        if (element == null || !element.Enabled || !element.Visible)
-        {
-            _currentCursor = Cursors.Default;
-            base.UpdateCursor(element);
-            return;
-        }
 
-        var newCursor = element.Cursor ?? Cursors.Default;
-        if (_currentCursor != newCursor)
-        {
-            _currentCursor = newCursor;
-            base.UpdateCursor(element);
-        }
-    }
 
-    public void BringToFront(ElementBase element)
-    {
-        if (!Controls.Contains(element)) return;
-
-        _maxZOrder++;
-        element.ZOrder = _maxZOrder;
-        InvalidateElement(element);
-    }
-
-    public void SendToBack(ElementBase element)
-    {
-        if (!Controls.Contains(element)) return;
-
-        var minZOrder = Controls.OfType<ElementBase>().Min(e => e.ZOrder);
-        element.ZOrder = minZOrder - 1;
-        InvalidateElement(element);
-    }
 
     private void InvalidateElement(ElementBase element)
     {
-        if (_layoutSuspendCount > 0) return;
+        if (LayoutSuspendCount > 0) return;
 
         element.InvalidateRenderTree();
 
         if (!NeedsFullChildRedraw)
             Invalidate();
+    }
+
+    // optimization helpers --------------------------------------------------
+
+    /// <summary>
+    /// Lightweight factory for hover‑style animation managers.
+    /// </summary>
+    private AnimationManager CreateHoverAnimation()
+    {
+        var m = new AnimationManager
+        {
+            Increment = HOVER_ANIMATION_SPEED,
+            AnimationType = AnimationType.EaseInOut,
+            Singular = true,
+            InterruptAnimation = true
+        };
+        m.OnAnimationProgress += _ => Invalidate();
+        return m;
+    }
+
+    /// <summary>
+    /// Retrieve or create an <see cref="SKPaint"/> from the per-window cache.
+    /// Properties may be modified by the caller before use.
+    /// </summary>
+    private SKPaint GetOrCreatePaint(string key, Func<SKPaint> factory)
+    {
+        if (_paintCache.TryGetValue(key, out var paint))
+            return paint;
+        paint = factory();
+        _paintCache[key] = paint;
+        return paint;
+    }
+
+    /// <summary>
+    /// Retrieve or create an <see cref="SKFont"/> from the per-window cache.
+    /// Cached fonts are reused across paints; callers may alter size/color after retrieval.
+    /// </summary>
+    private SKFont GetOrCreateFont(string key, Func<SKFont> factory)
+    {
+        if (_fontCache.TryGetValue(key, out var font))
+            return font;
+        font = factory();
+        _fontCache[key] = font;
+        return font;
     }
 
     protected override void Dispose(bool disposing)

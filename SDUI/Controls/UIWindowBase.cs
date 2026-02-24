@@ -28,6 +28,12 @@ public partial class UIWindowBase : ElementBase, IDisposable
     private bool _mouseInClient;
     protected bool enableFullDraggable;
 
+    // element which currently has native mouse capture; used by derived classes
+    protected ElementBase? _mouseCapturedElement;
+
+    // cursor caching avoids redundant SetCursor calls
+    private Cursor _currentCursor = Cursors.Default;
+
     /// <summary>
     /// Gets or sets the result value returned when the window is closed by the user.
     /// </summary>
@@ -1116,6 +1122,12 @@ public partial class UIWindowBase : ElementBase, IDisposable
         {
             // Swallow — DPI helpers may not be available on all platforms; nothing to do.
         }
+        finally
+        {
+            // immediately run a layout pass now that handle/size are known
+            PerformLayout();
+            InvalidateWindow();
+        }
     }
 
     internal override void OnBackColorChanged(EventArgs e)
@@ -1163,9 +1175,10 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// <param name="element">The element that should receive captured mouse events</param>
     public virtual void SetMouseCapture(ElementBase element)
     {
-        // Default implementation uses native Windows mouse capture
         if (IsHandleCreated && element != null)
         {
+            // track the element so subclasses can dispatch events
+            _mouseCapturedElement = element;
             SetCapture(Handle);
         }
     }
@@ -1176,10 +1189,13 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// <param name="element">The element that had mouse capture</param>
     public virtual void ReleaseMouseCapture(ElementBase element)
     {
-        // Default implementation releases native Windows mouse capture
-        if (IsHandleCreated)
+        if (_mouseCapturedElement == element)
         {
-            ReleaseCapture();
+            _mouseCapturedElement = null;
+            if (IsHandleCreated)
+            {
+                ReleaseCapture();
+            }
         }
     }
 
@@ -1219,17 +1235,19 @@ public partial class UIWindowBase : ElementBase, IDisposable
             targetCursor = element.Cursor ?? Cursors.Default;
         }
 
-        // Set the native Windows cursor
-        if (targetCursor != null && targetCursor.Handle != IntPtr.Zero)
+        // Avoid redundant Win32 calls
+        if (targetCursor != _currentCursor)
         {
-            SetCursor(targetCursor.Handle);
+            _currentCursor = targetCursor;
+            if (targetCursor != null && targetCursor.Handle != IntPtr.Zero)
+                SetCursor(targetCursor.Handle);
         }
     }
 
     /// <summary>
     /// Converts a point from this window's client coordinates to screen coordinates using native Windows API.
     /// </summary>
-    public SKPoint PointToScreen(SKPoint clientPoint)
+    public new SKPoint PointToScreen(SKPoint clientPoint)
     {
         if (!IsHandleCreated)
             return clientPoint;

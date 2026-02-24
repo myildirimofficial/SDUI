@@ -270,11 +270,39 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     }
 
     /// <summary>
-    /// DELETE
+    /// Moves the specified element to the highest Z-order within its parent container.
+    /// This is a shared helper used by windows, designers, and any container logic.
     /// </summary>
-    /// <param name="element"></param>
-    public void BringToFront(ElementBase element) { }
-    public void SendToBack(ElementBase element) { }
+    public void BringToFront(ElementBase element)
+    {
+        if (element == null || element.Parent == null)
+            return;
+
+        var siblings = element.Parent.Controls.OfType<ElementBase>().ToList();
+        if (siblings.Count == 0)
+            return;
+
+        int max = siblings.Max(s => s.ZOrder);
+        element.ZOrder = max + 1;
+        element.Parent.InvalidateRenderTree();
+    }
+
+    /// <summary>
+    /// Moves the specified element to the lowest Z-order within its parent container.
+    /// </summary>
+    public void SendToBack(ElementBase element)
+    {
+        if (element == null || element.Parent == null)
+            return;
+
+        var siblings = element.Parent.Controls.OfType<ElementBase>().ToList();
+        if (siblings.Count == 0)
+            return;
+
+        int min = siblings.Min(s => s.ZOrder);
+        element.ZOrder = min - 1;
+        element.Parent.InvalidateRenderTree();
+    }
 
     public void BringToFront()
     {
@@ -1178,93 +1206,93 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     #region Events
 
-    public event EventHandler Click;
+    public event EventHandler? Click;
 
-    public event EventHandler DoubleClick;
+    public event EventHandler? DoubleClick;
 
-    public event MouseEventHandler MouseMove;
+    public event MouseEventHandler? MouseMove;
 
-    public event MouseEventHandler MouseDown;
+    public event MouseEventHandler? MouseDown;
 
-    public event MouseEventHandler MouseUp;
+    public event MouseEventHandler? MouseUp;
 
-    public event MouseEventHandler MouseClick;
+    public event MouseEventHandler? MouseClick;
 
-    public event MouseEventHandler MouseDoubleClick;
+    public event MouseEventHandler? MouseDoubleClick;
 
-    public event EventHandler MouseEnter;
+    public event EventHandler? MouseEnter;
 
-    public event EventHandler MouseLeave;
+    public event EventHandler? MouseLeave;
 
-    public event EventHandler MouseHover;
+    public event EventHandler? MouseHover;
 
-    public event EventHandler<SKPaintSurfaceEventArgs> Paint;
+    public event EventHandler<SKPaintSurfaceEventArgs>? Paint;
 
-    public event EventHandler LocationChanged;
+    public event EventHandler? LocationChanged;
 
-    public event EventHandler SizeChanged;
+    public event EventHandler? SizeChanged;
 
-    public event EventHandler VisibleChanged;
+    public event EventHandler? VisibleChanged;
 
-    public event EventHandler EnabledChanged;
+    public event EventHandler? EnabledChanged;
 
-    public event EventHandler TextChanged;
+    public event EventHandler? TextChanged;
 
-    public event EventHandler BackColorChanged;
+    public event EventHandler? BackColorChanged;
 
-    public event EventHandler ForeColorChanged;
+    public event EventHandler? ForeColorChanged;
 
-    public event EventHandler FontChanged;
+    public event EventHandler? FontChanged;
 
-    public event EventHandler PaddingChanged;
+    public event EventHandler? PaddingChanged;
 
-    public event EventHandler MarginChanged;
+    public event EventHandler? MarginChanged;
 
-    public event EventHandler TabStopChanged;
+    public event EventHandler? TabStopChanged;
 
-    public event EventHandler TabIndexChanged;
+    public event EventHandler? TabIndexChanged;
 
-    public event EventHandler AnchorChanged;
+    public event EventHandler? AnchorChanged;
 
-    public event EventHandler DockChanged;
+    public event EventHandler? DockChanged;
 
-    public event EventHandler AutoSizeChanged;
+    public event EventHandler? AutoSizeChanged;
 
-    public event EventHandler AutoSizeModeChanged;
+    public event EventHandler? AutoSizeModeChanged;
 
-    public event KeyEventHandler KeyDown;
+    public event KeyEventHandler? KeyDown;
 
-    public event KeyEventHandler KeyUp;
+    public event KeyEventHandler? KeyUp;
 
-    public event KeyPressEventHandler KeyPress;
+    public event KeyPressEventHandler? KeyPress;
 
-    public event EventHandler GotFocus;
+    public event EventHandler? GotFocus;
 
-    public event EventHandler LostFocus;
+    public event EventHandler? LostFocus;
 
-    public event EventHandler Enter;
+    public event EventHandler? Enter;
 
-    public event EventHandler Leave;
+    public event EventHandler? Leave;
 
-    public event EventHandler Validated;
+    public event EventHandler? Validated;
 
-    public event CancelEventHandler Validating;
+    public event CancelEventHandler? Validating;
 
-    public event EventHandler CursorChanged;
+    public event EventHandler? CursorChanged;
 
-    public event UILayoutEventHandler Layout;
+    public event UILayoutEventHandler? Layout;
 
-    public event UIElementEventHandler ControlAdded;
-    public event UIElementEventHandler ControlRemoved;
+    public event UIElementEventHandler? ControlAdded;
+    public event UIElementEventHandler? ControlRemoved;
 
-    public event MouseEventHandler MouseWheel;
+    public event MouseEventHandler? MouseWheel;
 
-    public event EventHandler DpiChanged;
-    public event EventHandler BackgroundImageChanged;
-    public event EventHandler BackgroundImageLayoutChanged;
-    public event EventHandler ImageAlignChanged;
-    public event EventHandler RightToLeftChanged;
-    public event EventHandler AutoScrollChanged;
+    public event EventHandler? DpiChanged;
+    public event EventHandler? BackgroundImageChanged;
+    public event EventHandler? BackgroundImageLayoutChanged;
+    public event EventHandler? ImageAlignChanged;
+    public event EventHandler? RightToLeftChanged;
+    public event EventHandler? AutoScrollChanged;
 
     // Fired when the element is loaded (parent window has finished loading). Raised once per element.
     public event EventHandler? Load;
@@ -2015,6 +2043,16 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             _lastHoveredElement?.OnMouseLeave(EventArgs.Empty);
             hoveredElement?.OnMouseEnter(EventArgs.Empty);
             _lastHoveredElement = hoveredElement;
+
+            // inform parent window so it can change the cursor appropriately
+            if (ParentWindow != null)
+            {
+                var cursorElement = hoveredElement;
+                // descend into nested hovered elements to find the deepest one
+                while (cursorElement?.LastHoveredElement != null)
+                    cursorElement = cursorElement.LastHoveredElement;
+                ParentWindow.UpdateCursor(cursorElement);
+            }
         }
     }
 

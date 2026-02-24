@@ -28,8 +28,8 @@ public class ScrollBar : ElementBase
     private float _minimum;
     private Orientation _orientation = Orientation.Vertical;
 
-    // Radius & auto-hide
-    private int _radius = 6; // default radius daha büyük
+    // Corner radius for rounded corners (int pixels)
+    private int _cornerRadius = 6; // default larger radius
     private double _scrollAnimIncrement = 0.45; // kaydırma için hızlı varsayılan
     private AnimationType _scrollAnimType = AnimationType.EaseOut;
     private float _smallChange = 1;
@@ -97,14 +97,14 @@ public class ScrollBar : ElementBase
 
     [DefaultValue(6)]
     [Description("Köşe yuvarlaklık yarıçapı")]
-    public int Radius
+    public int CornerRadius
     {
-        get => _radius;
+        get => _cornerRadius;
         set
         {
             value = Math.Max(0, Math.Min(64, value));
-            if (_radius == value) return;
-            _radius = value;
+            if (_cornerRadius == value) return;
+            _cornerRadius = value;
             Invalidate();
         }
     }
@@ -391,7 +391,7 @@ public class ScrollBar : ElementBase
                    IsAntialias = true
                })
         {
-            var radius = Math.Max(0, _radius * ScaleFactor);
+            var radius = Math.Max(0, _cornerRadius * ScaleFactor);
             canvas.DrawRoundRect(new SKRoundRect(new SkiaSharp.SKRect(0, 0, Width, Height), radius), trackPaint);
         }
 
@@ -422,7 +422,7 @@ public class ScrollBar : ElementBase
                 IsAntialias = true
             };
 
-            var rad = Math.Max(0, _radius * ScaleFactor);
+            var rad = Math.Max(0, _cornerRadius * ScaleFactor);
             canvas.DrawRoundRect(new SKRoundRect(_thumbRect, rad), shadowPaint);
         }
 
@@ -432,7 +432,7 @@ public class ScrollBar : ElementBase
                    IsAntialias = true
                })
         {
-            var rad = Math.Max(0, _radius * ScaleFactor);
+            var rad = Math.Max(0, _cornerRadius * ScaleFactor);
             canvas.DrawRoundRect(new SKRoundRect(_thumbRect, rad), thumbPaint);
         }
 
