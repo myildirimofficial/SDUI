@@ -20,10 +20,10 @@ internal partial class MainWindow
         this.panel = new()
         {
             Name = "panel",
-            Size = new(400, 300),
-            Padding = new(10),
+            Size = new(500, 400),
+            Padding = new(5),
             Dock = SDUI.DockStyle.Fill,
-            Location = new(50, 75),
+            Location = new(25, 25),
             Radius = new(4, 4, 0, 0),
             Border = new(2),
             Shadows = new[] {
@@ -41,8 +41,8 @@ internal partial class MainWindow
             Dock = SDUI.DockStyle.Bottom,
             Size = new(100, 32),
             Location = new(100, 75),
-            Radius = new(4, 0, 4, 0),
-            Border = new(0, 1, 0, 1),
+            Radius = new(4),
+            Border = new(1),
         };
 
         buttonOpenGL.Click += ButtonOpenGL_Click;
@@ -55,8 +55,8 @@ internal partial class MainWindow
             Size = new(100, 32),
             Dock = SDUI.DockStyle.Bottom,
             Location = new(220, 75),
-            Radius = new(4, 0, 4, 0),
-            Border = new(0, 1, 0, 1)
+            Radius = new(4),
+            Border = new(1)
         };
 
         buttonSoftware.Click += ButtonSoftware_Click;
@@ -69,7 +69,7 @@ internal partial class MainWindow
             Dock = SDUI.DockStyle.Bottom,
             Size = new(100, 32),
             Location = new(330, 75),
-            Radius = new(4, 0, 4, 0),
+            Radius = new(4),
             Border = new(0, 1, 0, 1),
         };
 
@@ -83,7 +83,7 @@ internal partial class MainWindow
         this.Width = 800;
         this.Height = 450;
         this.DwmMargin = -1;
-        this.Padding = new(10);
+        this.EnableMica = true;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
         this.Controls.Add(this.panel);
         this.panel.Controls.Add(this.buttonOpenGL);

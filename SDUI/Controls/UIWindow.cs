@@ -581,33 +581,48 @@ public partial class UIWindow : UIWindowBase
 
             BeginImmediateUpdateSuppression();
 
-            // Scale window bounds using the DPI ratio (newDpi / oldDpi), not absolute DPI
-            float dpiRatio = newDpi / (oldDpi > 0 ? oldDpi : 96f);
+            // NOTE: When called from WM_DPICHANGED in UIWindowBase, the window bounds are already
+            // scaled by Windows (via SetWindowPos with the suggested RECT from lParam).
+            // Only scale bounds manually if OnDpiChanged was called outside of WM_DPICHANGED flow
+            // (e.g., from user code or monitor movement detection).
+            // _isHandlingDpiChange flag prevents double-scaling.
             
-            SKRect scaledRect = new SKRect(
-                Bounds.Left * dpiRatio,
-                Bounds.Top * dpiRatio,
-                Bounds.Right * dpiRatio,
-                Bounds.Bottom * dpiRatio
-            );
+            // Check if we need to manually scale bounds
+            // (this happens when DPI change is detected outside of WM_DPICHANGED)
+            bool skipBoundsScaling = _isHandlingDpiChange;
+            
+            if (!skipBoundsScaling && Math.Abs(newDpi - oldDpi) > 0.001f)
+            {
+                float dpiRatio = newDpi / (oldDpi > 0 ? oldDpi : 96f);
+                
+                SKRect scaledRect = new SKRect(
+                    Bounds.Left * dpiRatio,
+                    Bounds.Top * dpiRatio,
+                    Bounds.Right * dpiRatio,
+                    Bounds.Bottom * dpiRatio
+                );
 
-            if (Bounds == scaledRect)
-                return;
+                if (Bounds != scaledRect)
+                    Bounds = scaledRect;
+            }
 
-            Bounds = scaledRect;
-
-            // Invalidate measurements recursively before DPI notification
+            // CRITICAL: Aggressive layout recalculation to handle all control repositioning
+            // Step 1: Invalidate all measurements
             InvalidateMeasureRecursive();
 
+            // Step 2: Propagate DPI change to all children (which also scales their size/padding)
             foreach (ElementBase element in Controls)
                 element.OnDpiChanged(newDpi, oldDpi);
 
-            // Invalidate layout measurements on DPI change
+            // Step 3: Perform full layout pass to reposition all children
             PerformLayout();
+
+            // Step 4: Update window chrome (title bar buttons, tabs)
             CalcSystemBoxPos();
             if (_windowPageControl != null && _windowPageControl.Count > 0)
                 UpdateTabRects();
 
+            // Step 5: Final invalidation to ensure complete redraw
             NeedsFullChildRedraw = true;
             Invalidate();
         }
@@ -674,6 +689,18 @@ public partial class UIWindow : UIWindowBase
         EnsureInitialLayoutAndDpiSync();
         // Ensure caption hit test state is correct from the start
         CalcSystemBoxPos();
+    }
+
+    /// <summary>
+    /// Returns the height of the custom title bar that should be reserved when window is maximized.
+    /// </summary>
+    protected override int GetCustomTitleBarHeight()
+    {
+        if (!ShowTitle)
+            return 0;
+        
+        // Return DPI-scaled title bar height
+        return (int)(_titleHeight * ScaleFactor);
     }
 
     private void EnsureInitialLayoutAndDpiSync()

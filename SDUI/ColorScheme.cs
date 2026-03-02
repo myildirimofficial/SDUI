@@ -275,6 +275,8 @@ public class ColorScheme
             _isTransitioning = true;
             ThemeTransitionProgress = 0.0;
         }
+        
+        
 
         const int durationMs = 220;
         const int stepMs = 16;

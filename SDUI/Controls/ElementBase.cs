@@ -1123,8 +1123,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 return;
 
             if (_lastHoveredElement != value) _lastHoveredElement = value;
-            
-            if(_parent is UIWindowBase windowBase)
+
+            if (_parent is UIWindowBase windowBase)
                 windowBase.UpdateCursor(this);
         }
     }
@@ -1640,6 +1640,44 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                         continue;
 
                     RenderInsetShadow(targetCanvas, elementRect, shadow, hasRadius);
+                }
+            }
+
+
+
+            // Render default text if control has text and is visible
+            if (!string.IsNullOrEmpty(Text) && ForeColor != SKColor.Empty)
+            {
+                try
+                {
+                    using var paint = new SKPaint
+                    {
+                        Color = ForeColor,
+                        IsAntialias = true
+                    };
+
+                    using var font = new SKFont(SKTypeface.Default)
+                    {
+                        Size = _font.Size.Topx(this),
+                        Subpixel = true,
+                        Edging = SKFontEdging.SubpixelAntialias
+                    };
+
+                    var textWidth = font.MeasureText(Text);
+                    var padding = Padding;
+
+                    // Simple center alignment for now
+                    float x = (Width - textWidth) / 2;
+                    float y = Height / 2 + (font.Metrics.Descent - font.Metrics.Ascent) / 2;
+
+                    if (x < padding.Left) x = padding.Left;
+                    if (y < padding.Top) y = padding.Top;
+
+                    targetCanvas.DrawText(Text, x, y, SKTextAlign.Left, font, paint);
+                }
+                catch
+                {
+                    // Silently fail if text rendering fails (e.g., invalid font)
                 }
             }
 
@@ -2546,7 +2584,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         foreach (ElementBase control in Controls) control.OnDpiChanged(newDpi, oldDpi);
 
         // Trigger layout after DPI change to reposition/resize children
-        if (_parent != null && Math.Abs(scaleFactor - 1f) > 0.001f) PerformLayout();
+        // Always layout on DPI change, regardless of parent (even UIWindow with _parent=null needs layout)
+        if (Math.Abs(scaleFactor - 1f) > 0.001f)
+        {
+            PerformLayout();
+        }
 
         NeedsRedraw = true;
         DpiChanged?.Invoke(this, EventArgs.Empty);

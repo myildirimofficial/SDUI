@@ -62,7 +62,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// Enable or disable win10 ver 1809 + mica backdrop efeckts
     /// </summary>
     private bool _enableMica;
-    private bool EnableMica
+    public bool EnableMica
     {
         get => _enableMica;
         set
@@ -142,7 +142,18 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// <summary>
     /// Represents the current state of the window, such as normal, minimized, or maximized.
     /// </summary>
+    /// <summary>
+    /// Virtual method that returns the height (in pixels) to reserve at the top of the window
+    /// for custom rendering (e.g., custom title bar). Override in derived classes.
+    /// </summary>
+    /// <returns>Height in pixels to reserve at top (0 for standard windows)</returns>
+    protected virtual int GetCustomTitleBarHeight()
+    {
+        return 0;  // Base Windows has no custom title bar
+    }
+
     private FormWindowState _windowState = FormWindowState.Normal;
+    protected bool _isHandlingDpiChange = false;  // Flag to prevent double-scaling in OnDpiChanged
     public FormWindowState WindowState
     {
         get => _windowState;
@@ -721,10 +732,23 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
                     var screen = Screen.FromHandle(hWnd);
                     var work = screen.WorkingArea;
+                    
+                    // Reserve space for custom title bar at top if present
+                    int titleBarHeight = GetCustomTitleBarHeight();
 
                     // For borderless windows, ptMaxPosition is relative to the monitor it's on
-                    mmi.ptMaxPosition = new POINT { X = Math.Max(0, work.Left - screen.Bounds.Left), Y = Math.Max(0, work.Top - screen.Bounds.Top) };
-                    mmi.ptMaxSize = new POINT { X = work.Width, Y = work.Height };
+                    mmi.ptMaxPosition = new POINT 
+                    { 
+                        X = Math.Max(0, work.Left - screen.Bounds.Left), 
+                        Y = Math.Max(0, titleBarHeight + (work.Top - screen.Bounds.Top))
+                    };
+                    
+                    mmi.ptMaxSize = new POINT 
+                    { 
+                        X = work.Width, 
+                        Y = Math.Max(1, work.Height - titleBarHeight)  // Reduce height by title bar
+                    };
+                    
                     if (MinimumSize.Width > 0 || MinimumSize.Height > 0)
                         mmi.ptMinTrackSize = new POINT
                         {
@@ -1072,13 +1096,21 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     if (Math.Abs(newDpi - oldDpi) > 0.001f)
                     {
                         var rect = Marshal.PtrToStructure<Rect>(lParam);
-                        SetWindowPos(Handle, IntPtr.Zero,
-                            rect.Left, rect.Top,
-                            rect.Width, rect.Height,
-                            SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+                        _isHandlingDpiChange = true;  // Flag: Windows already scaled the rect
+                        try
+                        {
+                            SetWindowPos(Handle, IntPtr.Zero,
+                                rect.Left, rect.Top,
+                                rect.Width, rect.Height,
+                                SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
 
-                        OnDpiChanged(newDpi, oldDpi);
-                        InvalidateWindow();
+                            OnDpiChanged(newDpi, oldDpi);
+                            InvalidateWindow();
+                        }
+                        finally
+                        {
+                            _isHandlingDpiChange = false;
+                        }
                     }
 
                     return IntPtr.Zero;
