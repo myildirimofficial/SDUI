@@ -695,8 +695,17 @@ public partial class UIWindowBase : ElementBase, IDisposable
                         }
                     }
 
-                    // Not on a resize border - treat as client area for custom title bar handling
-                    // Dragging is handled by UIWindow via DragForm() in mouse event handlers
+                    // treat title region as caption if derived class wants it
+                    bool isCaption = IsCaptionHit(clientPt);
+                    System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] clientPt=({clientPt.X}, {clientPt.Y}), IsCaptionHit={isCaption}");
+                    if (isCaption)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] Returning HTCAPTION");
+                        return (IntPtr)HTCAPTION;
+                    }
+
+                    // fallback to client area for everything else
+                    System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] Returning HTCLIENT");
                     return (IntPtr)HTCLIENT;
                 }
             case WindowMessage.WM_NCCALCSIZE:
@@ -1088,6 +1097,17 @@ public partial class UIWindowBase : ElementBase, IDisposable
     {
         Activated?.Invoke(this, e);
     }
+
+    /// <summary>
+    /// Derived classes can override to tell the native hit-test logic whether the
+    /// specified client point should be treated as a caption (draggable) area.
+    /// Returning true causes WM_NCHITTEST to report HTCAPTION, letting Windows handle
+    /// dragging automatically. UIWindow overrides this helper to implement its custom
+    /// title bar logic.
+    /// </summary>
+    /// <param name="clientPt">Point in client coordinates.</param>
+    /// <returns><c>true</c> if point is within draggable caption area.</returns>
+    protected virtual bool IsCaptionHit(SKPoint clientPt) => false;
 
     protected virtual void OnHandleCreated(EventArgs e)
     {

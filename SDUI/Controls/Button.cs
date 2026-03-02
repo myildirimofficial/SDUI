@@ -12,6 +12,10 @@ public class Button : UIElementBase
     private readonly AnimationManager hoverAnimationManager;
     private readonly AnimationManager pressAnimationManager;
 
+    // Render-path caches to avoid per-frame allocations
+    private readonly Dictionary<string, SKPaint> _paintCache = new();
+    private readonly Dictionary<string, SKFont> _fontCache = new();
+
     private SKImage _cachedImage;
 
     private int _elevation = 1;
@@ -274,15 +278,13 @@ public class Button : UIElementBase
             fillColor = ColorScheme.OnSurface.WithAlpha(30);
 
         // Draw base fill
-        using (var fillPaint = new SKPaint
-               {
-                   Color = fillColor,
-                   IsAntialias = true,
-                   Style = SKPaintStyle.Fill
-               })
+        var fillPaint = GetOrCreatePaint("fill", () => new SKPaint
         {
-            canvas.DrawRoundRect(bodyRect, RadiusScaled, RadiusScaled, fillPaint);
-        }
+            IsAntialias = true,
+            Style = SKPaintStyle.Fill
+        });
+        fillPaint.Color = fillColor;
+        canvas.DrawRoundRect(bodyRect, RadiusScaled, RadiusScaled, fillPaint);
 
         // Draw state layer (hover/press)
         if (Enabled)
@@ -349,20 +351,19 @@ public class Button : UIElementBase
             if (!Enabled)
                 textColor = ColorScheme.OnSurface.WithAlpha(80);
 
-            using var textPaint = new SKPaint
-            {
-                Color = textColor,
-                IsAntialias = true
-            };
+            var textPaint = GetOrCreatePaint("text", () => new SKPaint { IsAntialias = true });
+            textPaint.Color = textColor;
 
-            using var font = new SKFont
+            var font = GetOrCreateFont("text", () => new SKFont
             {
                 Size = Font.Size.Topx(this),
                 Typeface = FontManager.GetSKTypeface(Font) ?? SKTypeface.Default,
                 Subpixel = true,
                 Edging = SKFontEdging.SubpixelAntialias,
                 Hinting = SKFontHinting.Full
-            };
+            });
+            if (Math.Abs(font.Size - Font.Size.Topx(this)) > 0.01f)
+                font.Size = Font.Size.Topx(this);
 
             // Use ProcessedText for rendering (escape sequences already processed at property-set time)
             var displayText = ProcessedText;
@@ -390,11 +391,8 @@ public class Button : UIElementBase
         // Hover parıltısı
         if (hoverProgress > 0f)
         {
-            using var hoverPaint = new SKPaint
-            {
-                Color = accentSk.WithAlpha((byte)Math.Clamp(hoverProgress * 90f, 0f, 120f)),
-                IsAntialias = true
-            };
+            var hoverPaint = GetOrCreatePaint("hover", () => new SKPaint { IsAntialias = true });
+            hoverPaint.Color = accentSk.WithAlpha((byte)Math.Clamp(hoverProgress * 90f, 0f, 120f));
             canvas.DrawRoundRect(bodyRect, _radius, _radius, hoverPaint);
         }
 
@@ -406,13 +404,13 @@ public class Button : UIElementBase
                 var animationSource = animationManager.GetSource(i);
 
                 var alpha = (byte)Math.Clamp((1.0 - animationValue) * (140 + pressProgress * 90f), 0, 255);
-                using var ripplePaint = new SKPaint
+                var ripplePaint = GetOrCreatePaint("ripple", () => new SKPaint
                 {
-                    Color = accentSk.WithAlpha(alpha),
                     IsAntialias = true,
                     FilterQuality = SKFilterQuality.High,
                     Style = SKPaintStyle.Fill
-                };
+                });
+                ripplePaint.Color = accentSk.WithAlpha(alpha);
 
                 var rippleSize = (float)(animationValue * Math.Max(Width, Height) * 2.2f);
                 var rippleRect = new SkiaSharp.SKRect(
@@ -502,5 +500,23 @@ public class Button : UIElementBase
     {
         InvalidateCache();
         base.OnSizeChanged(e);
+    }
+
+    private SKPaint GetOrCreatePaint(string key, Func<SKPaint> factory)
+    {
+        if (_paintCache.TryGetValue(key, out var paint))
+            return paint;
+        paint = factory();
+        _paintCache[key] = paint;
+        return paint;
+    }
+
+    private SKFont GetOrCreateFont(string key, Func<SKFont> factory)
+    {
+        if (_fontCache.TryGetValue(key, out var font))
+            return font;
+        font = factory();
+        _fontCache[key] = font;
+        return font;
     }
 }

@@ -1433,6 +1433,43 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     // Cached buffer for child rendering — avoids per-frame allocations
     private readonly List<ElementBase> _childRenderBuffer = new();
 
+    private ElementBase? FindTopmostInputTarget(SKPoint originalPoint, SKPoint adjustedPoint, float scale, out SKPoint hitPoint)
+    {
+        hitPoint = originalPoint;
+
+        ElementBase? target = null;
+        var bestZ = int.MinValue;
+
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is not ElementBase control || !control.Visible || !control.Enabled)
+                continue;
+
+            var candidatePoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control))
+                ? adjustedPoint
+                : originalPoint;
+
+            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
+            {
+                candidatePoint = new SKPoint(
+                    (int)Math.Round(candidatePoint.X / scale),
+                    (int)Math.Round(candidatePoint.Y / scale));
+            }
+
+            if (!control.Bounds.Contains(candidatePoint))
+                continue;
+
+            if (target == null || control.ZOrder > bestZ)
+            {
+                target = control;
+                bestZ = control.ZOrder;
+                hitPoint = candidatePoint;
+            }
+        }
+
+        return target;
+    }
+
     protected void RenderChildren(SKCanvas canvas)
     {
         _childRenderBuffer.Clear();
@@ -2017,25 +2054,14 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
         var scale = ChildRenderScale;
 
-        ElementBase hoveredElement = null;
-        // Z-order'a göre tersten kontrol et (üstteki element önce)
-        foreach (var control in Controls.OfType<ElementBase>().OrderByDescending(c => c.ZOrder)
-                     .Where(c => c.Visible && c.Enabled))
+        var hoveredElement = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        if (hoveredElement != null)
         {
-            var hitPoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control)) ? adjusted : e.Location;
-            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
-                hitPoint = new SKPoint((int)Math.Round(hitPoint.X / scale), (int)Math.Round(hitPoint.Y / scale));
-
-            if (control.Bounds.Contains(hitPoint))
-            {
-                hoveredElement = control;
-                var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
-                    (int)(hitPoint.X - control.Location.X),
-                    (int)(hitPoint.Y - control.Location.Y),
-                    e.Delta);
-                control.OnMouseMove(childEventArgs);
-                break; // İlk eşleşenden sonra dur
-            }
+            var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
+                (int)(hitPoint.X - hoveredElement.Location.X),
+                (int)(hitPoint.Y - hoveredElement.Location.Y),
+                e.Delta);
+            hoveredElement.OnMouseMove(childEventArgs);
         }
 
         if (hoveredElement != _lastHoveredElement)
@@ -2069,49 +2095,34 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
         var scale = ChildRenderScale;
 
-        var elementClicked = false;
-        // Z-order'a göre tersten kontrol et (üstteki element önce)
-        foreach (var control in Controls.OfType<ElementBase>().OrderByDescending(c => c.ZOrder)
-                     .Where(c => c.Visible && c.Enabled))
+        var control = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        var elementClicked = control != null;
+
+        if (control != null)
         {
-            var hitPoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control)) ? adjusted : e.Location;
-            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
-                hitPoint = new SKPoint((int)Math.Round(hitPoint.X / scale), (int)Math.Round(hitPoint.Y / scale));
+            var window = GetParentWindow();
+            ElementBase? prevWindowFocus = null;
+            if (window is UIWindowBase uiWindow)
+                prevWindowFocus = uiWindow.FocusedElement;
 
-            if (control.Bounds.Contains(hitPoint))
+            var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
+                (int)(hitPoint.X - control.Location.X),
+                (int)(hitPoint.Y - control.Location.Y),
+                e.Delta);
+            control.OnMouseDown(childEventArgs);
+
+            if (window is UIWindowBase uiWindowAfter)
             {
-                elementClicked = true;
-                var window = GetParentWindow();
-                ElementBase? prevWindowFocus = null;
-                if (window is UIWindowBase uiWindow)
-                    prevWindowFocus = uiWindow.FocusedElement;
-
-                var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
-                    (int)(hitPoint.X - control.Location.X),
-                    (int)(hitPoint.Y - control.Location.Y),
-                    e.Delta);
-                control.OnMouseDown(childEventArgs);
-
-                // Maintain focus without overriding a deeper focus set by the child.
-                if (window is UIWindowBase uiWindowAfter)
-                {
-                    // If the child didn't change window focus, focus the direct child.
-                    if (uiWindowAfter.FocusedElement == prevWindowFocus)
-                        uiWindowAfter.FocusedElement = control;
-                }
-                else if (window != null)
-                {
-                    // Fallback for other UIWindowBase implementations
-                    window.FocusManager.SetFocus(control);
-                }
-                else
-                {
-                    // No window: manage focus locally
-                    if (FocusedElement != control)
-                        FocusedElement = control;
-                }
-
-                break; // İlk eşleşenden sonra dur
+                if (uiWindowAfter.FocusedElement == prevWindowFocus)
+                    uiWindowAfter.FocusedElement = control;
+            }
+            else if (window != null)
+            {
+                window.FocusManager.SetFocus(control);
+            }
+            else if (FocusedElement != control)
+            {
+                FocusedElement = control;
             }
         }
 
@@ -2174,24 +2185,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
         var scale = ChildRenderScale;
 
-        // Z-order'a göre tersten kontrol et (üstteki element önce)
-        foreach (var control in Controls.OfType<ElementBase>().OrderByDescending(c => c.ZOrder)
-                     .Where(c => c.Visible && c.Enabled))
+        var control = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        if (control != null)
         {
-            var hitPoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control)) ? adjusted : e.Location;
-            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
-                hitPoint = new SKPoint((int)Math.Round(hitPoint.X / scale), (int)Math.Round(hitPoint.Y / scale));
+            var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
+                (int)(hitPoint.X - control.Location.X),
+                (int)(hitPoint.Y - control.Location.Y),
+                e.Delta);
 
-            if (control.Bounds.Contains(hitPoint))
-            {
-                var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
-                    (int)(hitPoint.X - control.Location.X),
-                    (int)(hitPoint.Y - control.Location.Y),
-                    e.Delta);
-
-                control.OnMouseUp(childEventArgs);
-                break; // İlk eşleşenden sonra dur
-            }
+            control.OnMouseUp(childEventArgs);
         }
     }
 
@@ -2207,26 +2209,18 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
         var scale = ChildRenderScale;
 
-        foreach (var control in Controls.OfType<ElementBase>().OrderByDescending(c => c.ZOrder)
-                     .Where(c => c.Visible && c.Enabled))
+        var control = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        if (control != null)
         {
-            var hitPoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control)) ? adjusted : e.Location;
-            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
-                hitPoint = new SKPoint((int)Math.Round(hitPoint.X / scale), (int)Math.Round(hitPoint.Y / scale));
+            var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
+                (int)(hitPoint.X - control.Location.X),
+                (int)(hitPoint.Y - control.Location.Y),
+                e.Delta);
 
-            if (control.Bounds.Contains(hitPoint))
-            {
-                var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
-                    (int)(hitPoint.X - control.Location.X),
-                    (int)(hitPoint.Y - control.Location.Y),
-                    e.Delta);
+            control.OnMouseClick(childEventArgs);
 
-                control.OnMouseClick(childEventArgs);
-
-                if (_focusedElement != control)
-                    _focusedElement = control;
-                break; // İlk eşleşenden sonra dur
-            }
+            if (_focusedElement != control)
+                _focusedElement = control;
         }
     }
 
@@ -2238,24 +2232,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
         var scale = ChildRenderScale;
 
-        // Z-order'a göre tersten kontrol et (üstteki element önce)
-        foreach (var control in Controls.OfType<ElementBase>().OrderByDescending(c => c.ZOrder)
-                     .Where(c => c.Visible && c.Enabled))
+        var control = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        if (control != null)
         {
-            var hitPoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control)) ? adjusted : e.Location;
-            if (UseChildScaleForInput && !IsScrollBar(control) && Math.Abs(scale - 1f) > 0.001f)
-                hitPoint = new SKPoint((int)Math.Round(hitPoint.X / scale), (int)Math.Round(hitPoint.Y / scale));
+            var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
+                (int)(hitPoint.X - control.Location.X),
+                (int)(hitPoint.Y - control.Location.Y),
+                e.Delta);
 
-            if (control.Bounds.Contains(hitPoint))
-            {
-                var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
-                    (int)(hitPoint.X - control.Location.X),
-                    (int)(hitPoint.Y - control.Location.Y),
-                    e.Delta);
-
-                control.OnMouseDoubleClick(childEventArgs);
-                break; // İlk eşleşenden sonra dur
-            }
+            control.OnMouseDoubleClick(childEventArgs);
         }
     }
 

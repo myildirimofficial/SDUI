@@ -1,4 +1,4 @@
-using SDUI.Animation;
+﻿using SDUI.Animation;
 using SDUI.Extensions;
 using SDUI.Helpers;
 using SDUI.Native.Windows;
@@ -26,13 +26,10 @@ public partial class UIWindow : UIWindowBase
     private const int TAB_INDICATOR_HEIGHT = 3;
 
     private const float HOVER_ANIMATION_SPEED = 0.1f;
-    private const float HOVER_ANIMATION_OPACITY = 0.4f;
-
     // Hot-path caches (avoid per-frame LINQ allocations)
     private readonly List<ElementBase> _hitTestElements = new();
     private readonly Dictionary<string, SKPaint> _paintCache = new();
     private readonly Dictionary<string, SKFont> _fontCache = new();
-    private readonly object _softwareCacheLock = new();
     private readonly List<ZOrderSortItem> _zOrderSortBuffer = new();
     // scratch buffer used by UpdateTabRects
     private readonly List<float> _tabWidthBuffer = new();
@@ -237,6 +234,7 @@ public partial class UIWindow : UIWindowBase
     {
         AutoScaleMode = AutoScaleMode.None;
         enableFullDraggable = false;
+        ColorScheme.ThemeChanged += OnThemeChanged;
 
         // allocate pageRect once to avoid repeated allocations
         pageRect = [];
@@ -583,11 +581,14 @@ public partial class UIWindow : UIWindowBase
 
             BeginImmediateUpdateSuppression();
 
+            // Scale window bounds using the DPI ratio (newDpi / oldDpi), not absolute DPI
+            float dpiRatio = newDpi / (oldDpi > 0 ? oldDpi : 96f);
+            
             SKRect scaledRect = new SKRect(
-                Bounds.Left * newDpi,
-                Bounds.Top * newDpi,
-                Bounds.Right * newDpi,
-                Bounds.Bottom * newDpi
+                Bounds.Left * dpiRatio,
+                Bounds.Top * dpiRatio,
+                Bounds.Right * dpiRatio,
+                Bounds.Bottom * dpiRatio
             );
 
             if (Bounds == scaledRect)
@@ -603,6 +604,9 @@ public partial class UIWindow : UIWindowBase
 
             // Invalidate layout measurements on DPI change
             PerformLayout();
+            CalcSystemBoxPos();
+            if (_windowPageControl != null && _windowPageControl.Count > 0)
+                UpdateTabRects();
 
             NeedsFullChildRedraw = true;
             Invalidate();
@@ -668,6 +672,8 @@ public partial class UIWindow : UIWindowBase
     {
         base.OnHandleCreated(e);
         EnsureInitialLayoutAndDpiSync();
+        // Ensure caption hit test state is correct from the start
+        CalcSystemBoxPos();
     }
 
     private void EnsureInitialLayoutAndDpiSync()
@@ -676,6 +682,7 @@ public partial class UIWindow : UIWindowBase
         InvalidateMeasureRecursive();
         PerformLayout();
         Invalidate();
+        CalcSystemBoxPos();
 
         // Initial DPI sync: Ensure controls match the window's actual DPI
         try
@@ -693,12 +700,22 @@ public partial class UIWindow : UIWindowBase
             // layout again after DPI adjustments (child OnDpiChanged may alter desired sizes)
             InvalidateMeasureRecursive();
             PerformLayout();
+            CalcSystemBoxPos();
+            if (_windowPageControl != null && _windowPageControl.Count > 0)
+                UpdateTabRects();
             Invalidate();
         }
         catch
         {
             // keep best-effort behavior: if DPI helpers fail, leave layout as-is
         }
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        NeedsFullChildRedraw = true;
+        InvalidateRenderTree();
+        Invalidate();
     }
 
     private static MouseEventArgs CreateChildMouseEvent(MouseEventArgs source, ElementBase element)
@@ -761,6 +778,72 @@ public partial class UIWindow : UIWindowBase
             newLoc.Y = Padding.Top;
             e.Element.Location = newLoc;
         }
+    }
+
+    protected override bool IsCaptionHit(SKPoint clientPt)
+    {
+        // Debug: log entry point
+        bool isShowing = ShowTitle;
+        int paddingTop = Padding.Top;
+        float titleHeightDpi = _titleHeightDPI;
+        
+        System.Diagnostics.Debug.WriteLine(
+            $"[IsCaptionHit] clientPt=({clientPt.X}, {clientPt.Y}), ShowTitle={isShowing}, Padding.Top={paddingTop}, TitleHeightDPI={titleHeightDpi}");
+
+        // if title not shown, definitely not caption
+        if (!isShowing)
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT: ShowTitle is false");
+            return false;
+        }
+
+        // Use titleHeightDpi (the actual drawn height) instead of Padding.Top for comparison
+        // clientPt.Y >= titleHeightDpi means below the title
+        if (clientPt.Y >= titleHeightDpi)
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (below title): Y={clientPt.Y} >= TitleHeight={titleHeightDpi}");
+            return false;
+        }
+
+        // ignore control button areas
+        if (_controlBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (control box): {_controlBoxRect}");
+            return false;
+        }
+        if (_maximizeBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (maximize box): {_maximizeBoxRect}");
+            return false;
+        }
+        if (_minimizeBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (minimize box): {_minimizeBoxRect}");
+            return false;
+        }
+        if (_extendBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (extend box): {_extendBoxRect}");
+            return false;
+        }
+        if (_tabCloseButton && _closeTabBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (close tab box): {_closeTabBoxRect}");
+            return false;
+        }
+        if (_newTabButton && _newTabBoxRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (new tab box): {_newTabBoxRect}");
+            return false;
+        }
+        if (_formMenuRect.Contains(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (form menu): {_formMenuRect}");
+            return false;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] ACCEPT CAPTION: ({clientPt.X}, {clientPt.Y})");
+        return true;
     }
 
     private void CalcSystemBoxPos()
@@ -830,6 +913,8 @@ public partial class UIWindow : UIWindowBase
             if (!element.Visible)
                 continue;
             if (requireEnabled && !element.Enabled)
+                continue;
+            if (ShowTitle && !AllowAddControlOnTitle && element.Location.Y < _titleHeightDPI)
                 continue;
             _hitTestElements.Add(element);
         }
@@ -946,8 +1031,30 @@ public partial class UIWindow : UIWindowBase
         if (CanFocus)
             Focus();
 
+        // Title bar drag has absolute priority over child controls.
+        // Check this BEFORE hit-testing children so that a misplaced child
+        // (e.g. during the first layout pass) cannot steal the drag.
+        var inTitleArea = ShowTitle && e.Y <= Padding.Top;
+        var inControlBox = _inCloseBox || _inMaxBox || _inMinBox || _inExtendBox
+                           || _inTabCloseBox || _inNewTabBox || _inFormMenuBox;
+
+        if (inTitleArea && !inControlBox)
+        {
+            if (enableFullDraggable && e.Button == MouseButtons.Left)
+                DragForm(Handle);
+
+            if (e.Button == MouseButtons.Left && Movable)
+            {
+                _formMoveMouseDown = true;
+                _dragStartLocation = Location;
+                _mouseOffset = CursorScreenPosition;
+                SetCapture(Handle);
+            }
+            return;
+        }
+
         var elementClicked = false;
-        // Z-order'a g�re tersten kontrol et (�stteki elementten ba�la)
+        // Z-order'a göre tersten kontrol et (üstteki elementten başla)
         BuildHitTestList(true);
         for (var i = 0; i < _hitTestElements.Count; i++)
         {
@@ -984,9 +1091,9 @@ public partial class UIWindow : UIWindowBase
                     FocusedElement = element;
             }
 
-            // T�klanan elementi en �ste getir
+            // Tıklanan elementi en üste getir
             BringToFront(element);
-            break; // �lk t�klanan elementten sonra di�erlerini kontrol etmeye gerek yok
+            break; // İlk tıklanan elementten sonra diğerlerini kontrol etmeye gerek yok
         }
 
         if (!elementClicked)
@@ -995,39 +1102,35 @@ public partial class UIWindow : UIWindowBase
             FocusedElement = null;
         }
 
-        if (enableFullDraggable && e.Button == MouseButtons.Left)
-            //right = e.Button == MouseButtons.Right;
-            //location = e.Location;
-            DragForm(Handle);
-
         // NOTE: Window context menus should open on MouseUp (standard behavior).
         // Showing on MouseDown can lead to double menus when the mouse moves slightly
         // and an element handles right-click on MouseUp.
-
-        if (_inCloseBox || _inMaxBox || _inMinBox || _inExtendBox || _inTabCloseBox || _inNewTabBox || _inFormMenuBox)
-            return;
-
-        if (!ShowTitle)
-            return;
-
-        if (e.Y > Padding.Top)
-            return;
-
-        if (e.Button == MouseButtons.Left && Movable)
-        {
-            _formMoveMouseDown = true;
-            _dragStartLocation = Location;
-            _mouseOffset = CursorScreenPosition;
-            SetCapture(Handle);
-        }
     }
 
     internal override void OnMouseDoubleClick(MouseEventArgs e)
     {
         base.OnMouseDoubleClick(e);
 
+        // Title bar maximize gesture has priority — check before child hit-testing.
+        var inTitleAreaDbl = ShowTitle && MaximizeBox && e.Y <= Padding.Top;
+        if (inTitleAreaDbl)
+        {
+            var inControlBoxDbl = _controlBoxRect.Contains(e.Location)
+                                  || _maximizeBoxRect.Contains(e.Location)
+                                  || _minimizeBoxRect.Contains(e.Location)
+                                  || _extendBoxRect.Contains(e.Location)
+                                  || (_tabCloseButton && _closeTabBoxRect.Contains(e.Location))
+                                  || (_newTabButton && _newTabBoxRect.Contains(e.Location))
+                                  || _formMenuRect.Contains(e.Location);
+
+            if (!inControlBoxDbl)
+            {
+                ShowMaximize();
+                return;
+            }
+        }
+
         var elementClicked = false;
-        // Z-order'a g�re tersten kontrol et (�stteki elementten ba�la)
         BuildHitTestList(true);
         for (var i = 0; i < _hitTestElements.Count; i++)
         {
@@ -1039,9 +1142,8 @@ public partial class UIWindow : UIWindowBase
 
             var localEvent = CreateChildMouseEvent(e, element);
             element.OnMouseDoubleClick(localEvent);
-            // T�klanan elementi en �ste getir
             BringToFront(element);
-            break; // �lk t�klanan elementten sonra di�erlerini kontrol etmeye gerek yok
+            break;
         }
 
         if (!elementClicked)
@@ -1049,28 +1151,6 @@ public partial class UIWindow : UIWindowBase
             FocusManager.SetFocus(null);
             FocusedElement = null;
         }
-
-        if (!MaximizeBox)
-            return;
-
-        var inCloseBox = _controlBoxRect.Contains(e.Location);
-        var inMaxBox = _maximizeBoxRect.Contains(e.Location);
-        var inMinBox = _minimizeBoxRect.Contains(e.Location);
-        var inExtendBox = _extendBoxRect.Contains(e.Location);
-        var inCloseTabBox = _tabCloseButton && _closeTabBoxRect.Contains(e.Location);
-        var inNewTabBox = _newTabButton && _newTabBoxRect.Contains(e.Location);
-        var inFormMenuBox = _formMenuRect.Contains(e.Location);
-
-        if (inCloseBox || inMaxBox || inMinBox || inExtendBox || inCloseTabBox || inNewTabBox || inFormMenuBox)
-            return;
-
-        if (!ShowTitle)
-            return;
-
-        if (e.Y > Padding.Top)
-            return;
-
-        ShowMaximize();
     }
 
     internal override void OnMouseUp(MouseEventArgs e)
@@ -1165,17 +1245,20 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseMove(MouseEventArgs e)
     {
-        // If an element has captured mouse, forward all mouse move events to it (so dragging continues even when cursor leaves its bounds)
-        if (_mouseCapturedElement != null)
+        // Window drag always takes priority over element capture.
+        // Without this ordering, a child control that accidentally captured the mouse
+        // (e.g. due to a wrong initial layout position) would block all window movement.
+        var screenCursor = CursorScreenPosition;
+        if (!_formMoveMouseDown && _mouseCapturedElement != null)
         {
+            // Forward all mouse move events to the captured element so dragging
+            // continues even when the cursor leaves its bounds.
             var captured = _mouseCapturedElement;
             var bounds = GetWindowRelativeBoundsStatic(captured);
             var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
             captured.OnMouseMove(localEvent);
             return;
         }
-
-        var screenCursor = CursorScreenPosition;
         if (_formMoveMouseDown && !screenCursor.Equals(_mouseOffset))
         {
             if (WindowState == FormWindowState.Maximized)
@@ -1298,10 +1381,10 @@ public partial class UIWindow : UIWindowBase
     {
         base.OnMouseEnter(e);
 
-        // Z-order'a g�re tersten kontrol et
-        foreach (var element in Controls.OfType<ElementBase>().OrderByDescending(el => el.ZOrder)
-                     .Where(el => el.Visible && el.Enabled))
+        BuildHitTestList(true);
+        for (var i = 0; i < _hitTestElements.Count; i++)
         {
+            var element = _hitTestElements[i];
             var mousePos = PointToClient(MousePosition);
             if (GetWindowRelativeBoundsStatic(element).Contains(mousePos))
             {
@@ -1319,43 +1402,56 @@ public partial class UIWindow : UIWindowBase
         var mousePos = PointToClient(MousePosition);
 
         // Recursive olarak do�ru child'� bul ve wheel olay�n� ilet
-        if (PropagateMouseWheel(Controls.OfType<ElementBase>(), mousePos, e))
+        if (PropagateMouseWheel(Controls, mousePos, e))
             return; // Event i�lendi
     }
 
     /// <summary>
     ///     Recursive olarak child elementlere mouse wheel olay�n� iletir
     /// </summary>
-    private bool PropagateMouseWheel(IEnumerable<ElementBase> elements, SKPoint windowMousePos, MouseEventArgs e)
+    private bool PropagateMouseWheel(SDUI.Collections.ElementCollection elements, SKPoint windowMousePos, MouseEventArgs e)
     {
-        // Z-order'a g�re tersten kontrol et - en �stteki element �nce
-        foreach (var element in elements.OrderByDescending(el => el.ZOrder).Where(el => el.Visible && el.Enabled))
+        ElementBase? topmostElement = null;
+        var topmostZOrder = int.MinValue;
+
+        for (var i = 0; i < elements.Count; i++)
         {
+            if (elements[i] is not ElementBase element || !element.Visible || !element.Enabled)
+                continue;
+
             var elementBounds = GetWindowRelativeBoundsStatic(element);
             if (!elementBounds.Contains(windowMousePos))
                 continue;
 
-            // �nce bu elementin child'lar�n� kontrol et (daha spesifik -> daha genel)
-            if (element.Controls != null && element.Controls.Count > 0)
+            if (topmostElement == null || element.ZOrder > topmostZOrder)
             {
-                var childElements = element.Controls.OfType<ElementBase>();
-                if (PropagateMouseWheel(childElements, windowMousePos, e))
-                    return true; // Child i�ledi
+                topmostElement = element;
+                topmostZOrder = element.ZOrder;
             }
-
-            // Child i�lemediyse bu elemente g�nder
-            var localEvent = new MouseEventArgs(
-                e.Button,
-                e.Clicks,
-                (int)windowMousePos.X - (int)elementBounds.Left,
-                (int)windowMousePos.Y - (int)elementBounds.Top,
-                e.Delta);
-
-            element.OnMouseWheel(localEvent);
-            return true; // Event i�lendi
         }
 
-        return false; // Hi�bir element i�lemedi
+        if (topmostElement == null)
+            return false;
+
+        var topmostBounds = GetWindowRelativeBoundsStatic(topmostElement);
+
+        // �nce bu elementin child'lar�n� kontrol et (daha spesifik -> daha genel)
+        if (topmostElement.Controls != null && topmostElement.Controls.Count > 0)
+        {
+            if (PropagateMouseWheel(topmostElement.Controls, windowMousePos, e))
+                return true; // Child i�ledi
+        }
+
+        // Child i�lemediyse bu elemente g�nder
+        var localEvent = new MouseEventArgs(
+            e.Button,
+            e.Clicks,
+            (int)windowMousePos.X - (int)topmostBounds.Left,
+            (int)windowMousePos.Y - (int)topmostBounds.Top,
+            e.Delta);
+
+        topmostElement.OnMouseWheel(localEvent);
+        return true; // Event i�lendi
     }
 
     private void ShowMaximize(bool IsOnMoving = false)
@@ -1797,9 +1893,11 @@ public partial class UIWindow : UIWindowBase
                 canvas.DrawPath(_tempPath, tabPaint);
             }
             // Draw tab headers
-            foreach (ElementBase page in _windowPageControl.Controls)
+            for (var currentTabIndex = 0; currentTabIndex < _windowPageControl.Controls.Count; currentTabIndex++)
             {
-                var currentTabIndex = _windowPageControl.Controls.IndexOf(page);
+                if (_windowPageControl.Controls[currentTabIndex] is not ElementBase page)
+                    continue;
+
                 var rect = pageRect[currentTabIndex];
                 var closeIconSize = 24 * ScaleFactor;
 
@@ -2132,6 +2230,8 @@ public partial class UIWindow : UIWindowBase
     {
         if (disposing)
         {
+            ColorScheme.ThemeChanged -= OnThemeChanged;
+
             foreach (var paint in _paintCache.Values)
                 paint.Dispose();
             _paintCache.Clear();

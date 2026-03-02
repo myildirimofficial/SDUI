@@ -24,6 +24,7 @@ public partial class UIWindowBase
     private int _suppressImmediateUpdateCount;
     private long _perfLastTimestamp;
     private double _perfSmoothedFrameMs;
+    private SKPaint? _perfOverlayPaint;
     protected SKBitmap _cacheBitmap;
     private SKSurface _cacheSurface;
 
@@ -152,6 +153,9 @@ public partial class UIWindowBase
 
     protected void ArmIdleMaintenance()
     {
+        if (!EnableIdleMaintenance)
+            return;
+
         if (_idleMaintenanceTimer == null)
         {
             _idleMaintenanceTimer = new Timer();
@@ -452,12 +456,11 @@ public partial class UIWindowBase
 
         var fps = 1000.0 / Math.Max(0.001, _perfSmoothedFrameMs);
 
-        using var paint = new SKPaint
-        {
-            IsAntialias = true,
-            Color = ColorScheme.ForeColor,
-            TextSize = 12
-        };
+        _perfOverlayPaint ??= new SKPaint { IsAntialias = true };
+        var paint = _perfOverlayPaint;
+        paint.Color = ColorScheme.ForeColor;
+        paint.TextSize = 12;
+
 
         var backendLabel = RenderBackend.ToString();
         if (RenderBackend == RenderBackend.DirectX11 && _renderer is DirectX11WindowRenderer dx)
