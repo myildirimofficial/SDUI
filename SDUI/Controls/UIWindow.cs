@@ -1,16 +1,13 @@
-﻿using SDUI.Animation;
+using SDUI.Animation;
 using SDUI.Extensions;
 using SDUI.Helpers;
 using SDUI.Native.Windows;
-using SDUI.Rendering;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
-using System.Timers;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
@@ -91,9 +88,6 @@ public partial class UIWindow : UIWindowBase
     // Collection of hover animation managers to simplify bulk operations
     private readonly List<AnimationManager> _hoverAnimationManagers = new();
 
-    private SKBitmap _cacheBitmap;
-    private SKSurface _cacheSurface;
-
     /// <summary>
     ///     The rectangle of extend box
     /// </summary>
@@ -108,7 +102,6 @@ public partial class UIWindow : UIWindowBase
     ///     The rectangle of control box
     /// </summary>
     private SkiaSharp.SKRect _controlBoxRect;
-
 
     private bool _drawTabIcons;
 
@@ -148,15 +141,7 @@ public partial class UIWindow : UIWindowBase
 
     private float _iconWidth = 42;
 
-    private Timer? _idleMaintenanceTimer;
-
     private bool _inCloseBox, _inMaxBox, _inMinBox, _inExtendBox, _inTabCloseBox, _inNewTabBox, _inFormMenuBox;
-
-    /// <summary>
-    ///     Is form active <c>true</c>; otherwise <c>false</c>
-    /// </summary>
-
-
 
     /// <summary>
     ///     The starting location when form drag begins
@@ -196,20 +181,8 @@ public partial class UIWindow : UIWindowBase
     private SkiaSharp.SKRect _newTabBoxRect;
 
     private bool _newTabButton;
-    private long _perfLastTimestamp;
-    private double _perfSmoothedFrameMs;
-
-    private RenderBackend _renderBackend = RenderBackend.Software;
-    private IWindowRenderer? _renderer;
-
-    private bool _showPerfOverlay = true;
-
-    // Prevent Invalidate()->Update() storms in Software backend
-    private bool _softwareUpdateQueued;
 
     private long _stickyBorderTime = 5000000;
-    private int _suppressImmediateUpdateCount;
-
 
     private float _symbolSize = 24;
 
@@ -263,14 +236,10 @@ public partial class UIWindow : UIWindowBase
     public UIWindow()
     {
         AutoScaleMode = AutoScaleMode.None;
-
-        // WinForms double-buffering can cause visible flicker when the window is presented by
-        // a GPU swapchain (OpenGL/DX). Keep it for software, disable it for GPU backends.
-        ApplyRenderStyles();
         enableFullDraggable = false;
 
         // allocate pageRect once to avoid repeated allocations
-        pageRect = new List<SKRect>();
+        pageRect = [];
 
         // create individual hover managers then register for bulk operations
         pageAreaAnimationManager = CreateHoverAnimation();
@@ -580,97 +549,8 @@ public partial class UIWindow : UIWindowBase
         }
     }
 
-    /// <summary>
-    ///     Maximum retained bytes for the software backbuffer (SKBitmap + SKSurface + GDI Bitmap wrapper).
-    ///     This prevents 4K/8K windows from permanently retaining very large pixel buffers.
-    ///     Set to 0 (or less) to disable the limit (unlimited).
-    /// </summary>
-    public static long MaxSoftwareBackBufferBytes { get; set; } = 24L * 1024 * 1024;
-
-    public static bool EnableIdleMaintenance { get; set; } = true;
-
-    /// <summary>
-    ///     Delay (ms) after the last repaint request before trimming retained backbuffers and
-    ///     asking Skia to purge resource caches.
-    /// </summary>
-    public static int IdleMaintenanceDelayMs { get; set; } = 1500;
-
-    public static bool PurgeSkiaResourceCacheOnIdle { get; set; } = true;
-
-    [DefaultValue(false)]
-    [Description("Shows a small FPS/frame-time overlay for measuring renderer performance.")]
-    public bool ShowPerfOverlay
-    {
-        get => _showPerfOverlay;
-        set
-        {
-            if (_showPerfOverlay == value)
-                return;
-            _showPerfOverlay = value;
-            _perfLastTimestamp = 0;
-            _perfSmoothedFrameMs = 0;
-            Invalidate();
-        }
-    }
-
-    [DefaultValue(RenderBackend.Software)]
-    [Description(
-        "Selects how UIWindow presents frames: Software (GDI), OpenGL, or DirectX11 (DXGI/GDI-compatible swapchain).")]
-    public RenderBackend RenderBackend
-    {
-        get => _renderBackend;
-        set
-        {
-            if (_renderBackend == value)
-                return;
-
-            _renderBackend = value;
-            ApplyRenderStyles();
-            RecreateRenderer();
-            Invalidate();
-        }
-    }
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-
-            if (_renderBackend != RenderBackend.Software)
-            {
-                cp.Style |= (int)(SetWindowLongFlags.WS_CLIPCHILDREN |
-                                  SetWindowLongFlags.WS_CLIPSIBLINGS);
-                // WS_EX_NOREDIRECTIONBITMAP helps some WGL/SwapBuffers flicker scenarios,
-                // but can interfere with DXGI swapchains. Apply only for OpenGL.
-                if (_renderBackend == RenderBackend.OpenGL)
-                    cp.ExStyle |= (uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
-                cp.ExStyle &= ~(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
-            }
-
-            return cp;
-        }
-    }
-
     public SKRectI MaximizedBounds { get; private set; }
 
-    public override void Invalidate()
-    {
-        if (!IsHandleCreated || IsDisposed || Disposing)
-            return;
-
-        if (_renderBackend == RenderBackend.Software)
-        {
-            if (_suppressImmediateUpdateCount <= 0 && ShouldForceSoftwareUpdate())
-                QueueSoftwareUpdate();
-            else
-                InvalidateWindow();
-        }
-        else
-        {
-            InvalidateWindow();
-        }
-    }
 
     /// <summary>
     ///     If extend box clicked invoke the event
@@ -701,7 +581,7 @@ public partial class UIWindow : UIWindowBase
             if (newDpi == oldDpi)
                 return;
 
-            _suppressImmediateUpdateCount++;
+            BeginImmediateUpdateSuppression();
 
             SKRect scaledRect = new SKRect(
                 Bounds.Left * newDpi,
@@ -729,7 +609,7 @@ public partial class UIWindow : UIWindowBase
         }
         finally
         {
-            _suppressImmediateUpdateCount--;
+            EndImmediateUpdateSuppression();
         }
     }
 
@@ -765,98 +645,6 @@ public partial class UIWindow : UIWindowBase
     }
 
 
-
-    private bool ShouldForceSoftwareUpdate()
-    {
-        // Only force synchronous Update() when we need smooth, real-time visuals.
-        // Otherwise let WinForms coalesce paints to keep idle CPU low.
-        if (_suppressImmediateUpdateCount > 0)
-            return false;
-
-        if (_showPerfOverlay)
-            return true;
-
-        return pageAreaAnimationManager.Running
-               || minBoxHoverAnimationManager.Running
-               || maxBoxHoverAnimationManager.Running
-               || closeBoxHoverAnimationManager.Running
-               || extendBoxHoverAnimationManager.Running
-               || tabCloseHoverAnimationManager.Running
-               || newTabHoverAnimationManager.Running
-               || formMenuHoverAnimationManager.Running;
-    }
-
-    private void EnsureIdleMaintenanceTimer()
-    {
-        if (!EnableIdleMaintenance)
-            return;
-
-        if (_idleMaintenanceTimer == null)
-        {
-            _idleMaintenanceTimer = new Timer();
-            _idleMaintenanceTimer.Interval = IdleMaintenanceDelayMs;
-            _idleMaintenanceTimer.Elapsed += IdleMaintenanceTimer_Tick;
-        }
-    }
-
-    private void ArmIdleMaintenance()
-    {
-        if (!EnableIdleMaintenance)
-            return;
-
-        EnsureIdleMaintenanceTimer();
-        if (_idleMaintenanceTimer != null)
-        {
-            _idleMaintenanceTimer.Stop();
-            _idleMaintenanceTimer.Start();
-        }
-    }
-
-    private void IdleMaintenanceTimer_Tick(object? sender, EventArgs e)
-    {
-        _idleMaintenanceTimer?.Stop();
-
-        // 1. Trim renderer caches (DirectX / OpenGL)
-        _renderer?.TrimCaches();
-
-        // 2. Trim software backbuffer if using software rendering
-        if (_renderer == null)
-        {
-            DisposeSoftwareBackBuffer();
-            NeedsFullChildRedraw = true;
-        }
-
-        // 3. Purge global Skia resource cache if requested
-        if (PurgeSkiaResourceCacheOnIdle) SKGraphics.PurgeResourceCache();
-    }
-
-    private void QueueSoftwareUpdate()
-    {
-        if (_softwareUpdateQueued)
-            return;
-
-        if (!IsHandleCreated || IsDisposed || Disposing)
-            return;
-
-        _softwareUpdateQueued = true;
-        try
-        {
-            BeginInvoke((Action)(() =>
-            {
-                _softwareUpdateQueued = false;
-                if (!IsHandleCreated || IsDisposed || Disposing)
-                    return;
-
-                if (_renderBackend == RenderBackend.Software)
-                    InvalidateWindow(); // ✅ Use native invalidate to avoid recursion
-            }));
-        }
-        catch
-        {
-            _softwareUpdateQueued = false;
-        }
-    }
-
     private void StableSortByZOrderDescending(List<ElementBase> list)
     {
         _zOrderSortBuffer.Clear();
@@ -879,7 +667,6 @@ public partial class UIWindow : UIWindowBase
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        RecreateRenderer();
         EnsureInitialLayoutAndDpiSync();
     }
 
@@ -911,53 +698,6 @@ public partial class UIWindow : UIWindowBase
         catch
         {
             // keep best-effort behavior: if DPI helpers fail, leave layout as-is
-        }
-    }
-
-    protected override void OnHandleDestroyed(EventArgs e)
-    {
-        try
-        {
-            _renderer?.Dispose();
-        }
-        finally
-        {
-            _renderer = null;
-            base.OnHandleDestroyed(e);
-        }
-    }
-
-    private void RecreateRenderer()
-    {
-        if (IsDisposed || Disposing)
-            return;
-
-        _renderer?.Dispose();
-        _renderer = null;
-
-        if (!IsHandleCreated)
-            return;
-
-        if (_renderBackend == RenderBackend.Software)
-            return;
-
-        try
-        {
-            _renderer = _renderBackend switch
-            {
-                RenderBackend.OpenGL => new OpenGlWindowRenderer(),
-                RenderBackend.DirectX11 => new DirectX11WindowRenderer(),
-                _ => null
-            };
-
-            _renderer?.Initialize(Handle);
-            _renderer?.Resize((int)ClientSize.Width, (int)ClientSize.Height);
-        }
-        catch
-        {
-            _renderer?.Dispose();
-            _renderer = null;
-            _renderBackend = RenderBackend.Software;
         }
     }
 
@@ -1010,54 +750,6 @@ public partial class UIWindow : UIWindowBase
 
         return SKRect.Create(element.Location, element.Size);
     }
-
-    private void CreateOrUpdateCache(SKImageInfo info)
-    {
-        if (info.Width <= 0 || info.Height <= 0)
-        {
-            DisposeSoftwareBackBuffer();
-            return;
-        }
-
-        if (_cacheBitmap == null || _cacheBitmap.Width != info.Width || _cacheBitmap.Height != info.Height)
-        {
-            _cacheSurface?.Dispose();
-            _cacheBitmap?.Dispose();
-
-            _cacheBitmap = new SKBitmap(info);
-            var pixels = _cacheBitmap.GetPixels();
-            _cacheSurface = SKSurface.Create(info, pixels, _cacheBitmap.RowBytes);
-            NeedsFullChildRedraw = true;
-        }
-    }
-
-    private static long EstimateBackBufferBytes(SKImageInfo info)
-    {
-        // Estimate: BGRA8888/RGBA8888 => 4 bytes per pixel
-        var bytes = (long)info.Width * info.Height * 4;
-        return bytes > 0 ? bytes : 0;
-    }
-
-    private static bool ShouldCacheSoftwareBackBuffer(SKImageInfo info)
-    {
-        var maxBytes = MaxSoftwareBackBufferBytes;
-        if (maxBytes <= 0)
-            return true;
-
-        var estimated = EstimateBackBufferBytes(info);
-        return estimated > 0 && estimated <= maxBytes;
-    }
-
-    private void DisposeSoftwareBackBuffer()
-    {
-        _cacheSurface?.Dispose();
-        _cacheSurface = null;
-
-        _cacheBitmap?.Dispose();
-        _cacheBitmap = null;
-    }
-
-    // REMOVED: RenderSoftwareFrameUncached - using UIWindowBase native rendering
 
     internal override void OnControlAdded(ElementEventArgs e)
     {
@@ -1674,7 +1366,6 @@ public partial class UIWindow : UIWindowBase
 
         if (WindowState == FormWindowState.Normal)
         {
-            // Native maximize handles bounds via WM_GETMINMAXINFO
             WindowState = FormWindowState.Maximized;
         }
         else if (WindowState == FormWindowState.Maximized)
@@ -1698,191 +1389,9 @@ public partial class UIWindow : UIWindowBase
         Invalidate();
     }
 
-    // REMOVED: NotifyInvalidate - method doesn't exist in UIWindowBase
-
-    // REMOVED: WndProc - using UIWindowBase native WndProc instead
-
-    // Layout is fully handled by ElementBase.OnLayout via DisplayRectangle.
-    // CalcSystemBoxPos sets Padding.Top = titleHeight, which DisplayRectangle uses
-    // to compute the correct child layout area. No override needed.
-
-    protected override void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
+    protected override void RenderWindowFrame(SKCanvas canvas, SKImageInfo info)
     {
-        base.OnPaintCanvas(canvas, info);
-        
-        if (_renderBackend != RenderBackend.Software && _renderer != null)
-        {
-            try
-            {
-                _renderer.Render((int)info.Width, (int)info.Height, RenderScene);
-                ArmIdleMaintenance();
-                return;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[UIWindow] Hardware rendering failed ({ex.GetType().Name}). Falling back to Software. Error: {ex.Message}");
-                _renderer?.Dispose();
-                _renderer = null;
-                _renderBackend = RenderBackend.Software;
-            }
-        }
-
-        // Software rendering path - use provided canvas
-        RenderScene(canvas, info);
-        ArmIdleMaintenance();
-    }
-
-    private void ApplyRenderStyles()
-    {
-        var gpu = _renderBackend != RenderBackend.Software;
-
-        ApplyNativeWindowStyles(gpu);
-    }
-
-    private void ApplyNativeWindowStyles(bool gpu)
-    {
-        if (!IsHandleCreated)
-            return;
-
-        var hwnd = Handle;
-
-        // Window styles
-        var stylePtr = GetWindowLong(hwnd, WindowLongIndexFlags.GWL_STYLE);
-        var style = stylePtr;
-        var clipFlags = (nint)(uint)(SetWindowLongFlags.WS_CLIPCHILDREN |
-                                     SetWindowLongFlags.WS_CLIPSIBLINGS);
-        style = gpu ? style | clipFlags : style & ~clipFlags;
-
-        // Extended styles
-        var exStylePtr = GetWindowLong(hwnd, WindowLongIndexFlags.GWL_EXSTYLE);
-        var exStyle = exStylePtr;
-        var noRedirect = (nint)(uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
-        var composited = (nint)(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
-        if (gpu)
-        {
-            if (_renderBackend == RenderBackend.OpenGL)
-                exStyle |= noRedirect;
-            else
-                exStyle &= ~noRedirect;
-            exStyle &= ~composited;
-        }
-        else
-        {
-            exStyle &= ~noRedirect;
-        }
-
-        if (IntPtr.Size == 8)
-        {
-            SetWindowLongPtr64(hwnd, (int)WindowLongIndexFlags.GWL_STYLE, style);
-            SetWindowLongPtr64(hwnd, (int)WindowLongIndexFlags.GWL_EXSTYLE, exStyle);
-        }
-        else
-        {
-            SetWindowLong32(hwnd, (int)WindowLongIndexFlags.GWL_STYLE, (int)style);
-            SetWindowLong32(hwnd, (int)WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
-        }
-
-        // Re-apply non-client metrics.
-        SetWindowPos(
-            hwnd,
-            IntPtr.Zero,
-            0,
-            0,
-            0,
-            0,
-            SetWindowPosFlags.SWP_NOMOVE |
-            SetWindowPosFlags.SWP_NOSIZE |
-            SetWindowPosFlags.SWP_NOZORDER |
-            SetWindowPosFlags.SWP_NOACTIVATE |
-            SetWindowPosFlags.SWP_FRAMECHANGED);
-    }
-
-    // REMOVED: RenderSoftwareFrameToGdiBitmap - using UIWindowBase native rendering with Memory DC
-
-    private void RenderScene(SKCanvas canvas, SKImageInfo info)
-    {
-        GRContext? gr = null;
-
-        // Only use GPU context if the renderer is actually actively using it for this frame.
-        // Prevents ElementBase from creating GPU surfaces when we are falling back to CPU rendering
-        // (which causes slow readbacks "weak rendering" and potential access violations).
-        if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
-        {
-            gr = dx.GrContext;
-        }
-        else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
-        {
-            gr = gl.GrContext;
-        }
-        else if (!(_renderer is DirectX11WindowRenderer) && !(_renderer is OpenGlWindowRenderer))
-        {
-            // Fallback for other renderers
-            gr = (_renderer as IGpuWindowRenderer)?.GrContext;
-        }
-
-        var gpuScope = gr != null ? PushGpuContext(gr) : null;
-        try
-        {
-            canvas.Save();
-            canvas.ResetMatrix();
-            canvas.ClipRect(SkiaSharp.SKRect.Create(info.Width, info.Height));
-            canvas.Clear(ColorScheme.BackColor);
-
-            // Draw title bar, control buttons, tabs (window chrome)
-            PaintSurface(canvas, info);
-
-            // Child rendering within the same clip region.
-            // RenderChildren handles Z-order sorting, scroll offset, and render tree invalidation.
-            RenderChildren(canvas);
-
-            if (_showPerfOverlay)
-                DrawPerfOverlay(canvas);
-
-            canvas.Restore();
-        }
-        finally
-        {
-            gpuScope?.Dispose();
-        }
-    }
-
-    private void DrawPerfOverlay(SKCanvas canvas)
-    {
-        var now = Stopwatch.GetTimestamp();
-        if (_perfLastTimestamp == 0)
-        {
-            _perfLastTimestamp = now;
-            return;
-        }
-
-        var dt = (now - _perfLastTimestamp) / (double)Stopwatch.Frequency;
-        _perfLastTimestamp = now;
-        if (dt <= 0)
-            return;
-
-        var frameMs = dt * 1000.0;
-        _perfSmoothedFrameMs = _perfSmoothedFrameMs <= 0
-            ? frameMs
-            : _perfSmoothedFrameMs * 0.90 + frameMs * 0.10;
-
-        var fps = 1000.0 / Math.Max(0.001, _perfSmoothedFrameMs);
-
-        var paint = GetOrCreatePaint("perfOverlay", () => new SKPaint
-        {
-            IsAntialias = true
-        });
-        // update dynamic properties each frame
-        paint.Color = ColorScheme.ForeColor;
-        paint.TextSize = 12;
-
-        var backendLabel = _renderBackend.ToString();
-        if (_renderBackend == RenderBackend.DirectX11 && _renderer is DirectX11WindowRenderer dx)
-            backendLabel = dx.IsSkiaGpuActive ? "DX:GPU" : "DX:CPU";
-        else if (_renderBackend == RenderBackend.OpenGL && _renderer is OpenGlWindowRenderer gl)
-            backendLabel = gl.IsSkiaGpuActive ? "GL:GPU" : "GL";
-
-        var text = $"{backendLabel}  {fps:0} FPS  {_perfSmoothedFrameMs:0.0} ms";
-        canvas.DrawText(text, 8, 16, paint);
+        PaintSurface(canvas, info);
     }
 
     private void PaintSurface(SKCanvas canvas, SKImageInfo info)
@@ -2245,48 +1754,48 @@ public partial class UIWindow : UIWindowBase
             var x = previousActivePageRect.Left + (activePageRect.Left - previousActivePageRect.Left) * (float)animationProgress;
             var width = previousActivePageRect.Width +
                         (activePageRect.Width - previousActivePageRect.Width) * (float)animationProgress;
-            
+
             if (_tabDesingMode == TabDesingMode.Rectangle)
             {
-                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f);
+                var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f);
 
-                    canvas.DrawRect(activePageRect.Location.X, 0, width, _titleHeightDPI, tabPaint);
-                    canvas.DrawRect(x, 0, width, _titleHeightDPI, tabPaint);
+                canvas.DrawRect(activePageRect.Location.X, 0, width, _titleHeightDPI, tabPaint);
+                canvas.DrawRect(x, 0, width, _titleHeightDPI, tabPaint);
 
-                    var indicatorPaint = GetOrCreatePaint("tabIndicator", () => new SKPaint { Color = SKColors.DodgerBlue, IsAntialias = true });
-                    canvas.DrawRect(x, _titleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
-                }
-                else if (_tabDesingMode == TabDesingMode.Rounded)
-                {
-                    if (titleColor != SKColor.Empty && !titleColor.IsDark())
-                        hoverColor = foreColor.WithAlpha(60);
+                var indicatorPaint = GetOrCreatePaint("tabIndicator", () => new SKPaint { Color = SKColors.DodgerBlue, IsAntialias = true });
+                canvas.DrawRect(x, _titleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
+            }
+            else if (_tabDesingMode == TabDesingMode.Rounded)
+            {
+                if (titleColor != SKColor.Empty && !titleColor.IsDark())
+                    hoverColor = foreColor.WithAlpha(60);
 
-                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
+                var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                    var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
-                    var radius = 9 * ScaleFactor;
+                var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
+                var radius = 9 * ScaleFactor;
 
-                    _tempPath.Reset();
-                    _tempPath.AddRoundRect(tabRect, radius, radius);
-                    canvas.DrawPath(_tempPath, tabPaint);
-                }
-                else // Chromed
-                {
-                    if (titleColor != SKColor.Empty && !titleColor.IsDark())
-                        hoverColor = foreColor.WithAlpha(60);
+                _tempPath.Reset();
+                _tempPath.AddRoundRect(tabRect, radius, radius);
+                canvas.DrawPath(_tempPath, tabPaint);
+            }
+            else // Chromed
+            {
+                if (titleColor != SKColor.Empty && !titleColor.IsDark())
+                    hoverColor = foreColor.WithAlpha(60);
 
-                    var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                    tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
+                var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
+                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                    var tabRect = new SkiaSharp.SKRect(x, 5, x + width, _titleHeightDPI - 7);
-                    var radius = 12;
+                var tabRect = new SkiaSharp.SKRect(x, 5, x + width, _titleHeightDPI - 7);
+                var radius = 12;
 
-                    _tempPath.Reset();
-                    _tempPath.AddRoundRect(tabRect, radius, radius);
-                    canvas.DrawPath(_tempPath, tabPaint);
-                }
+                _tempPath.Reset();
+                _tempPath.AddRoundRect(tabRect, radius, radius);
+                canvas.DrawPath(_tempPath, tabPaint);
+            }
             // Draw tab headers
             foreach (ElementBase page in _windowPageControl.Controls)
             {
@@ -2460,15 +1969,10 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnSizeChanged(EventArgs e)
     {
-        base.OnSizeChanged(e);
         CalcSystemBoxPos();
         NeedsFullChildRedraw = true;
-        PerformLayout();
-
-        if (_renderBackend != RenderBackend.Software && _renderer != null)
-            _renderer.Resize((int)ClientSize.Width, (int)ClientSize.Height);
-
-        Invalidate();
+        
+        base.OnSizeChanged(e);
     }
 
     protected override void OnShown(EventArgs e)
@@ -2480,15 +1984,7 @@ public partial class UIWindow : UIWindowBase
         // Trigger initial layout with current DPI
         InvalidateMeasureRecursive();
         PerformLayout();
-
-        // some controls may be added by startup logic after OnShown; schedule one
-        // more layout on the message queue so that final positions update correctly.
-        this.BeginInvoke((Action)(() =>
-        {
-            InvalidateMeasureRecursive();
-            PerformLayout();
-            Invalidate();
-        }));
+        Invalidate();
     }
 
     private void UpdateTabRects()
@@ -2577,10 +2073,7 @@ public partial class UIWindow : UIWindowBase
             currentX += finalWidth;
         }
     }
-
-
-
-
+    
     private void InvalidateElement(ElementBase element)
     {
         if (LayoutSuspendCount > 0) return;
@@ -2642,11 +2135,6 @@ public partial class UIWindow : UIWindowBase
             foreach (var paint in _paintCache.Values)
                 paint.Dispose();
             _paintCache.Clear();
-
-            _cacheBitmap?.Dispose();
-            _cacheBitmap = null;
-            _cacheSurface?.Dispose();
-            _cacheSurface = null;
         }
 
         base.Dispose(disposing);

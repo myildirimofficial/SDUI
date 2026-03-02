@@ -428,34 +428,24 @@ public class GroupBox : UIElementBase
         return preferredSize;
     }
 
+    public override SKRect DisplayRectangle
+    {
+        get
+        {
+            var titleHeight = Font.Size + 7;
+            var clientRect = SKRect.Create(
+                Padding.Left,
+                Padding.Top + titleHeight,
+                Width - Padding.Horizontal - _shadowDepth / 2,
+                Height - Padding.Vertical - titleHeight - _shadowDepth / 2
+            );
+            return clientRect;
+        }
+    }
+
     protected override void OnLayout(UILayoutEventArgs e)
     {
-        if (Controls.Count == 0)
-        {
-            base.OnLayout(e);
-            return;
-        }
-
-        // Title height for offset
-        var titleHeight = Font.Size + 7;
-
-        // Apply padding and title offset to child bounds
-        var clientRect = SKRect.Create(
-            Padding.Left,
-            Padding.Top + titleHeight,
-            Width - Padding.Horizontal - _shadowDepth / 2,
-            Height - Padding.Vertical - titleHeight - _shadowDepth / 2
-        );
-
-        // Use LayoutEngine to layout children within client area
-        var remaining = clientRect;
-        foreach (UIElementBase control in Controls)
-        {
-            if (!control.Visible)
-                continue;
-            PerformDefaultLayout(control, clientRect, ref remaining);
-        }
-
+        base.OnLayout(e);
         Invalidate();
     }
 

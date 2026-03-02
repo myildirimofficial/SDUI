@@ -1,20 +1,283 @@
 using SDUI.Native.Windows;
+using SDUI.Rendering;
 using SkiaSharp;
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Timers;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
 
 public partial class UIWindowBase
 {
-    // Cached GDI resources for flicker-free double buffering.
-    // Re-created only when client size changes.
+    private bool _showPerfOverlay = true;
     private IntPtr _cachedMemDC;
     private IntPtr _cachedBitmap;
     private IntPtr _cachedPixels;
     private int _cachedWidth;
     private int _cachedHeight;
+    private bool _softwareUpdateQueued;
+    private Timer? _idleMaintenanceTimer;
+    private int _suppressImmediateUpdateCount;
+    private long _perfLastTimestamp;
+    private double _perfSmoothedFrameMs;
+    protected SKBitmap _cacheBitmap;
+    private SKSurface _cacheSurface;
+
+    /// <summary>
+    ///     Maximum retained bytes for the software backbuffer (SKBitmap + SKSurface + GDI Bitmap wrapper).
+    ///     This prevents 4K/8K windows from permanently retaining very large pixel buffers.
+    ///     Set to 0 (or less) to disable the limit (unlimited).
+    /// </summary>
+    public static long MaxSoftwareBackBufferBytes { get; set; } = 24L * 1024 * 1024;
+
+    public static bool EnableIdleMaintenance { get; set; } = true;
+
+    /// <summary>
+    ///     Delay (ms) after the last repaint request before trimming retained backbuffers and
+    ///     asking Skia to purge resource caches.
+    /// </summary>
+    public static int IdleMaintenanceDelayMs { get; set; } = 1500;
+
+
+    public static bool PurgeSkiaResourceCacheOnIdle { get; set; } = true;
+
+    [DefaultValue(false)]
+    [Description("Shows a small FPS/frame-time overlay for measuring renderer performance.")]
+    public bool ShowPerfOverlay
+    {
+        get => _showPerfOverlay;
+        set
+        {
+            if (_showPerfOverlay == value)
+                return;
+            _showPerfOverlay = value;
+            _perfLastTimestamp = 0;
+            _perfSmoothedFrameMs = 0;
+            Invalidate();
+        }
+    }
+
+    private SDUI.Rendering.RenderBackend _renderBackend = SDUI.Rendering.RenderBackend.Software;
+    private SDUI.Rendering.IWindowRenderer _renderer;
+
+    [System.ComponentModel.DefaultValue(SDUI.Rendering.RenderBackend.Software)]
+    [System.ComponentModel.Description("Selects how UIWindowBase presents frames: Software (GDI), OpenGL, or DirectX11 (DXGI/GDI-compatible swapchain).")]
+    public SDUI.Rendering.RenderBackend RenderBackend
+    {
+        get => _renderBackend;
+        set
+        {
+            if (_renderBackend == value)
+                return;
+
+            _renderBackend = value;
+            ApplyRenderStyles();
+            RecreateRenderer();
+            InvalidateWindow();
+        }
+    }
+
+    internal override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+
+        if (_renderBackend != RenderBackend.Software && _renderer != null)
+            _renderer.Resize((int)ClientSize.Width, (int)ClientSize.Height);
+
+        Invalidate();
+    }
+
+
+    private void QueueSoftwareUpdate()
+    {
+        if (_softwareUpdateQueued)
+            return;
+
+        if (!IsHandleCreated || IsDisposed || Disposing)
+            return;
+
+        _softwareUpdateQueued = true;
+        try
+        {
+            _softwareUpdateQueued = false;
+            if (!IsHandleCreated || IsDisposed || Disposing)
+                return;
+
+            if (_renderBackend == RenderBackend.Software)
+                InvalidateWindow(); // ✅ Use native invalidate to avoid recursion
+        }
+        catch
+        {
+            _softwareUpdateQueued = false;
+        }
+    }
+
+    public override void Invalidate()
+    {
+        if (!IsHandleCreated || IsDisposed || Disposing)
+            return;
+
+        if (_renderBackend == RenderBackend.Software)
+        {
+            if (_suppressImmediateUpdateCount <= 0 && ShouldForceSoftwareUpdate())
+                QueueSoftwareUpdate();
+            else
+                InvalidateWindow();
+        }
+        else
+        {
+            InvalidateWindow();
+        }
+    }
+
+    protected virtual bool ShouldForceSoftwareUpdate()
+    {
+        return true;
+    }
+
+    protected void BeginImmediateUpdateSuppression()
+    {
+        _suppressImmediateUpdateCount++;
+    }
+
+    protected void EndImmediateUpdateSuppression()
+    {
+        if (_suppressImmediateUpdateCount > 0)
+            _suppressImmediateUpdateCount--;
+    }
+
+    protected void ArmIdleMaintenance()
+    {
+        if (_idleMaintenanceTimer == null)
+        {
+            _idleMaintenanceTimer = new Timer();
+            _idleMaintenanceTimer.Interval = IdleMaintenanceDelayMs;
+            _idleMaintenanceTimer.Elapsed += IdleMaintenanceTimer_Tick;
+        }
+        
+        if (_idleMaintenanceTimer != null)
+        {
+            _idleMaintenanceTimer.Stop();
+            _idleMaintenanceTimer.Start();
+        }
+    }
+
+    private void IdleMaintenanceTimer_Tick(object? sender, EventArgs e)
+    {
+        _idleMaintenanceTimer?.Stop();
+
+        // 1. Trim renderer caches (DirectX / OpenGL)
+        _renderer?.TrimCaches();
+
+        // 2. Trim software backbuffer if using software rendering
+        if (_renderer == null)
+        {
+            DisposeSoftwareBackBuffer();
+            NeedsFullChildRedraw = true;
+        }
+
+        // 3. Purge global Skia resource cache if requested
+        if (PurgeSkiaResourceCacheOnIdle) SKGraphics.PurgeResourceCache();
+    }
+
+    protected void DisposeSoftwareBackBuffer()
+    {
+        _cacheSurface?.Dispose();
+        _cacheSurface = null;
+
+        _cacheBitmap?.Dispose();
+        _cacheBitmap = null;
+    }
+
+    private void RecreateRenderer()
+    {
+        if (!IsHandleCreated)
+            return;
+
+        if (_renderBackend == RenderBackend.Software)
+        {
+            _renderer?.Dispose();
+            _renderer = null;
+            return;
+        }
+
+        try
+        {
+            _renderer?.Dispose();
+            _renderer = _renderBackend switch
+            {
+                SDUI.Rendering.RenderBackend.DirectX11 => new SDUI.Rendering.DirectX11WindowRenderer(),
+                SDUI.Rendering.RenderBackend.OpenGL => new SDUI.Rendering.OpenGlWindowRenderer(),
+                _ => null
+            };
+            
+            if (_renderer != null)
+                _renderer.Initialize(Handle);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[UIWindowBase] Failed to initialize {_renderBackend} renderer. Falling back to Software. Error: {ex.Message}");
+            _renderer?.Dispose();
+            _renderer = null;
+            _renderBackend = SDUI.Rendering.RenderBackend.Software;
+        }
+    }
+
+    private void ApplyRenderStyles()
+    {
+        var gpu = _renderBackend != SDUI.Rendering.RenderBackend.Software;
+        ApplyNativeWindowStyles(gpu);
+    }
+
+    private void ApplyNativeWindowStyles(bool gpu)
+    {
+        if (!IsHandleCreated)
+            return;
+
+        var hwnd = Handle;
+        var stylePtr = GetWindowLong(hwnd, SDUI.Native.Windows.WindowLongIndexFlags.GWL_STYLE);
+        var style = stylePtr;
+        var clipFlags = (nint)(uint)(SDUI.Native.Windows.SetWindowLongFlags.WS_CLIPCHILDREN | SDUI.Native.Windows.SetWindowLongFlags.WS_CLIPSIBLINGS);
+        style = gpu ? style | clipFlags : style & ~clipFlags;
+
+        var exStylePtr = GetWindowLong(hwnd, SDUI.Native.Windows.WindowLongIndexFlags.GWL_EXSTYLE);
+        var exStyle = exStylePtr;
+        var noRedirect = (nint)(uint)SDUI.Native.Windows.SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
+        var composited = (nint)(uint)SDUI.Native.Windows.SetWindowLongFlags.WS_EX_COMPOSITED;
+        if (gpu)
+        {
+            if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL)
+                exStyle |= noRedirect;
+            else
+                exStyle &= ~noRedirect;
+            exStyle &= ~composited;
+        }
+        else
+        {
+            exStyle &= ~noRedirect;
+        }
+
+        if (IntPtr.Size == 8)
+        {
+            SetWindowLongPtr64(hwnd, (int)SDUI.Native.Windows.WindowLongIndexFlags.GWL_STYLE, style);
+            SetWindowLongPtr64(hwnd, (int)SDUI.Native.Windows.WindowLongIndexFlags.GWL_EXSTYLE, exStyle);
+        }
+        else
+        {
+            SetWindowLong32(hwnd, (int)SDUI.Native.Windows.WindowLongIndexFlags.GWL_STYLE, (int)style);
+            SetWindowLong32(hwnd, (int)SDUI.Native.Windows.WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
+        }
+
+        SetWindowPos(
+            hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SDUI.Native.Windows.SetWindowPosFlags.SWP_NOMOVE | SDUI.Native.Windows.SetWindowPosFlags.SWP_NOSIZE |
+            SDUI.Native.Windows.SetWindowPosFlags.SWP_NOZORDER | SDUI.Native.Windows.SetWindowPosFlags.SWP_FRAMECHANGED);
+    }
+
 
     /// <summary>
     /// Handles WM_PAINT message - creates Skia surface and renders to native HDC.
@@ -114,11 +377,96 @@ public partial class UIWindowBase
         _cachedHeight = 0;
     }
 
-    /// <summary>
-    /// Virtual method for derived classes to implement custom rendering.
-    /// </summary>
     protected virtual void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
+        if (_renderBackend != RenderBackend.Software && _renderer != null)
+        {
+            try
+            {
+                _renderer.Render((int)info.Width, (int)info.Height, RenderScene);
+                ArmIdleMaintenance();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UIWindowBase] Hardware rendering failed ({ex.GetType().Name}). Falling back to Software. Error: {ex.Message}");
+                _renderer?.Dispose();
+                _renderer = null;
+                _renderBackend = RenderBackend.Software;
+            }
+        }
+
+        RenderScene(canvas, info);
+        ArmIdleMaintenance();
+    }
+
+    private void RenderScene(SKCanvas canvas, SKImageInfo info)
+    {
+        GRContext? gr = null;
+
+        if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
+            gr = dx.GrContext;
+        else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
+            gr = gl.GrContext;
+        else if (_renderer is IGpuWindowRenderer gpuRenderer)
+            gr = gpuRenderer.GrContext;
+
+        using var gpuScope = gr != null ? PushGpuContext(gr) : null;
+
+        canvas.Save();
+        canvas.ResetMatrix();
+        canvas.ClipRect(SKRect.Create(info.Width, info.Height));
+
+        RenderWindowFrame(canvas, info);
+        RenderChildren(canvas);
+
+        if (ShowPerfOverlay)
+            DrawPerfOverlay(canvas);
+
+        canvas.Restore();
+    }
+
+    protected virtual void RenderWindowFrame(SKCanvas canvas, SKImageInfo info)
+    {
+        canvas.Clear(ColorScheme.BackColor);
+    }
+
+    private void DrawPerfOverlay(SKCanvas canvas)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (_perfLastTimestamp == 0)
+        {
+            _perfLastTimestamp = now;
+            return;
+        }
+
+        var dt = (now - _perfLastTimestamp) / (double)Stopwatch.Frequency;
+        _perfLastTimestamp = now;
+        if (dt <= 0)
+            return;
+
+        var frameMs = dt * 1000.0;
+        _perfSmoothedFrameMs = _perfSmoothedFrameMs <= 0
+            ? frameMs
+            : _perfSmoothedFrameMs * 0.90 + frameMs * 0.10;
+
+        var fps = 1000.0 / Math.Max(0.001, _perfSmoothedFrameMs);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = ColorScheme.ForeColor,
+            TextSize = 12
+        };
+
+        var backendLabel = RenderBackend.ToString();
+        if (RenderBackend == RenderBackend.DirectX11 && _renderer is DirectX11WindowRenderer dx)
+            backendLabel = dx.IsSkiaGpuActive ? "DX:GPU" : "DX:CPU";
+        else if (RenderBackend == RenderBackend.OpenGL && _renderer is OpenGlWindowRenderer gl)
+            backendLabel = gl.IsSkiaGpuActive ? "GL:GPU" : "GL";
+
+        var text = $"{backendLabel}  {fps:0} FPS  {_perfSmoothedFrameMs:0.0} ms";
+        canvas.DrawText(text, 8, 16, paint);
     }
 
     #region Native Structures and Methods for GDI Drawing
@@ -192,10 +540,6 @@ public partial class UIWindowBase
 
         UpdateWindow(Handle);
     }
-
-    #endregion
-
-    #region Native Structures and Methods for GDI Drawing
 
     [StructLayout(LayoutKind.Sequential)]
     private struct BITMAPINFO

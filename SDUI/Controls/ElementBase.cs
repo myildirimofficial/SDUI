@@ -2801,21 +2801,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         UpdateScrollBars();
 
-        // Use DisplayRectangle for child layout area (already excludes padding)
-        var clientArea = DisplayRectangle;
-        var remainingArea = clientArea;
-
-        // WinForms dock order: Reverse z-order (last added first) in a single pass
-        // This matches WinForms DefaultLayout behavior where docking is z-order dependent
-        // and processed in reverse (children.Count - 1 down to 0)
-        for (int i = Controls.Count - 1; i >= 0; i--)
-        {
-            var control = Controls[i];
-            if (!control.Visible)
-                continue;
-
-            PerformDefaultLayout(control, clientArea, ref remainingArea);
-        }
+        SDUI.Layout.DefaultLayout.Instance.Layout(this, e);
     }
 
     internal virtual void OnControlAdded(ElementEventArgs e)

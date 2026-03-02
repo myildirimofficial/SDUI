@@ -3,7 +3,6 @@ using SDUI.Native.Windows;
 using SkiaSharp;
 using System;
 using System.Drawing;
-using System.Linq;
 using System.Runtime.InteropServices;
 using static SDUI.Native.Windows.Methods;
 
@@ -245,7 +244,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
         get
         {
             var cp = new CreateParams();
-            cp.ClassName =  $"{Name}_Orivy_CoreWindow_{Guid.NewGuid()}";
+            cp.ClassName = $"{Name}_Orivy_CoreWindow_{Guid.NewGuid()}";
             cp.Caption = Text;
 
             // Apply FormStartPosition
@@ -286,6 +285,17 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 cp.ClassStyle |= CS_DROPSHADOW;
 
             cp.ClassStyle |= CS_DBLCLKS;
+
+            if (_renderBackend != SDUI.Rendering.RenderBackend.Software)
+            {
+                cp.Style |= (int)(SetWindowLongFlags.WS_CLIPCHILDREN |
+                                  SetWindowLongFlags.WS_CLIPSIBLINGS);
+                // WS_EX_NOREDIRECTIONBITMAP helps some WGL/SwapBuffers flicker scenarios,
+                // but can interfere with DXGI swapchains. Apply only for OpenGL.
+                if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL)
+                    cp.ExStyle |= (uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
+                cp.ExStyle &= ~(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
+            }
 
             return cp;
         }
@@ -447,21 +457,29 @@ public partial class UIWindowBase : ElementBase, IDisposable
             throw new Exception("Pencere oluşturulamadı.");
 
         IsHandleCreated = true;
+
+        if (_formStartPosition == FormStartPosition.CenterScreen)
+        {
+            CenterToScreen();
+        }
+
         OnHandleCreated(EventArgs.Empty);
     }
 
     public void CenterToScreen()
     {
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
+        var screen = Screen.FromHandle(_hWnd);
+        var workArea = screen.WorkingArea;
         var rect = GetWindowRect();
 
-        int x = (screenWidth - rect.Width) / 2;
-        int y = (screenHeight - rect.Height) / 2;
+        int x = workArea.Left + (workArea.Width - rect.Width) / 2;
+        int y = workArea.Top + (workArea.Height - rect.Height) / 2;
 
-        SetWindowPos(_hWnd, IntPtr.Zero, x, y, 0, 0,
-            SWP_NOSIZE | SWP_NOZORDER);
+        if (_hWnd != IntPtr.Zero)
+        {
+            SetWindowPos(_hWnd, IntPtr.Zero, x, y, 0, 0,
+                SWP_NOSIZE | SWP_NOZORDER);
+        }
     }
 
     protected bool ProcessCmdKey(ref MSG msg, Keys keyData)
@@ -683,34 +701,20 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 }
             case WindowMessage.WM_NCCALCSIZE:
                 {
-                    // When wParam is TRUE, returning 0 makes the client area fill the entire
-                    // window rect, effectively hiding the native caption bar and borders.
-                    // This preserves WS_OVERLAPPEDWINDOW animations (minimize/maximize/restore).
                     if (wParam != IntPtr.Zero)
                     {
-                        // When maximized, adjust for the window frame that extends off-screen
-                        if (_windowState == FormWindowState.Maximized)
-                        {
-                            var screen = Screen.FromHandle(hWnd);
-                            var work = screen.WorkingArea;
-                            var ncParams = Marshal.PtrToStructure<NCCALCSIZE_PARAMS>(lParam);
-                            ncParams.rgrc0.Left = work.Left;
-                            ncParams.rgrc0.Top = work.Top;
-                            ncParams.rgrc0.Right = work.Right;
-                            ncParams.rgrc0.Bottom = work.Bottom;
-                            Marshal.StructureToPtr(ncParams, lParam, true);
-                        }
                         return IntPtr.Zero;
                     }
                     return DefWindowProc(hWnd, msg, wParam, lParam);
                 }
             case WindowMessage.WM_GETMINMAXINFO:
                 {
-                    // Tell Windows the correct maximized bounds so the taskbar isn't covered
                     var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
                     var screen = Screen.FromHandle(hWnd);
                     var work = screen.WorkingArea;
-                    mmi.ptMaxPosition = new POINT { X = work.Left, Y = work.Top };
+
+                    // For borderless windows, ptMaxPosition is relative to the monitor it's on
+                    mmi.ptMaxPosition = new POINT { X = Math.Max(0, work.Left - screen.Bounds.Left), Y = Math.Max(0, work.Top - screen.Bounds.Top) };
                     mmi.ptMaxSize = new POINT { X = work.Width, Y = work.Height };
                     if (MinimumSize.Width > 0 || MinimumSize.Height > 0)
                         mmi.ptMinTrackSize = new POINT
@@ -1087,6 +1091,8 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
     protected virtual void OnHandleCreated(EventArgs e)
     {
+        ApplyRenderStyles();
+        RecreateRenderer();
         SDUI.Native.Windows.Helpers.ApplyRoundCorner(Handle);
 
         if (_aeroEnabled && DwmMargin >= 0)
@@ -1212,6 +1218,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// </summary>
     protected virtual void OnHandleDestroyed(EventArgs e)
     {
+        _renderer?.Dispose();
         DisposeCachedDIB();
     }
 
