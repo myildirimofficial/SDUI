@@ -28,6 +28,11 @@ public partial class UIWindowBase
     protected SKBitmap _cacheBitmap;
     private SKSurface _cacheSurface;
 
+    // Render loop optimization: cache GRContext and GPU state check
+    private GRContext? _cachedGrContext;
+    private bool _cachedGrContextIsValid;
+    private int _grContextValidationFrame;
+
     /// <summary>
     ///     Maximum retained bytes for the software backbuffer (SKBitmap + SKSurface + GDI Bitmap wrapper).
     ///     This prevents 4K/8K windows from permanently retaining very large pixel buffers.
@@ -206,6 +211,7 @@ public partial class UIWindowBase
         {
             _renderer?.Dispose();
             _renderer = null;
+            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
             return;
         }
 
@@ -221,6 +227,8 @@ public partial class UIWindowBase
             
             if (_renderer != null)
                 _renderer.Initialize(Handle);
+            
+            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer initialization
         }
         catch (Exception ex)
         {
@@ -228,6 +236,7 @@ public partial class UIWindowBase
             _renderer?.Dispose();
             _renderer = null;
             _renderBackend = SDUI.Rendering.RenderBackend.Software;
+            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on fallback
         }
     }
 
@@ -290,6 +299,10 @@ public partial class UIWindowBase
     /// </summary>
     private IntPtr HandlePaint(IntPtr hWnd)
     {
+        // Skip rendering if window is minimized (invisible)
+        if (WindowState == FormWindowState.Minimized)
+            return IntPtr.Zero;
+
         PAINTSTRUCT ps;
         var hdc = BeginPaint(hWnd, out ps);
 
@@ -305,7 +318,10 @@ public partial class UIWindowBase
             int height = clientRect.Bottom - clientRect.Top;
 
             if (width <= 0 || height <= 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HandlePaint] Invalid dimensions: {width}x{height}");
                 return IntPtr.Zero;
+            }
 
             // Re-create cached DIB only when size changes
             if (_cachedMemDC == IntPtr.Zero || width != _cachedWidth || height != _cachedHeight)
@@ -314,7 +330,10 @@ public partial class UIWindowBase
 
                 _cachedMemDC = CreateCompatibleDC(hdc);
                 if (_cachedMemDC == IntPtr.Zero)
+                {
+                    System.Diagnostics.Debug.WriteLine("[HandlePaint] CreateCompatibleDC failed");
                     return IntPtr.Zero;
+                }
 
                 var bmi = new BITMAPINFO
                 {
@@ -329,6 +348,7 @@ public partial class UIWindowBase
                 _cachedBitmap = CreateDIBSection(hdc, ref bmi, 0, out _cachedPixels, IntPtr.Zero, 0);
                 if (_cachedBitmap == IntPtr.Zero || _cachedPixels == IntPtr.Zero)
                 {
+                    System.Diagnostics.Debug.WriteLine("[HandlePaint] CreateDIBSection failed");
                     DisposeCachedDIB();
                     return IntPtr.Zero;
                 }
@@ -336,6 +356,7 @@ public partial class UIWindowBase
                 SelectObject(_cachedMemDC, _cachedBitmap);
                 _cachedWidth = width;
                 _cachedHeight = height;
+                System.Diagnostics.Debug.WriteLine($"[HandlePaint] Created DIB: {width}x{height}");
             }
 
             // Render via Skia directly into the cached DIB pixels
@@ -345,13 +366,18 @@ public partial class UIWindowBase
                 if (surface != null)
                 {
                     var canvas = surface.Canvas;
-                    canvas.Clear(BackColor);
+                    var bgColor = BackColor;
+                    System.Diagnostics.Debug.WriteLine($"[HandlePaint] Rendering: BackColor={bgColor}, Size={width}x{height}, Controls={Controls.Count}");
+                    canvas.Clear(bgColor);
                     OnPaintCanvas(canvas, info);
                     canvas.Flush();
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HandlePaint] SKSurface.Create returned null");
+                }
             }
 
-            // Single
             BitBlt(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, SRCCOPY);
         }
         finally
@@ -397,6 +423,7 @@ public partial class UIWindowBase
                 _renderer?.Dispose();
                 _renderer = null;
                 _renderBackend = RenderBackend.Software;
+                _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
             }
         }
 
@@ -406,14 +433,21 @@ public partial class UIWindowBase
 
     private void RenderScene(SKCanvas canvas, SKImageInfo info)
     {
-        GRContext? gr = null;
+        // Lazy-validate GRContext: on cache miss or renderer change, look it up
+        GRContext? gr = _cachedGrContext;
+        if (!_cachedGrContextIsValid)
+        {
+            gr = null;
+            if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
+                gr = dx.GrContext;
+            else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
+                gr = gl.GrContext;
+            else if (_renderer is IGpuWindowRenderer gpuRenderer)
+                gr = gpuRenderer.GrContext;
 
-        if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
-            gr = dx.GrContext;
-        else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
-            gr = gl.GrContext;
-        else if (_renderer is IGpuWindowRenderer gpuRenderer)
-            gr = gpuRenderer.GrContext;
+            _cachedGrContext = gr;
+            _cachedGrContextIsValid = true;
+        }
 
         using var gpuScope = gr != null ? PushGpuContext(gr) : null;
 

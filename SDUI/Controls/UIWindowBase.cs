@@ -59,7 +59,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
     }
 
     /// <summary>
-    /// Enable or disable win10 ver 1809 + mica backdrop efeckts
+    /// Enable or disable win10 ver 1809 + mica backdrop effects
     /// </summary>
     private bool _enableMica;
     public bool EnableMica
@@ -74,9 +74,9 @@ public partial class UIWindowBase : ElementBase, IDisposable
             if (IsHandleCreated)
             {
                 if (value)
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle);
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 2);  // DWMSBT_MAINWINDOW (Mica)
                 else
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle);
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);  // Disable backdrop
             }
         }
     }
@@ -733,20 +733,18 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     var screen = Screen.FromHandle(hWnd);
                     var work = screen.WorkingArea;
                     
-                    // Reserve space for custom title bar at top if present
-                    int titleBarHeight = GetCustomTitleBarHeight();
-
-                    // For borderless windows, ptMaxPosition is relative to the monitor it's on
+                    // ptMaxPosition and ptMaxSize define the maximized window bounds
+                    // Use full working area - custom title bar is part of client area
                     mmi.ptMaxPosition = new POINT 
                     { 
-                        X = Math.Max(0, work.Left - screen.Bounds.Left), 
-                        Y = Math.Max(0, titleBarHeight + (work.Top - screen.Bounds.Top))
+                        X = work.Left - screen.Bounds.Left, 
+                        Y = work.Top - screen.Bounds.Top
                     };
                     
                     mmi.ptMaxSize = new POINT 
                     { 
                         X = work.Width, 
-                        Y = Math.Max(1, work.Height - titleBarHeight)  // Reduce height by title bar
+                        Y = work.Height
                     };
                     
                     if (MinimumSize.Width > 0 || MinimumSize.Height > 0)

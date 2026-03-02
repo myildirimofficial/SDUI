@@ -224,7 +224,7 @@ public class ColorScheme
     {
         _isDarkMode = targetDark;
         var targetBackground = targetDark ? new SKColor(28, 28, 30) : new SKColor(250, 250, 250);
-        StartThemeBackgroundTransition(targetBackground);
+        _ = StartThemeBackgroundTransition(targetBackground);  // Fire-and-forget async task
     }
 
     private static void RequestThemeChanged()
@@ -261,7 +261,7 @@ public class ColorScheme
             : Blend(baseColor, new SKColor(0, 0, 0), amount);
     }
 
-    private static async void StartThemeBackgroundTransition(SKColor targetBackground)
+    private static async Task StartThemeBackgroundTransition(SKColor targetBackground)
     {
         int transitionId;
 
@@ -276,7 +276,7 @@ public class ColorScheme
             ThemeTransitionProgress = 0.0;
         }
         
-        
+
 
         const int durationMs = 220;
         const int stepMs = 16;
@@ -403,10 +403,10 @@ public class ColorScheme
             _isAccentTransitioning = true;
         }
 
-        StartAccentTransition();
+        StartAccentTransition();  // Fire-and-forget async task
     }
 
-    private static async void StartAccentTransition()
+    private static async Task StartAccentTransition()
     {
         lock (_accentLock)
         {

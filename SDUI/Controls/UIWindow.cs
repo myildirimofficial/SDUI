@@ -740,6 +740,16 @@ public partial class UIWindow : UIWindowBase
 
     private void OnThemeChanged(object? sender, EventArgs e)
     {
+        System.Diagnostics.Debug.WriteLine($"[OnThemeChanged] IsDarkMode={ColorScheme.IsDarkMode}, BackColor={ColorScheme.BackColor}");
+        
+        // Reset title bar color to automatic (empty) so it updates with new theme
+        // This allows the title bar to respond to dark/light mode transitions
+        if (titleColor != SKColor.Empty)
+        {
+            titleColor = SKColor.Empty;
+            CalcSystemBoxPos();
+        }
+        
         NeedsFullChildRedraw = true;
         InvalidateRenderTree();
         Invalidate();
@@ -1531,7 +1541,7 @@ public partial class UIWindow : UIWindowBase
         var foreColor = ColorScheme.ForeColor;
         var hoverColor = ColorScheme.BorderColor;
 
-        canvas.Clear(ColorScheme.BackColor);
+        canvas.Clear(SKColors.Transparent);
 
         if (FullDrawHatch)
         {
@@ -1545,8 +1555,15 @@ public partial class UIWindow : UIWindowBase
             canvas.DrawRect(0, 0, Width, Height, paint);
         }
 
+        // Title bar background rendering:
+        // - If EnableMica is true, leave title bar transparent (backdrop effect shows through)
+        // - Otherwise, paint solid color or gradient (if manually configured)
+        bool shouldDrawTitleBarBg = titleColor != SKColor.Empty || 
+                                    (_gradient.Length == 2 && !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent));
+
         if (titleColor != SKColor.Empty)
         {
+            // Manual title color takes priority
             foreColor = titleColor.Determine();
             hoverColor = foreColor.WithAlpha(20);
             using var paint = new SKPaint { Color = titleColor };
@@ -1555,6 +1572,7 @@ public partial class UIWindow : UIWindowBase
         else if (_gradient.Length == 2 &&
                  !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent))
         {
+            // Gradient mode
             using var shader = SKShader.CreateLinearGradient(
                 new SKPoint(0, 0),
                 new SKPoint(Width, _titleHeightDPI),
@@ -1568,12 +1586,19 @@ public partial class UIWindow : UIWindowBase
             foreColor = _gradient[0].Determine();
             hoverColor = foreColor.WithAlpha(20);
         }
-
-        // Ba�l�k alan� d���ndaki i�eri�i tema arkaplan� ile doldur
-        using (var contentBgPaint = new SKPaint { Color = ColorScheme.BackColor })
+        else if (!EnableMica)
         {
-            canvas.DrawRect(0, _titleHeightDPI, Width, Math.Max(0, Height - _titleHeightDPI), contentBgPaint);
+            // Auto theme-based color: use actual theme surface colors from ColorScheme
+            // when Mica is disabled (Mica needs transparent title bar to show backdrop effect)
+            var themeTitleBg = ColorScheme.Surface;  // Use actual transitioning theme color
+            
+            using var paint = new SKPaint { Color = themeTitleBg };
+            canvas.DrawRect(0, 0, Width, _titleHeightDPI, paint);
+            
+            foreColor = ColorScheme.ForeColor;
+            hoverColor = ColorScheme.BorderColor;
         }
+        // else: EnableMica=true and no manual colors -> title bar stays transparent
 
         // Kontrol d��meleri �izimi
         if (controlBox)

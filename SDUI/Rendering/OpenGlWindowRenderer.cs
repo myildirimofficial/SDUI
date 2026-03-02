@@ -119,7 +119,31 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
 
     public void TrimCaches()
     {
-        GrContext?.PurgeResources();
+        try
+        {
+            // GrContext.PurgeResources() must be called on the OpenGL thread
+            // If context is not current, skip purge to avoid crashes
+            if (GrContext != null && _hglrc != 0)
+            {
+                // Make sure our context is current before purging
+                if (wglGetCurrentContext() == _hglrc)
+                {
+                    GrContext.PurgeResources();
+                }
+                // If not current, skip purge (will happen on next render)
+            }
+        }
+        catch (AccessViolationException)
+        {
+            // GPU context may have been disposed or invalidated
+            // Dispose our reference to prevent further crashes
+            GrContext?.Dispose();
+            GrContext = null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OpenGL TrimCaches] Exception: {ex.Message}");
+        }
     }
 
     public void Dispose()
@@ -214,6 +238,9 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
 
     [DllImport("opengl32.dll", SetLastError = true)]
     private static extern bool wglMakeCurrent(nint hdc, nint hglrc);
+
+    [DllImport("opengl32.dll", SetLastError = true)]
+    private static extern nint wglGetCurrentContext();
 
     [DllImport("opengl32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
     private static extern nint wglGetProcAddress(string lpszProc);

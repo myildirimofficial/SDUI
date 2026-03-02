@@ -34,13 +34,6 @@ public partial class MainWindow : UIWindow
         Console.WriteLine("MainWindow(): exit");
     }
 
-    protected override void OnBackColorChanged(EventArgs e)
-    {
-        base.OnBackColorChanged(e);
-        if (Controls.Count == 0)
-            return;
-    }
-
     private void MainWindow_Load(object sender, EventArgs e)
     {
         windowPageControl.Controls.AddRange([

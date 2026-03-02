@@ -8,70 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Controls\ListView\**" />
-    <EmbeddedResource Remove="Controls\ListView\**" />
-    <None Remove="Controls\ListView\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Remove="Collections\ListViewGroupCollection.cs" />
-    <Compile Remove="Collections\ListViewGroupItemCollection.cs" />
-    <Compile Remove="Collections\ListViewItemCollection.cs" />
-    <Compile Remove="Collections\ListViewSubItemCollection.cs" />
-    <Compile Remove="Controls\Button.cs" />
-    <Compile Remove="Controls\ChatBubble.cs" />
-    <Compile Remove="Controls\CheckBox.cs" />
-    <Compile Remove="Controls\ColorPicker.cs" />
-    <Compile Remove="Controls\ComboBox.cs" />
-    <Compile Remove="Controls\ComboBox.DropDownPanel.cs" />
-    <Compile Remove="Controls\FlowLayoutPanel.cs" />
-    <Compile Remove="Controls\GroupBox.cs" />
-    <Compile Remove="Controls\InputDailog.cs" />
-    <Compile Remove="Controls\InputDailog.Designer.cs" />
-    <Compile Remove="Controls\Label.cs" />
-    <Compile Remove="Controls\ListBox.cs" />
-    <Compile Remove="Controls\ListView.cs" />
-    <Compile Remove="Controls\ListView_DrawRowIcon.cs" />
-    <Compile Remove="Controls\ListView_Icons.cs" />
-    <Compile Remove="Controls\ListView_TopItem.cs" />
-    <Compile Remove="Controls\MessageBox.cs" />
-    <Compile Remove="Controls\MessageBox.Designer.cs" />
-    <Compile Remove="Controls\NumUpDown.cs" />
-    <Compile Remove="Controls\Panel.cs" />
-    <Compile Remove="Controls\PictureBox.cs" />
-    <Compile Remove="Controls\PictureBox2.cs" />
-    <Compile Remove="Controls\ProgressBar.cs" />
-    <Compile Remove="Controls\PropertyGrid.cs" />
-    <Compile Remove="Controls\RadioButton.cs" />
-    <Compile Remove="Controls\Separator.cs" />
-    <Compile Remove="Controls\ShapeProgressBar.cs" />
-    <Compile Remove="Controls\SplitContainer.cs" />
-    <Compile Remove="Controls\StatusStrip.cs" />
-    <Compile Remove="Controls\TabControl.cs" />
-    <Compile Remove="Controls\TextBox.cs" />
-    <Compile Remove="Controls\ToggleButton.cs" />
-    <Compile Remove="Controls\ToolStrip.cs" />
-    <Compile Remove="Controls\ToolStripMenuItem.cs" />
-    <Compile Remove="Controls\ToolStripStatusLabel.cs" />
-    <Compile Remove="Controls\Tooltip.cs" />
-    <Compile Remove="Controls\TrackBar.cs" />
-    <Compile Remove="Controls\TreeView.cs" />
-    <Compile Remove="Controls\UserControl.cs" />
-    <Compile Remove="Extensions\TextBoxBaseExtensions.cs" />
-    <Compile Remove="Helpers\ListViewColumnSorter.cs" />
-    <Compile Remove="NativeMethods.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="3.119.1" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.2" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Controls\ListView\" />
   </ItemGroup>
 
 </Project>
