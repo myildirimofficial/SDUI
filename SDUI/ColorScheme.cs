@@ -17,8 +17,8 @@ public class ColorScheme
     private static int _themeChangedQueued;
 
     // Theme background transition (drives surface + derived colors)
-    private static SKColor _themeBackgroundFrom = new SKColor(250, 250, 250);
-    private static SKColor _themeBackgroundTo = new SKColor(250, 250, 250);
+    private static SKColor _themeBackgroundFrom = new(250, 250, 250, 100);
+    private static SKColor _themeBackgroundTo = new (250, 250, 250);
     private static int _themeTransitionId;
 
     private static double _accentTransitionProgress = 1.0;

@@ -32,6 +32,27 @@ internal partial class MainWindow
             }
         };
 
+        
+        this.panel2 = new()
+        {
+            Text = "Config",
+            Name = "panel2",
+            Padding = new(5),
+            Dock = SDUI.DockStyle.Fill,
+            Radius = new(0),
+            Border = new(0)
+        };
+        
+        this.panel3 = new()
+        {
+            Text = "Designer",
+            Name = "panel3",
+            Padding = new(5),
+            Dock = SDUI.DockStyle.Fill,
+            Radius = new(0),
+            Border = new(0)
+        };
+
         this.buttonOpenGL = new()
         {
             Name = "buttonOpenGL",
@@ -90,9 +111,14 @@ internal partial class MainWindow
             Dock = SDUI.DockStyle.Fill,
         };
 
+        this.panel.Controls.Add(this.buttonOpenGL);
+        this.panel.Controls.Add(this.buttonSoftware);
+        this.panel.Controls.Add(this.buttonDirectX);
+        this.panel.Controls.Add(this.buttonDarkMode);
+        
         windowPageControl.Controls.Add(panel);
-        windowPageControl.Controls.Add(panel);
-        windowPageControl.Controls.Add(panel);
+        windowPageControl.Controls.Add(panel2);
+        windowPageControl.Controls.Add(panel3);
 
         // 
         // MainWindow
@@ -106,15 +132,13 @@ internal partial class MainWindow
         this.EnableMica = true;
         this.WindowPageControl = windowPageControl;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
-        this.Controls.Add(this.panel);
-        this.panel.Controls.Add(this.buttonOpenGL);
-        this.panel.Controls.Add(this.buttonSoftware);
-        this.panel.Controls.Add(this.buttonDirectX);
-        this.panel.Controls.Add(this.buttonDarkMode);
+        this.Controls.Add(this.windowPageControl);
         this.ResumeLayout(false);
     }
 
     private Element panel;
+    private Element panel2;
+    private Element panel3;
     private Element buttonOpenGL;
     private Element buttonSoftware;
     private Element buttonDirectX;

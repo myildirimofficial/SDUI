@@ -17,6 +17,43 @@ public class WindowPageControl : ElementBase
         BackColor = SKColors.Transparent;
     }
 
+    private bool IsPageControl(ElementBase element)
+    {
+        return element is not ScrollBar;
+    }
+
+    private int GetPageCount()
+    {
+        var count = 0;
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is ElementBase element && IsPageControl(element))
+                count++;
+        }
+
+        return count;
+    }
+
+    public ElementBase? GetPageAt(int pageIndex)
+    {
+        if (pageIndex < 0)
+            return null;
+
+        var currentPageIndex = 0;
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is not ElementBase element || !IsPageControl(element))
+                continue;
+
+            if (currentPageIndex == pageIndex)
+                return element;
+
+            currentPageIndex++;
+        }
+
+        return null;
+    }
+
     public int SelectedIndex
     {
         get => _selectedIndex;
@@ -27,12 +64,13 @@ public class WindowPageControl : ElementBase
             if (_selectedIndex == value)
                 return;
 
-            if (Controls.Count > 0)
+            var pageCount = GetPageCount();
+            if (pageCount > 0)
             {
                 if (value < 0)
-                    value = Controls.Count - 1;
+                    value = pageCount - 1;
 
-                if (value > Controls.Count - 1)
+                if (value > pageCount - 1)
                     value = 0;
             }
             else
@@ -44,14 +82,21 @@ public class WindowPageControl : ElementBase
             _selectedIndex = value;
             _onSelectedIndexChanged?.Invoke(this, previousSelectedIndex);
 
+            var currentPageIndex = 0;
             for (var i = 0; i < Controls.Count; i++)
-                Controls[i].Visible = i == _selectedIndex;
+            {
+                if (Controls[i] is not ElementBase element || !IsPageControl(element))
+                    continue;
+
+                element.Visible = currentPageIndex == _selectedIndex;
+                currentPageIndex++;
+            }
 
             Debug.WriteLine($"Index: {_selectedIndex} Finished: {sys.ElapsedMilliseconds} ms");
         }
     }
 
-    public int Count => Controls.Count;
+    public int Count => GetPageCount();
 
     public event EventHandler<int> SelectedIndexChanged
     {
@@ -63,11 +108,14 @@ public class WindowPageControl : ElementBase
     {
         base.OnControlAdded(e);
 
-        e.Element.Dock = DockStyle.Fill;
-        e.Element.BackColor = SKColors.Transparent;
-        e.Element.Visible = Controls.Count == 1;
+        if (e.Element is not ElementBase element || !IsPageControl(element))
+            return;
 
-        if (Controls.Count == 1)
+        element.Dock = DockStyle.Fill;
+        element.BackColor = SKColors.Transparent;
+        element.Visible = Count == 1;
+
+        if (Count == 1)
             _selectedIndex = 0;
     }
 
@@ -75,7 +123,12 @@ public class WindowPageControl : ElementBase
     {
         base.OnControlRemoved(e);
 
-        if (Controls.Count == 0)
+        if (e.Element is not ElementBase element || !IsPageControl(element))
+            return;
+
+        if (Count == 0)
             _selectedIndex = -1;
+        else if (_selectedIndex >= Count)
+            SelectedIndex = Count - 1;
     }
 }

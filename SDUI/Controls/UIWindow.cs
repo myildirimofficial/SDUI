@@ -15,6 +15,8 @@ namespace SDUI.Controls;
 
 public partial class UIWindow : UIWindowBase
 {
+    private const float TAB_DRAG_THRESHOLD = 4f;
+
     public enum TabDesingMode
     {
         Rectangle,
@@ -184,6 +186,8 @@ public partial class UIWindow : UIWindowBase
     private float _symbolSize = 24;
 
     private bool _tabCloseButton;
+    private int _pendingTabSelectionIndex = -1;
+    private SKPoint _pendingTabMouseDownScreen;
 
     /// <summary>
     ///     Tab desing mode
@@ -265,6 +269,29 @@ public partial class UIWindow : UIWindowBase
     }
 
     private float _titleHeightDPI => _titleHeight * ScaleFactor;
+    private float _maximizedTitleInsetDPI => GetMaximizedTitleInsetDpi();
+    private float _maximizedHorizontalInsetDPI => GetMaximizedHorizontalInsetDpi();
+    private float _titleBarLeftInsetDPI => _maximizedHorizontalInsetDPI;
+    private float _titleBarRightInsetDPI => _maximizedHorizontalInsetDPI;
+    private float _titleBarTopDPI => _maximizedTitleInsetDPI;
+    private float _titleBarBottomDPI => _titleBarTopDPI + _titleHeightDPI;
+    private float _titleBarCenterYDPI => _titleBarTopDPI + (_titleHeightDPI / 2f);
+
+    private float GetMaximizedTitleInsetDpi()
+    {
+        if (!OperatingSystem.IsWindows() || !ShowTitle || WindowState != FormWindowState.Maximized)
+            return 0f;
+
+        return GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+    }
+
+    private float GetMaximizedHorizontalInsetDpi()
+    {
+        if (!OperatingSystem.IsWindows() || WindowState != FormWindowState.Maximized)
+            return 0f;
+
+        return GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+    }
     private float _iconWidthDPI => _iconWidth * ScaleFactor;
     private float _symbolSizeDPI => _symbolSize * ScaleFactor;
 
@@ -678,8 +705,7 @@ public partial class UIWindow : UIWindowBase
         if (!ShowTitle)
             return 0;
         
-        // Return DPI-scaled title bar height
-        return (int)(_titleHeight * ScaleFactor);
+        return (int)MathF.Ceiling(_titleBarBottomDPI);
     }
 
     private void EnsureInitialLayoutAndDpiSync()
@@ -792,7 +818,7 @@ public partial class UIWindow : UIWindowBase
         // Debug: log entry point
         bool isShowing = ShowTitle;
         int paddingTop = Padding.Top;
-        float titleHeightDpi = _titleHeightDPI;
+        float titleHeightDpi = _titleBarBottomDPI;
         
         System.Diagnostics.Debug.WriteLine(
             $"[IsCaptionHit] clientPt=({clientPt.X}, {clientPt.Y}), ShowTitle={isShowing}, Padding.Top={paddingTop}, TitleHeightDPI={titleHeightDpi}");
@@ -804,11 +830,17 @@ public partial class UIWindow : UIWindowBase
             return false;
         }
 
-        // Use titleHeightDpi (the actual drawn height) instead of Padding.Top for comparison
-        // clientPt.Y >= titleHeightDpi means below the title
+        // clientPt.Y >= titleHeightDpi means below the title region, including the
+        // hidden maximized frame inset that we reserve visually.
         if (clientPt.Y >= titleHeightDpi)
         {
             System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (below title): Y={clientPt.Y} >= TitleHeight={titleHeightDpi}");
+            return false;
+        }
+
+        if (IsPointOverTabHeader(clientPt))
+        {
+            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (tab header): ({clientPt.X}, {clientPt.Y})");
             return false;
         }
 
@@ -856,10 +888,11 @@ public partial class UIWindow : UIWindowBase
     private void CalcSystemBoxPos()
     {
         _controlBoxLeft = Width;
+        var rightEdge = Width - _titleBarRightInsetDPI;
 
         if (controlBox)
         {
-            _controlBoxRect = SKRect.Create(Width - _iconWidthDPI, 0, _iconWidthDPI, _titleHeightDPI);
+            _controlBoxRect = SKRect.Create(rightEdge - _iconWidthDPI, _titleBarTopDPI, _iconWidthDPI, _titleHeightDPI);
             _controlBoxLeft = _controlBoxRect.Left - 2;
 
             if (MaximizeBox)
@@ -905,9 +938,39 @@ public partial class UIWindow : UIWindowBase
         }
 
         var titleIconSize = 24 * ScaleFactor;
-        _formMenuRect = SKRect.Create(10, _titleHeightDPI / 2 - titleIconSize / 2, titleIconSize, titleIconSize);
+        _formMenuRect = SKRect.Create(_titleBarLeftInsetDPI + 10, _titleBarCenterYDPI - titleIconSize / 2, titleIconSize, titleIconSize);
 
-        Padding = new Thickness(Padding.Left, (int)(showTitle ? _titleHeightDPI : 0), Padding.Right, Padding.Bottom);
+        Padding = new Thickness(
+            (int)MathF.Ceiling(_titleBarLeftInsetDPI),
+            (int)(showTitle ? MathF.Ceiling(_titleBarBottomDPI) : 0),
+            (int)MathF.Ceiling(_titleBarRightInsetDPI),
+            Padding.Bottom);
+    }
+
+    private bool TryGetTabIndexAtPoint(SKPoint point, out int tabIndex)
+    {
+        tabIndex = -1;
+
+        if (_windowPageControl == null || _windowPageControl.Count == 0)
+            return false;
+
+        UpdateTabRects();
+
+        for (var i = 0; i < pageRect.Count; i++)
+        {
+            if (pageRect[i].Contains(point))
+            {
+                tabIndex = i;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsPointOverTabHeader(SKPoint point)
+    {
+        return TryGetTabIndexAtPoint(point, out _);
     }
 
     private void BuildHitTestList(bool requireEnabled)
@@ -921,7 +984,7 @@ public partial class UIWindow : UIWindowBase
                 continue;
             if (requireEnabled && !element.Enabled)
                 continue;
-            if (ShowTitle && !AllowAddControlOnTitle && element.Location.Y < _titleHeightDPI)
+            if (ShowTitle && !AllowAddControlOnTitle && element.Location.Y < _titleBarBottomDPI)
                 continue;
             _hitTestElements.Add(element);
         }
@@ -1012,22 +1075,11 @@ public partial class UIWindow : UIWindowBase
             OnNewTabBoxClick?.Invoke(this, EventArgs.Empty);
         }
 
-        if (pageRect == null)
-            UpdateTabRects();
-
         if (_formMoveMouseDown && !CursorScreenPosition.Equals(_mouseOffset))
             return;
 
-        for (var i = 0; i < pageRect.Count; i++)
-            if (pageRect[i].Contains(e.Location))
-            {
-                _windowPageControl.SelectedIndex = i;
-
-                if (_tabCloseButton && e.Button == MouseButtons.Middle)
-                    OnCloseTabBoxClick?.Invoke(null, i);
-
-                break;
-            }
+        if (_tabCloseButton && e.Button == MouseButtons.Middle && TryGetTabIndexAtPoint(e.Location, out var middleClickTabIndex))
+            OnCloseTabBoxClick?.Invoke(null, middleClickTabIndex);
     }
 
     internal override void OnMouseDown(MouseEventArgs e)
@@ -1041,11 +1093,21 @@ public partial class UIWindow : UIWindowBase
         // Title bar drag has absolute priority over child controls.
         // Check this BEFORE hit-testing children so that a misplaced child
         // (e.g. during the first layout pass) cannot steal the drag.
-        var inTitleArea = ShowTitle && e.Y <= Padding.Top;
+        var inTitleArea = ShowTitle && e.Y < Padding.Top;
+        var inTabHeader = TryGetTabIndexAtPoint(e.Location, out var clickedTabIndex);
         var inControlBox = _inCloseBox || _inMaxBox || _inMinBox || _inExtendBox
                            || _inTabCloseBox || _inNewTabBox || _inFormMenuBox;
 
-        if (inTitleArea && !inControlBox)
+        if (e.Button == MouseButtons.Left && inTabHeader && !inControlBox)
+        {
+            _pendingTabSelectionIndex = clickedTabIndex;
+            _pendingTabMouseDownScreen = CursorScreenPosition;
+            SetCapture(Handle);
+
+            return;
+        }
+
+        if (inTitleArea && !inControlBox && !inTabHeader)
         {
             if (enableFullDraggable && e.Button == MouseButtons.Left)
                 DragForm(Handle);
@@ -1119,9 +1181,10 @@ public partial class UIWindow : UIWindowBase
         base.OnMouseDoubleClick(e);
 
         // Title bar maximize gesture has priority — check before child hit-testing.
-        var inTitleAreaDbl = ShowTitle && MaximizeBox && e.Y <= Padding.Top;
+        var inTitleAreaDbl = ShowTitle && MaximizeBox && e.Y < Padding.Top;
         if (inTitleAreaDbl)
         {
+            var inTabHeaderDbl = IsPointOverTabHeader(e.Location);
             var inControlBoxDbl = _controlBoxRect.Contains(e.Location)
                                   || _maximizeBoxRect.Contains(e.Location)
                                   || _minimizeBoxRect.Contains(e.Location)
@@ -1130,7 +1193,7 @@ public partial class UIWindow : UIWindowBase
                                   || (_newTabButton && _newTabBoxRect.Contains(e.Location))
                                   || _formMenuRect.Contains(e.Location);
 
-            if (!inControlBoxDbl)
+            if (!inControlBoxDbl && !inTabHeaderDbl)
             {
                 ShowMaximize();
                 return;
@@ -1162,6 +1225,9 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseUp(MouseEventArgs e)
     {
+        var pendingTabSelectionIndex = _pendingTabSelectionIndex;
+        var shouldSelectPendingTab = e.Button == MouseButtons.Left && pendingTabSelectionIndex >= 0 && !_formMoveMouseDown;
+
         // If an element captured the mouse, forward the mouse up to it and release capture if left button
         if (_mouseCapturedElement != null)
         {
@@ -1195,6 +1261,11 @@ public partial class UIWindow : UIWindowBase
         if (_formMoveMouseDown)
             ReleaseCapture();
         _formMoveMouseDown = false;
+
+        if (shouldSelectPendingTab && _windowPageControl != null && pendingTabSelectionIndex < _windowPageControl.Count)
+            _windowPageControl.SelectedIndex = pendingTabSelectionIndex;
+
+        _pendingTabSelectionIndex = -1;
 
         animationSource = e.Location;
 
@@ -1256,6 +1327,27 @@ public partial class UIWindow : UIWindowBase
         // Without this ordering, a child control that accidentally captured the mouse
         // (e.g. due to a wrong initial layout position) would block all window movement.
         var screenCursor = CursorScreenPosition;
+
+        if (!_formMoveMouseDown && _pendingTabSelectionIndex >= 0)
+        {
+            var deltaX = screenCursor.X - _pendingTabMouseDownScreen.X;
+            var deltaY = screenCursor.Y - _pendingTabMouseDownScreen.Y;
+            var dragDistanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
+            var dragThresholdSquared = TAB_DRAG_THRESHOLD * TAB_DRAG_THRESHOLD;
+
+            if (Movable && dragDistanceSquared >= dragThresholdSquared)
+            {
+                _formMoveMouseDown = true;
+                _dragStartLocation = Location;
+                _mouseOffset = _pendingTabMouseDownScreen;
+            }
+            else
+            {
+                base.OnMouseMove(e);
+                return;
+            }
+        }
+
         if (!_formMoveMouseDown && _mouseCapturedElement != null)
         {
             // Forward all mouse move events to the captured element so dragging
@@ -1525,7 +1617,7 @@ public partial class UIWindow : UIWindowBase
                 // GDI software presentation cannot preserve alpha in client pixels.
                 // Use a themed fallback instead of transparent black artifacts.
                 using var fallbackTitlePaint = new SKPaint { Color = ColorScheme.Surface };
-                canvas.DrawRect(0, 0, Width, _titleHeightDPI, fallbackTitlePaint);
+                canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, fallbackTitlePaint);
             }
             else
             {
@@ -1534,7 +1626,7 @@ public partial class UIWindow : UIWindowBase
                     Color = SKColors.Transparent,
                     BlendMode = SKBlendMode.Src
                 };
-                canvas.DrawRect(0, 0, Width, _titleHeightDPI, transparentTitlePaint);
+                canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, transparentTitlePaint);
             }
         }
 
@@ -1559,7 +1651,7 @@ public partial class UIWindow : UIWindowBase
             foreColor = titleColor.Determine();
             hoverColor = foreColor.WithAlpha(20);
             using var paint = new SKPaint { Color = titleColor };
-            canvas.DrawRect(0, 0, Width, _titleHeightDPI, paint);
+            canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, paint);
         }
         else if (_gradient.Length == 2 &&
                  !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent))
@@ -1567,13 +1659,13 @@ public partial class UIWindow : UIWindowBase
             // Gradient mode
             using var shader = SKShader.CreateLinearGradient(
                 new SKPoint(0, 0),
-                new SKPoint(Width, _titleHeightDPI),
+                new SKPoint(Width, _titleBarBottomDPI),
                 new[] { _gradient[0], _gradient[1] },
                 null,
                 SKShaderTileMode.Clamp);
 
             using var paint = new SKPaint { Shader = shader };
-            canvas.DrawRect(0, 0, Width, _titleHeightDPI, paint);
+            canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, paint);
 
             foreColor = _gradient[0].Determine();
             hoverColor = foreColor.WithAlpha(20);
@@ -1585,7 +1677,7 @@ public partial class UIWindow : UIWindowBase
             var themeTitleBg = ColorScheme.Surface;  // Use actual transitioning theme color
             
             using var paint = new SKPaint { Color = themeTitleBg };
-            canvas.DrawRect(0, 0, Width, _titleHeightDPI, paint);
+            canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, paint);
             
             foreColor = ColorScheme.ForeColor;
             hoverColor = ColorScheme.BorderColor;
@@ -1738,9 +1830,9 @@ public partial class UIWindow : UIWindowBase
                 using var path = new SKPath();
                 path.AddRoundRect(SKRect.Create(
                     _extendBoxRect.Left + 20 * ScaleFactor,
-                    _titleHeightDPI / 2 - hoverSize / 2,
+                    _titleBarCenterYDPI - hoverSize / 2,
                     _extendBoxRect.Left + 20 * ScaleFactor + hoverSize,
-                    _titleHeightDPI / 2 + hoverSize / 2
+                    _titleBarCenterYDPI + hoverSize / 2
                 ), 15, 15);
 
                 canvas.DrawPath(path, paint);
@@ -1757,9 +1849,9 @@ public partial class UIWindow : UIWindowBase
 
             var iconRect = new SkiaSharp.SKRect(
                 _extendBoxRect.Left + 24 * ScaleFactor,
-                _titleHeightDPI / 2 - size / 2,
+                _titleBarCenterYDPI - size / 2,
                 _extendBoxRect.Left + 24 * ScaleFactor + size,
-                _titleHeightDPI / 2 + size / 2);
+                _titleBarCenterYDPI + size / 2);
 
             canvas.DrawLine(
                 iconRect.Left + iconRect.Width / 2 - 5 * ScaleFactor - 1,
@@ -1819,7 +1911,7 @@ public partial class UIWindow : UIWindowBase
                 using var bitmap = Icon.ToBitmap();
                 using var skBitmap = bitmap.ToSKBitmap();
                 using var image = SKImage.FromBitmap(skBitmap);
-                var iconRect = SkiaSharp.SKRect.Create(10, _titleHeightDPI / 2 - faviconSize / 2, faviconSize, faviconSize);
+                var iconRect = SkiaSharp.SKRect.Create(_titleBarLeftInsetDPI + 10, _titleBarCenterYDPI - faviconSize / 2, faviconSize, faviconSize);
                 canvas.DrawImage(image, iconRect);
             }
         }
@@ -1842,8 +1934,8 @@ public partial class UIWindow : UIWindowBase
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
                 ? _formMenuRect.Left + _formMenuRect.Width + 8 * ScaleFactor
-                : faviconSize + 14 * ScaleFactor;
-            var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
+                : _titleBarLeftInsetDPI + faviconSize + 14 * ScaleFactor;
+            var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
             TextRenderer.DrawText(canvas, Text, textX, textY, SKTextAlign.Left, font, textPaint);
         }
@@ -1851,11 +1943,13 @@ public partial class UIWindow : UIWindowBase
         // Tab kontrollerinin �izimi
         if (_windowPageControl != null && _windowPageControl.Count > 0)
         {
-            if (!pageAreaAnimationManager.IsAnimating() || pageRect == null ||
+            var isPageTransitionAnimating = pageAreaAnimationManager.IsAnimating();
+
+            if (!isPageTransitionAnimating || pageRect == null ||
                 pageRect.Count != _windowPageControl.Count)
                 UpdateTabRects();
 
-            var animationProgress = pageAreaAnimationManager.GetProgress();
+            var animationProgress = isPageTransitionAnimating ? pageAreaAnimationManager.GetProgress() : 1d;
 
             // Click feedback
             if (pageAreaAnimationManager.IsAnimating())
@@ -1881,8 +1975,14 @@ public partial class UIWindow : UIWindowBase
                 return;
 
             // Animate page indicator
-            if (previousSelectedPageIndex == pageRect.Count)
-                previousSelectedPageIndex = -1;
+            if (!isPageTransitionAnimating)
+            {
+                previousSelectedPageIndex = _windowPageControl.SelectedIndex;
+            }
+            else if (previousSelectedPageIndex >= pageRect.Count)
+            {
+                previousSelectedPageIndex = _windowPageControl.SelectedIndex;
+            }
 
             var previousSelectedPageIndexIfHasOne = previousSelectedPageIndex == -1
                 ? _windowPageControl.SelectedIndex
@@ -1900,11 +2000,10 @@ public partial class UIWindow : UIWindowBase
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
                 tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f);
 
-                canvas.DrawRect(activePageRect.Location.X, 0, width, _titleHeightDPI, tabPaint);
-                canvas.DrawRect(x, 0, width, _titleHeightDPI, tabPaint);
+                canvas.DrawRect(x, _titleBarTopDPI, width, _titleHeightDPI, tabPaint);
 
                 var indicatorPaint = GetOrCreatePaint("tabIndicator", () => new SKPaint { Color = SKColors.DodgerBlue, IsAntialias = true });
-                canvas.DrawRect(x, _titleHeightDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
+                canvas.DrawRect(x, _titleBarBottomDPI - TAB_INDICATOR_HEIGHT, width, TAB_INDICATOR_HEIGHT, indicatorPaint);
             }
             else if (_tabDesingMode == TabDesingMode.Rounded)
             {
@@ -1914,7 +2013,7 @@ public partial class UIWindow : UIWindowBase
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
                 tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                var tabRect = new SkiaSharp.SKRect(x, 6, x + width, _titleHeightDPI);
+                var tabRect = new SkiaSharp.SKRect(x, _titleBarTopDPI + 6, x + width, _titleBarBottomDPI);
                 var radius = 9 * ScaleFactor;
 
                 _tempPath.Reset();
@@ -1929,7 +2028,7 @@ public partial class UIWindow : UIWindowBase
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
                 tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
 
-                var tabRect = new SkiaSharp.SKRect(x, 5, x + width, _titleHeightDPI - 7);
+                var tabRect = new SkiaSharp.SKRect(x, _titleBarTopDPI + 5, x + width, _titleBarBottomDPI - 7);
                 var radius = 12;
 
                 _tempPath.Reset();
@@ -1937,9 +2036,10 @@ public partial class UIWindow : UIWindowBase
                 canvas.DrawPath(_tempPath, tabPaint);
             }
             // Draw tab headers
-            for (var currentTabIndex = 0; currentTabIndex < _windowPageControl.Controls.Count; currentTabIndex++)
+            for (var currentTabIndex = 0; currentTabIndex < _windowPageControl.Count; currentTabIndex++)
             {
-                if (_windowPageControl.Controls[currentTabIndex] is not ElementBase page)
+                var page = _windowPageControl.GetPageAt(currentTabIndex);
+                if (page == null)
                     continue;
 
                 var rect = pageRect[currentTabIndex];
@@ -1969,7 +2069,7 @@ public partial class UIWindow : UIWindowBase
                         rect.Width - inlinePaddingX - closeIconSize,
                         rect.Height);
 
-                    var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
+                    var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
                     TextRenderer.DrawText(canvas, "", iconX, textY, SKTextAlign.Center, font, textPaint);
 
                     var bounds = new SkiaSharp.SKRect();
@@ -1993,7 +2093,7 @@ public partial class UIWindow : UIWindowBase
                     var bounds = new SkiaSharp.SKRect();
                     font.MeasureText(page.Text, out bounds);
                     var textX = rect.Location.X + rect.Width / 2;
-                    var textY = _titleHeightDPI / 2 + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
+                    var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
                     TextRenderer.DrawText(canvas, page.Text, textX, textY, SKTextAlign.Center, font, textPaint);
                 }
             }
@@ -2012,7 +2112,7 @@ public partial class UIWindow : UIWindowBase
 
                 _closeTabBoxRect = SKRect.Create(
                     x + width - TAB_HEADER_PADDING / 2 - size,
-                    _titleHeightDPI / 2 - size / 2,
+                    _titleBarCenterYDPI - size / 2,
                     size,
                     size);
                 var buttonRect = _closeTabBoxRect;
@@ -2059,7 +2159,7 @@ public partial class UIWindow : UIWindowBase
                 var lastTabRect = pageRect[pageRect.Count - 1];
                 _newTabBoxRect = SKRect.Create(
                     lastTabRect.Left + lastTabRect.Width + size / 2,
-                    _titleHeightDPI / 2 - size / 2,
+                    _titleBarCenterYDPI - size / 2,
                     size,
                     size);
                 var buttonRect = _newTabBoxRect;
@@ -2105,7 +2205,7 @@ public partial class UIWindow : UIWindowBase
                 ? titleColor.Determine().WithAlpha(30)
                 : ColorScheme.BorderColor;
 
-            canvas.DrawLine(Width, _titleHeightDPI - 1, 0, _titleHeightDPI - 1, borderPaint);
+            canvas.DrawLine(Width, _titleBarBottomDPI - 1, 0, _titleBarBottomDPI - 1, borderPaint);
         }
     }
 
@@ -2146,7 +2246,9 @@ public partial class UIWindow : UIWindowBase
         if (_windowPageControl == null || _windowPageControl.Count == 0)
             return;
 
-        var occupiedWidth = 44 * ScaleFactor;
+        var leadingInset = _titleBarLeftInsetDPI;
+        var trailingInset = _titleBarRightInsetDPI;
+        var occupiedWidth = 44 * ScaleFactor + leadingInset + trailingInset;
 
         if (controlBox)
             occupiedWidth += _controlBoxRect.Width;
@@ -2178,8 +2280,12 @@ public partial class UIWindow : UIWindowBase
         var desiredWidths = _tabWidthBuffer;
         float totalDesiredWidth = 0;
 
-        foreach (ElementBase page in _windowPageControl.Controls)
+        for (var pageIndex = 0; pageIndex < _windowPageControl.Count; pageIndex++)
         {
+            var page = _windowPageControl.GetPageAt(pageIndex);
+            if (page == null)
+                continue;
+
             var bounds = new SkiaSharp.SKRect();
             font.MeasureText(page.Text ?? "", out bounds);
 
@@ -2208,7 +2314,7 @@ public partial class UIWindow : UIWindowBase
             extraPerTab = extra / _windowPageControl.Count;
         }
 
-        var currentX = 44 * ScaleFactor;
+        var currentX = leadingInset + 44 * ScaleFactor;
 
         for (int i = 0; i < desiredWidths.Count; i++)
         {
@@ -2217,7 +2323,7 @@ public partial class UIWindow : UIWindowBase
             if (finalWidth > maxSize)
                 finalWidth = maxSize;
 
-            pageRect.Add(SKRect.Create(currentX, 0, finalWidth, _titleHeightDPI));
+            pageRect.Add(SKRect.Create(currentX, _titleBarTopDPI, finalWidth, _titleHeightDPI));
             currentX += finalWidth;
         }
     }

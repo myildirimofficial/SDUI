@@ -23,6 +23,9 @@ public partial class Methods
 
     public const int SM_CXSCREEN = 0;
     public const int SM_CYSCREEN = 1;
+    public const int SM_CXSIZEFRAME = 32;
+    public const int SM_CYSIZEFRAME = 33;
+    public const int SM_CXPADDEDBORDER = 92;
 
     public const uint SWP_NOSIZE = 0x0001;   
     public const uint SWP_NOZORDER = 0x0004;
