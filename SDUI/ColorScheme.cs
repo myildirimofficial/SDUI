@@ -1,5 +1,6 @@
 ﻿using SkiaSharp;
 using System;
+using System.Diagnostics;
 
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,6 @@ public class ColorScheme
     private static bool _isTransitioning;
     private static readonly object _lock = new();
 
-    private static SynchronizationContext? _uiContext;
     private static int _themeChangedQueued;
 
     // Theme background transition (drives surface + derived colors)
@@ -59,8 +59,6 @@ public class ColorScheme
         get => _isDarkMode;
         set
         {
-            _uiContext ??= SynchronizationContext.Current;
-
             // Even if the flag is already equal, user intent may be to jump back to the
             // canonical light/dark background (e.g. after random background theme).
             var targetBackground = value ? new SKColor(28, 28, 30) : new SKColor(250, 250, 250);
@@ -191,8 +189,6 @@ public class ColorScheme
     /// </summary>
     public static void StartThemeTransition(SKColor targetColor)
     {
-        _uiContext ??= SynchronizationContext.Current;
-
         // Random/background-driven theme: adapt foreground + surfaces automatically.
         // Also choose a reasonable accent derived from the background so controls remain visible.
         var targetBackground = targetColor;
@@ -212,7 +208,6 @@ public class ColorScheme
     /// </summary>
     public static void SetThemeInstant(bool dark)
     {
-        _uiContext ??= SynchronizationContext.Current;
         _isDarkMode = dark;
         var bg = dark ? new SKColor(28, 28, 30) : new SKColor(250, 250, 250);
         _themeBackgroundFrom = bg;
@@ -232,17 +227,22 @@ public class ColorScheme
         if (Interlocked.Exchange(ref _themeChangedQueued, 1) == 1)
             return;
 
-        void Raise()
-        {
-            Interlocked.Exchange(ref _themeChangedQueued, 0);
-            ThemeChanged?.Invoke(null, EventArgs.Empty);
-        }
+        Interlocked.Exchange(ref _themeChangedQueued, 0);
+        var handlers = ThemeChanged;
+        if (handlers == null)
+            return;
 
-        var ctx = _uiContext;
-        if (ctx != null)
-            ctx.Post(_ => Raise(), null);
-        else
-            Raise();
+        foreach (EventHandler handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(null, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ColorScheme] ThemeChanged handler failed: {ex.GetType().Name} - {ex.Message}");
+            }
+        }
     }
 
     private static bool ColorsClose(SKColor a, SKColor b, int threshold = 2)
@@ -293,7 +293,7 @@ public class ColorScheme
             var t = (double)i / steps;
             t = t * t * (3 - 2 * t);
             ThemeTransitionProgress = t;
-            await Task.Delay(stepMs);
+            await Task.Delay(stepMs).ConfigureAwait(false);
         }
 
         ThemeTransitionProgress = 1.0;
@@ -311,7 +311,7 @@ public class ColorScheme
         var g = (byte)Math.Round(from.Green + (to.Green - from.Green) * t);
         var b = (byte)Math.Round(from.Blue + (to.Blue - from.Blue) * t);
         var a = (byte)Math.Round(from.Alpha + (to.Alpha - from.Alpha) * t);
-        return new SKColor(a, r, g, b);
+        return new SKColor(r, g, b, a);
     }
 
     private static SKColor Blend(SKColor a, SKColor b, double t)
@@ -365,8 +365,6 @@ public class ColorScheme
     /// </summary>
     public static void SetPrimarySeedColor(SKColor seed)
     {
-        _uiContext ??= SynchronizationContext.Current;
-
         // Capture current interpolated palette as the "from" state so we can retarget mid-animation.
         var curPrimaryLight = Lerp(_primaryLightFrom, _primaryLightTo, AccentTransitionProgress);
         var curPrimaryDark = Lerp(_primaryDarkFrom, _primaryDarkTo, AccentTransitionProgress);
@@ -423,7 +421,7 @@ public class ColorScheme
             var t = (double)i / steps;
             t = t * t * (3 - 2 * t);
             AccentTransitionProgress = t;
-            await Task.Delay(stepMs);
+            await Task.Delay(stepMs).ConfigureAwait(false);
         }
 
         AccentTransitionProgress = 1.0;
@@ -443,12 +441,12 @@ public class ColorScheme
         return level switch
         {
             0 => SKColors.Transparent,
-            1 => new SKColor(5, 255, 255, 255),
-            2 => new SKColor(8, 255, 255, 255),
-            3 => new SKColor(11, 255, 255, 255),
-            4 => new SKColor(14, 255, 255, 255),
-            5 => new SKColor(17, 255, 255, 255),
-            _ => new SKColor(20, 255, 255, 255)
+            1 => SKColors.White.WithAlpha(5),
+            2 => SKColors.White.WithAlpha(8),
+            3 => SKColors.White.WithAlpha(11),
+            4 => SKColors.White.WithAlpha(14),
+            5 => SKColors.White.WithAlpha(17),
+            _ => SKColors.White.WithAlpha(20)
         };
     }
 

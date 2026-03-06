@@ -92,7 +92,8 @@ public static class ValueFactories
 
     public static SKRect RectangleFactory(SKRect startValue, SKRect targetValue, double progress)
     {
-        return new SKRect(FloatFactory(startValue.Location.X, targetValue.Location.X, progress),
+        return SKRect.Create(
+            FloatFactory(startValue.Location.X, targetValue.Location.X, progress),
             FloatFactory(startValue.Location.Y, targetValue.Location.Y, progress),
             FloatFactory(startValue.Width, targetValue.Width, progress),
             FloatFactory(startValue.Height, targetValue.Height, progress));
@@ -100,7 +101,8 @@ public static class ValueFactories
 
     public static SKRect RectangleFFactory(SKRect startValue, SKRect targetValue, double progress)
     {
-        return new SKRect(FloatFactory(startValue.Location.X, targetValue.Location.X, progress),
+        return SKRect.Create(
+            FloatFactory(startValue.Location.X, targetValue.Location.X, progress),
             FloatFactory(startValue.Location.Y, targetValue.Location.Y, progress),
             FloatFactory(startValue.Width, targetValue.Width, progress),
             FloatFactory(startValue.Height, targetValue.Height, progress));
@@ -108,10 +110,11 @@ public static class ValueFactories
 
     public static SKColor ColorRgbFactory(SKColor startValue, SKColor targetValue, double progress)
     {
-        return new SKColor(ByteFactory(startValue.Alpha, targetValue.Alpha, progress),
+        return new SKColor(
             ByteFactory(startValue.Red, targetValue.Red, progress),
             ByteFactory(startValue.Green, targetValue.Green, progress),
-            ByteFactory(startValue.Blue, targetValue.Blue, progress));
+            ByteFactory(startValue.Blue, targetValue.Blue, progress),
+            ByteFactory(startValue.Alpha, targetValue.Alpha, progress));
     }
 
     #endregion

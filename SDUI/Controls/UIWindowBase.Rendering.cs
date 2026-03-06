@@ -13,6 +13,7 @@ namespace SDUI.Controls;
 
 public partial class UIWindowBase
 {
+    private readonly object _rendererSync = new();
     private bool _showPerfOverlay = true;
     private IntPtr _cachedMemDC;
     private IntPtr _cachedBitmap;
@@ -22,6 +23,7 @@ public partial class UIWindowBase
     private bool _softwareUpdateQueued;
     private Timer? _idleMaintenanceTimer;
     private int _suppressImmediateUpdateCount;
+    private int _backendSwitchPaintTraceFrames;
     private long _perfLastTimestamp;
     private double _perfSmoothedFrameMs;
     private SKPaint? _perfOverlayPaint;
@@ -80,10 +82,17 @@ public partial class UIWindowBase
             if (_renderBackend == value)
                 return;
 
+            Debug.WriteLine($"[UIWindowBase] Switching renderer: {_renderBackend} -> {value}");
             _renderBackend = value;
-            ApplyRenderStyles();
+            _idleMaintenanceTimer?.Stop();
+            NeedsFullChildRedraw = true;
+            _perfLastTimestamp = 0;
+            _perfSmoothedFrameMs = 0;
+            _backendSwitchPaintTraceFrames = 4;
             RecreateRenderer();
+            ApplyRenderStyles();
             InvalidateWindow();
+            ForceBackendSwitchRedraw();
         }
     }
 
@@ -91,8 +100,11 @@ public partial class UIWindowBase
     {
         base.OnSizeChanged(e);
 
-        if (_renderBackend != RenderBackend.Software && _renderer != null)
-            _renderer.Resize((int)ClientSize.Width, (int)ClientSize.Height);
+        IWindowRenderer? rendererSnapshot;
+        lock (_rendererSync)
+            rendererSnapshot = _renderBackend != RenderBackend.Software ? _renderer : null;
+
+        rendererSnapshot?.Resize((int)ClientSize.Width, (int)ClientSize.Height);
 
         Invalidate();
     }
@@ -179,8 +191,21 @@ public partial class UIWindowBase
     {
         _idleMaintenanceTimer?.Stop();
 
-        // 1. Trim renderer caches (DirectX / OpenGL)
-        _renderer?.TrimCaches();
+        if (!IsHandleCreated || IsDisposed || Disposing)
+            return;
+
+        IntPtr lParam = IntPtr.Zero;
+        _ = PostMessage(Handle, (int)WM_APP_IDLEMAINTENANCE, 0, ref lParam);
+    }
+
+    private void RunIdleMaintenance()
+    {
+        // 1. Trim renderer caches (DirectX / OpenGL) on UI thread.
+        IWindowRenderer? rendererSnapshot;
+        lock (_rendererSync)
+            rendererSnapshot = _renderer;
+
+        rendererSnapshot?.TrimCaches();
 
         // 2. Trim software backbuffer if using software rendering
         if (_renderer == null)
@@ -207,36 +232,69 @@ public partial class UIWindowBase
         if (!IsHandleCreated)
             return;
 
+        Debug.WriteLine($"[UIWindowBase] RecreateRenderer begin. Target={_renderBackend}");
+
+        IWindowRenderer? oldRenderer;
+        lock (_rendererSync)
+        {
+            oldRenderer = _renderer;
+            _renderer = null;
+            _cachedGrContext = null;
+            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
+        }
+        DisposeRendererSafely(oldRenderer);
+
         if (_renderBackend == RenderBackend.Software)
         {
-            _renderer?.Dispose();
-            _renderer = null;
-            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
+            Debug.WriteLine("[UIWindowBase] RecreateRenderer completed. Active=Software");
             return;
         }
 
+        IWindowRenderer? newRenderer = null;
         try
         {
-            _renderer?.Dispose();
-            _renderer = _renderBackend switch
+            newRenderer = _renderBackend switch
             {
                 SDUI.Rendering.RenderBackend.DirectX11 => new SDUI.Rendering.DirectX11WindowRenderer(),
                 SDUI.Rendering.RenderBackend.OpenGL => new SDUI.Rendering.OpenGlWindowRenderer(),
                 _ => null
             };
             
-            if (_renderer != null)
-                _renderer.Initialize(Handle);
+            if (newRenderer != null)
+                newRenderer.Initialize(Handle);
             
-            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer initialization
+            lock (_rendererSync)
+            {
+                _renderer = newRenderer;
+                _cachedGrContext = null;
+                _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer initialization
+            }
+
+            Debug.WriteLine($"[UIWindowBase] RecreateRenderer completed. Active={_renderBackend}");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[UIWindowBase] Failed to initialize {_renderBackend} renderer. Falling back to Software. Error: {ex.Message}");
-            _renderer?.Dispose();
-            _renderer = null;
-            _renderBackend = SDUI.Rendering.RenderBackend.Software;
-            _cachedGrContextIsValid = false;  // Invalidate GRContext cache on fallback
+
+            try
+            {
+                newRenderer?.Dispose();
+            }
+            catch
+            {
+                // ignore dispose failure for failed init renderer
+            }
+
+            lock (_rendererSync)
+            {
+                _renderer = null;
+                _renderBackend = SDUI.Rendering.RenderBackend.Software;
+                _cachedGrContext = null;
+                _cachedGrContextIsValid = false;  // Invalidate GRContext cache on fallback
+            }
+
+            Debug.WriteLine("[UIWindowBase] RecreateRenderer fallback completed. Active=Software");
+            ApplyRenderStyles();
         }
     }
 
@@ -285,10 +343,12 @@ public partial class UIWindowBase
             SetWindowLong32(hwnd, (int)SDUI.Native.Windows.WindowLongIndexFlags.GWL_EXSTYLE, (int)exStyle);
         }
 
+        // Runtime backend switches may happen while input handlers are active.
+        // Avoid SWP_FRAMECHANGED here to prevent expensive non-client recalculation/reentrancy.
         SetWindowPos(
             hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SDUI.Native.Windows.SetWindowPosFlags.SWP_NOMOVE | SDUI.Native.Windows.SetWindowPosFlags.SWP_NOSIZE |
-            SDUI.Native.Windows.SetWindowPosFlags.SWP_NOZORDER | SDUI.Native.Windows.SetWindowPosFlags.SWP_FRAMECHANGED);
+            SDUI.Native.Windows.SetWindowPosFlags.SWP_NOZORDER | SDUI.Native.Windows.SetWindowPosFlags.SWP_NOACTIVATE);
     }
 
 
@@ -299,9 +359,8 @@ public partial class UIWindowBase
     /// </summary>
     private IntPtr HandlePaint(IntPtr hWnd)
     {
-        // Skip rendering if window is minimized (invisible)
-        if (WindowState == FormWindowState.Minimized)
-            return IntPtr.Zero;
+        if (_backendSwitchPaintTraceFrames > 0)
+            Debug.WriteLine($"[UIWindowBase] HandlePaint begin. Backend={_renderBackend}, Renderer={_renderer?.Backend.ToString() ?? "null"}");
 
         PAINTSTRUCT ps;
         var hdc = BeginPaint(hWnd, out ps);
@@ -320,6 +379,18 @@ public partial class UIWindowBase
             if (width <= 0 || height <= 0)
             {
                 System.Diagnostics.Debug.WriteLine($"[HandlePaint] Invalid dimensions: {width}x{height}");
+                return IntPtr.Zero;
+            }
+
+            // Hardware backends present directly to the native window.
+            // Do not blit the software DIB over the swapchain output.
+            if (TryRenderWithHardware(width, height))
+            {
+                if (_backendSwitchPaintTraceFrames > 0)
+                {
+                    Debug.WriteLine($"[UIWindowBase] HandlePaint hardware-present. Backend={_renderBackend}");
+                    _backendSwitchPaintTraceFrames--;
+                }
                 return IntPtr.Zero;
             }
 
@@ -366,9 +437,6 @@ public partial class UIWindowBase
                 if (surface != null)
                 {
                     var canvas = surface.Canvas;
-                    var bgColor = BackColor;
-                    System.Diagnostics.Debug.WriteLine($"[HandlePaint] Rendering: BackColor={bgColor}, Size={width}x{height}, Controls={Controls.Count}");
-                    canvas.Clear(bgColor);
                     OnPaintCanvas(canvas, info);
                     canvas.Flush();
                 }
@@ -379,6 +447,11 @@ public partial class UIWindowBase
             }
 
             BitBlt(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, SRCCOPY);
+            if (_backendSwitchPaintTraceFrames > 0)
+            {
+                Debug.WriteLine($"[UIWindowBase] HandlePaint software-blit. Size={width}x{height}");
+                _backendSwitchPaintTraceFrames--;
+            }
         }
         finally
         {
@@ -409,26 +482,75 @@ public partial class UIWindowBase
 
     protected virtual void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
-        if (_renderBackend != RenderBackend.Software && _renderer != null)
-        {
-            try
-            {
-                _renderer.Render((int)info.Width, (int)info.Height, RenderScene);
-                ArmIdleMaintenance();
-                return;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[UIWindowBase] Hardware rendering failed ({ex.GetType().Name}). Falling back to Software. Error: {ex.Message}");
-                _renderer?.Dispose();
-                _renderer = null;
-                _renderBackend = RenderBackend.Software;
-                _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
-            }
-        }
+        if (TryRenderWithHardware((int)info.Width, (int)info.Height))
+            return;
 
         RenderScene(canvas, info);
         ArmIdleMaintenance();
+    }
+
+    private bool TryRenderWithHardware(int width, int height)
+    {
+        IWindowRenderer? rendererToDispose = null;
+        string? fallbackReason = null;
+        string? fallbackType = null;
+
+        lock (_rendererSync)
+        {
+            if (_renderBackend == RenderBackend.Software || _renderer == null)
+                return false;
+
+            try
+            {
+                if (!_renderer.Render(width, height, RenderScene))
+                {
+                    fallbackReason = _renderer is DirectX11WindowRenderer dx &&
+                                     !string.IsNullOrWhiteSpace(dx.LastInitError)
+                        ? dx.LastInitError
+                        : $"{_renderBackend} renderer did not present a frame.";
+                    fallbackType = "NoPresent";
+                }
+                else
+                {
+                    ArmIdleMaintenance();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                fallbackReason = ex.Message;
+                fallbackType = ex.GetType().Name;
+            }
+
+            rendererToDispose = _renderer;
+            _renderer = null;
+            _renderBackend = RenderBackend.Software;
+            _cachedGrContext = null;
+            _cachedGrContextIsValid = false;
+        }
+
+        Debug.WriteLine($"[UIWindowBase] Hardware rendering failed ({fallbackType}). Falling back to Software. Error: {fallbackReason}");
+        DisposeRendererSafely(rendererToDispose);
+        ApplyRenderStyles();
+        return false;
+    }
+
+    private static void DisposeRendererSafely(IWindowRenderer? renderer)
+    {
+        if (renderer == null)
+            return;
+
+        var backend = renderer.Backend;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            renderer.Dispose();
+            Debug.WriteLine($"[UIWindowBase] Renderer disposed: {backend} ({sw.ElapsedMilliseconds} ms)");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[UIWindowBase] Renderer dispose failed: {ex.Message}");
+        }
     }
 
     private void RenderScene(SKCanvas canvas, SKImageInfo info)
@@ -438,12 +560,15 @@ public partial class UIWindowBase
         if (!_cachedGrContextIsValid)
         {
             gr = null;
-            if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
-                gr = dx.GrContext;
-            else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
-                gr = gl.GrContext;
-            else if (_renderer is IGpuWindowRenderer gpuRenderer)
-                gr = gpuRenderer.GrContext;
+            lock (_rendererSync)
+            {
+                if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
+                    gr = dx.GrContext;
+                else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
+                    gr = gl.GrContext;
+                else if (_renderer is IGpuWindowRenderer gpuRenderer)
+                    gr = gpuRenderer.GrContext;
+            }
 
             _cachedGrContext = gr;
             _cachedGrContextIsValid = true;
@@ -517,6 +642,28 @@ public partial class UIWindowBase
             return;
 
         InvalidateRect(Handle, IntPtr.Zero, false);
+    }
+
+    private void ForceBackendSwitchRedraw()
+    {
+        if (!IsHandleCreated || IsDisposed || Disposing)
+            return;
+
+        const int rdwInvalidate = 0x0001;
+        const int rdwAllChildren = 0x0080;
+        const int rdwUpdateNow = 0x0100;
+        const int rdwFrame = 0x0400;
+        const int flags = rdwInvalidate | rdwAllChildren | rdwUpdateNow | rdwFrame;
+
+        try
+        {
+            _ = RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, flags);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[UIWindowBase] ForceBackendSwitchRedraw failed: {ex.Message}");
+            Update();
+        }
     }
 
     /// <summary>

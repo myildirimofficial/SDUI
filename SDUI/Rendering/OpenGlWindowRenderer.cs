@@ -93,17 +93,17 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
             throw new InvalidOperationException("SKSurface.Create (OpenGL) returned null.");
     }
 
-    public void Render(int width, int height, Action<SKCanvas, SKImageInfo> draw)
+    public bool Render(int width, int height, Action<SKCanvas, SKImageInfo> draw)
     {
         if (_hdc == 0 || _hglrc == 0)
-            return;
+            return false;
 
         if (!wglMakeCurrent(_hdc, _hglrc))
-            return;
+            return false;
 
         Resize(width, height);
         if (_surface == null || GrContext == null)
-            return;
+            return false;
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul, SKColorSpace.CreateSrgb());
         var canvas = _surface.Canvas;
@@ -114,7 +114,7 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
         GrContext.Flush();
         GrContext.Submit();
 
-        SwapBuffers(_hdc);
+        return SwapBuffers(_hdc);
     }
 
     public void TrimCaches()
@@ -185,7 +185,8 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
                 return;
 
             var swapInterval = Marshal.GetDelegateForFunctionPointer<wglSwapIntervalEXTDelegate>(proc);
-            _ = swapInterval(1);
+            // Prioritize interactive responsiveness while the UI invalidates frequently.
+            _ = swapInterval(0);
         }
         catch
         {

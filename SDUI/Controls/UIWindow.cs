@@ -570,6 +570,13 @@ public partial class UIWindow : UIWindowBase
     /// </summary>
     public event EventHandler OnNewTabBoxClick;
 
+    protected override bool ShouldScaleSizeOnDpiChange(float newDpi, float oldDpi)
+    {
+        // During native WM_DPICHANGED flow, Windows already applied the suggested bounds.
+        // Scaling Size again here causes double-scaling and jumpy window movement.
+        return !_isHandlingDpiChange;
+    }
+
     internal override void OnDpiChanged(float newDpi, float oldDpi)
     {
         try
@@ -581,48 +588,20 @@ public partial class UIWindow : UIWindowBase
 
             BeginImmediateUpdateSuppression();
 
-            // NOTE: When called from WM_DPICHANGED in UIWindowBase, the window bounds are already
-            // scaled by Windows (via SetWindowPos with the suggested RECT from lParam).
-            // Only scale bounds manually if OnDpiChanged was called outside of WM_DPICHANGED flow
-            // (e.g., from user code or monitor movement detection).
-            // _isHandlingDpiChange flag prevents double-scaling.
-            
-            // Check if we need to manually scale bounds
-            // (this happens when DPI change is detected outside of WM_DPICHANGED)
-            bool skipBoundsScaling = _isHandlingDpiChange;
-            
-            if (!skipBoundsScaling && Math.Abs(newDpi - oldDpi) > 0.001f)
-            {
-                float dpiRatio = newDpi / (oldDpi > 0 ? oldDpi : 96f);
-                
-                SKRect scaledRect = new SKRect(
-                    Bounds.Left * dpiRatio,
-                    Bounds.Top * dpiRatio,
-                    Bounds.Right * dpiRatio,
-                    Bounds.Bottom * dpiRatio
-                );
-
-                if (Bounds != scaledRect)
-                    Bounds = scaledRect;
-            }
-
             // CRITICAL: Aggressive layout recalculation to handle all control repositioning
             // Step 1: Invalidate all measurements
             InvalidateMeasureRecursive();
 
-            // Step 2: Propagate DPI change to all children (which also scales their size/padding)
-            foreach (ElementBase element in Controls)
-                element.OnDpiChanged(newDpi, oldDpi);
-
-            // Step 3: Perform full layout pass to reposition all children
+            // Step 2: base.OnDpiChanged already propagates to children.
+            // Perform full layout pass to reposition all children.
             PerformLayout();
 
-            // Step 4: Update window chrome (title bar buttons, tabs)
+            // Step 3: Update window chrome (title bar buttons, tabs)
             CalcSystemBoxPos();
             if (_windowPageControl != null && _windowPageControl.Count > 0)
                 UpdateTabRects();
 
-            // Step 5: Final invalidation to ensure complete redraw
+            // Step 4: Final invalidation to ensure complete redraw
             NeedsFullChildRedraw = true;
             Invalidate();
         }
@@ -740,16 +719,7 @@ public partial class UIWindow : UIWindowBase
 
     private void OnThemeChanged(object? sender, EventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"[OnThemeChanged] IsDarkMode={ColorScheme.IsDarkMode}, BackColor={ColorScheme.BackColor}");
-        
-        // Reset title bar color to automatic (empty) so it updates with new theme
-        // This allows the title bar to respond to dark/light mode transitions
-        if (titleColor != SKColor.Empty)
-        {
-            titleColor = SKColor.Empty;
-            CalcSystemBoxPos();
-        }
-        
+        QueueNativeThemeApply();
         NeedsFullChildRedraw = true;
         InvalidateRenderTree();
         Invalidate();
@@ -1541,7 +1511,32 @@ public partial class UIWindow : UIWindowBase
         var foreColor = ColorScheme.ForeColor;
         var hoverColor = ColorScheme.BorderColor;
 
-        canvas.Clear(SKColors.Transparent);
+        bool hasManualTitleBackground = titleColor != SKColor.Empty ||
+                                        (_gradient.Length == 2 &&
+                                         !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent));
+        bool keepTitleTransparentForMica = EnableMica && !hasManualTitleBackground;
+
+        canvas.Clear(ColorScheme.BackColor);
+
+        if (keepTitleTransparentForMica)
+        {
+            if (RenderBackend == SDUI.Rendering.RenderBackend.Software)
+            {
+                // GDI software presentation cannot preserve alpha in client pixels.
+                // Use a themed fallback instead of transparent black artifacts.
+                using var fallbackTitlePaint = new SKPaint { Color = ColorScheme.Surface };
+                canvas.DrawRect(0, 0, Width, _titleHeightDPI, fallbackTitlePaint);
+            }
+            else
+            {
+                using var transparentTitlePaint = new SKPaint
+                {
+                    Color = SKColors.Transparent,
+                    BlendMode = SKBlendMode.Src
+                };
+                canvas.DrawRect(0, 0, Width, _titleHeightDPI, transparentTitlePaint);
+            }
+        }
 
         if (FullDrawHatch)
         {
@@ -1558,9 +1553,6 @@ public partial class UIWindow : UIWindowBase
         // Title bar background rendering:
         // - If EnableMica is true, leave title bar transparent (backdrop effect shows through)
         // - Otherwise, paint solid color or gradient (if manually configured)
-        bool shouldDrawTitleBarBg = titleColor != SKColor.Empty || 
-                                    (_gradient.Length == 2 && !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent));
-
         if (titleColor != SKColor.Empty)
         {
             // Manual title color takes priority
@@ -2018,8 +2010,11 @@ public partial class UIWindow : UIWindowBase
                     IsAntialias = true
                 };
 
-                _closeTabBoxRect = new SKRect(x + width - TAB_HEADER_PADDING / 2 - size,
-                    _titleHeightDPI / 2 - size / 2, size, size);
+                _closeTabBoxRect = SKRect.Create(
+                    x + width - TAB_HEADER_PADDING / 2 - size,
+                    _titleHeightDPI / 2 - size / 2,
+                    size,
+                    size);
                 var buttonRect = _closeTabBoxRect;
 
                 canvas.DrawCircle(buttonRect.MidX, buttonRect.MidY, size / 2, buttonPaint);
@@ -2062,8 +2057,11 @@ public partial class UIWindow : UIWindowBase
                 };
 
                 var lastTabRect = pageRect[pageRect.Count - 1];
-                _newTabBoxRect = new SKRect(lastTabRect.Left + lastTabRect.Width + size / 2,
-                    _titleHeightDPI / 2 - size / 2, size, size);
+                _newTabBoxRect = SKRect.Create(
+                    lastTabRect.Left + lastTabRect.Width + size / 2,
+                    _titleHeightDPI / 2 - size / 2,
+                    size,
+                    size);
                 var buttonRect = _newTabBoxRect;
 
                 using var path = new SKPath();
@@ -2219,7 +2217,7 @@ public partial class UIWindow : UIWindowBase
             if (finalWidth > maxSize)
                 finalWidth = maxSize;
 
-            pageRect.Add(new SKRect(currentX, 0, finalWidth, _titleHeightDPI));
+            pageRect.Add(SKRect.Create(currentX, 0, finalWidth, _titleHeightDPI));
             currentX += finalWidth;
         }
     }

@@ -10,6 +10,9 @@ namespace SDUI.Controls;
 
 public partial class UIWindowBase : ElementBase, IDisposable
 {
+    private const uint WM_APP_THEMECHANGED = 0x8000 + 0x250;
+    private const uint WM_APP_IDLEMAINTENANCE = 0x8000 + 0x251;
+
     private IntPtr _hWnd;
     private IntPtr _hInstance;
     private bool _disposed;
@@ -74,10 +77,12 @@ public partial class UIWindowBase : ElementBase, IDisposable
             if (IsHandleCreated)
             {
                 if (value)
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 2);  // DWMSBT_MAINWINDOW (Mica)
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW);
                 else
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);  // Disable backdrop
+                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);
             }
+
+            Invalidate();
         }
     }
 
@@ -108,7 +113,9 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// </summary>
     private static (uint style, uint exStyle) GetWindowStylesForBorderStyle(FormBorderStyle borderStyle)
     {
-        uint style = (uint)(WindowStyles.WS_OVERLAPPEDWINDOW | WindowStyles.WS_VISIBLE);
+        // Window is created hidden; visibility is controlled explicitly via Show()/ShowDialog().
+        // This prevents WM_SHOWWINDOW/OnShown from firing before InitializeComponent completes.
+        uint style = (uint)WindowStyles.WS_OVERLAPPEDWINDOW;
         uint exStyle = 0;
         return (style, exStyle);
     }
@@ -645,6 +652,18 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
     private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (msg == WM_APP_THEMECHANGED)
+        {
+            ApplyThemeToNativeWindow();
+            return IntPtr.Zero;
+        }
+
+        if (msg == WM_APP_IDLEMAINTENANCE)
+        {
+            RunIdleMaintenance();
+            return IntPtr.Zero;
+        }
+
         switch ((WindowMessage)msg)
         {
             case WindowMessage.WM_NCHITTEST:
@@ -1020,18 +1039,20 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     int width = (int)(lParam.ToInt64() & 0xFFFF);
                     int height = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
 
-                    // Update WindowState from native notification without triggering ShowWindow
-                    switch (sizeType)
+                    // Update WindowState from native notification without triggering ShowWindow.
+                    // Some style/frame transitions can emit WM_SIZE with transient sizeType values;
+                    // only treat "minimized" as valid when dimensions are actually zero.
+                    if (sizeType == 1 && width == 0 && height == 0) // SIZE_MINIMIZED
                     {
-                        case 0: // SIZE_RESTORED
-                            _windowState = FormWindowState.Normal;
-                            break;
-                        case 1: // SIZE_MINIMIZED
-                            _windowState = FormWindowState.Minimized;
-                            break;
-                        case 2: // SIZE_MAXIMIZED
-                            _windowState = FormWindowState.Maximized;
-                            break;
+                        _windowState = FormWindowState.Minimized;
+                    }
+                    else if (sizeType == 2) // SIZE_MAXIMIZED
+                    {
+                        _windowState = FormWindowState.Maximized;
+                    }
+                    else
+                    {
+                        _windowState = FormWindowState.Normal;
                     }
 
                     if (width <= 0 || height <= 0)
@@ -1061,6 +1082,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
                     bool isShowing = wParam != IntPtr.Zero;
                     if (isShowing && !IsLoaded)
                     {
+                        EnsureLoadedRecursively();
                         IsLoaded = true;
                         OnShown(EventArgs.Empty);
                     }
@@ -1165,6 +1187,8 @@ public partial class UIWindowBase : ElementBase, IDisposable
             SetWindowPosFlags.SWP_FRAMECHANGED | SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOMOVE |
             SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOOWNERZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
 
+        ApplyThemeToNativeWindow();
+
         // Set window icon if available
         UpdateWindowIcon();
 
@@ -1190,15 +1214,44 @@ public partial class UIWindowBase : ElementBase, IDisposable
     {
         base.OnBackColorChanged(e);
 
-        if (!SDUI.Native.Windows.Helpers.IsModern)
+        ApplyThemeToNativeWindow();
+    }
+
+    /// <summary>
+    /// Applies current theme-derived native window attributes (immersive dark mode + backdrop type).
+    /// </summary>
+    protected void ApplyThemeToNativeWindow()
+    {
+        if (!IsHandleCreated || !SDUI.Native.Windows.Helpers.IsModern)
             return;
 
         SDUI.Native.Windows.Helpers.UseImmersiveDarkMode(Handle, ColorScheme.BackColor.IsDark());
 
-        if (ColorScheme.BackColor.IsDark())
+        if (EnableMica)
+        {
+            SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW);
+        }
+        else if (ColorScheme.BackColor.IsDark())
         {
             SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_TABBEDWINDOW);
         }
+        else
+        {
+            SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);
+        }
+    }
+
+    /// <summary>
+    /// Queues native theme application on the window thread.
+    /// Safe to call from background/theme transition threads.
+    /// </summary>
+    protected void QueueNativeThemeApply()
+    {
+        if (!IsHandleCreated)
+            return;
+
+        IntPtr lParam = IntPtr.Zero;
+        PostMessage(Handle, (int)WM_APP_THEMECHANGED, 0, ref lParam);
     }
 
     /// <summary>
@@ -1268,7 +1321,20 @@ public partial class UIWindowBase : ElementBase, IDisposable
     /// </summary>
     protected virtual void OnHandleDestroyed(EventArgs e)
     {
-        _renderer?.Dispose();
+        _idleMaintenanceTimer?.Stop();
+        _idleMaintenanceTimer?.Dispose();
+        _idleMaintenanceTimer = null;
+
+        SDUI.Rendering.IWindowRenderer? rendererToDispose;
+        lock (_rendererSync)
+        {
+            rendererToDispose = _renderer;
+            _renderer = null;
+            _cachedGrContext = null;
+            _cachedGrContextIsValid = false;
+        }
+
+        DisposeRendererSafely(rendererToDispose);
         DisposeCachedDIB();
     }
 

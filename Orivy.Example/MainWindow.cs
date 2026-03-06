@@ -11,6 +11,11 @@ namespace Orivy.Example
             InitializeComponent();
         }
 
+        private void ButtonDirectX_Click(object sender, EventArgs e)
+        {
+            this.RenderBackend = SDUI.Rendering.RenderBackend.DirectX11;
+        }
+
         private void ButtonSoftware_Click(object sender, EventArgs e)
         {
             this.RenderBackend = SDUI.Rendering.RenderBackend.Software;

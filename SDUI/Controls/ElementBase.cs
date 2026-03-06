@@ -367,6 +367,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         // Base implementation does nothing - derived controls override to clear their font caches
     }
 
+    /// <summary>
+    /// Controls whether this element's own Size should be scaled in OnDpiChanged.
+    /// Derived windows can return false when native bounds were already applied.
+    /// </summary>
+    protected virtual bool ShouldScaleSizeOnDpiChange(float newDpi, float oldDpi) => true;
+
     private static Thickness ScalePadding(Thickness padding, float scaleFactor)
     {
         if (Math.Abs(scaleFactor - 1f) < 0.001f)
@@ -838,15 +844,18 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public virtual AnchorStyles Anchor
     {
-        get => _anchor;
+        get => DefaultLayout.GetAnchor(this);
         set
         {
-            if (_anchor == value)
+            if (_anchor == value && DefaultLayout.GetAnchor(this) == value)
                 return;
 
             _anchor = value;
             // Reset anchor info when anchor style changes
             _anchorInfo = null;
+
+            if (DefaultLayout.GetAnchor(this) != value)
+                DefaultLayout.SetAnchor(this, value);
 
             OnAnchorChanged(EventArgs.Empty);
         }
@@ -856,13 +865,16 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public virtual DockStyle Dock
     {
-        get => _dock;
+        get => DefaultLayout.GetDock(this);
         set
         {
-            if (_dock == value)
+            if (_dock == value && DefaultLayout.GetDock(this) == value)
                 return;
 
             _dock = value;
+
+            if (DefaultLayout.GetDock(this) != value)
+                DefaultLayout.SetDock(this, value);
 
             OnDockChanged(EventArgs.Empty);
         }
@@ -872,13 +884,16 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public virtual bool AutoSize
     {
-        get => _autoSize;
+        get => CommonProperties.GetAutoSize(this);
         set
         {
-            if (_autoSize == value)
+            if (_autoSize == value && CommonProperties.GetAutoSize(this) == value)
                 return;
 
             _autoSize = value;
+
+            if (CommonProperties.GetAutoSize(this) != value)
+                CommonProperties.SetAutoSize(this, value);
 
             if (value)
                 AdjustSize();
@@ -891,13 +906,16 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public virtual AutoSizeMode AutoSizeMode
     {
-        get => _autoSizeMode;
+        get => CommonProperties.GetAutoSizeMode(this);
         set
         {
-            if (_autoSizeMode == value)
+            if (_autoSizeMode == value && CommonProperties.GetAutoSizeMode(this) == value)
                 return;
 
             _autoSizeMode = value;
+
+            if (CommonProperties.GetAutoSizeMode(this) != value)
+                CommonProperties.SetAutoSizeMode(this, value);
 
             if (AutoSize)
                 AdjustSize();
@@ -1369,7 +1387,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             return newBounds;
         }
 
-        return new SkiaSharp.SKRect(suggestedX, suggestedY, proposedWidth, proposedHeight);
+        return SkiaSharp.SKRect.Create(suggestedX, suggestedY, proposedWidth, proposedHeight);
     }
 
     public virtual void OnPaint(SKCanvas canvas)
@@ -2068,8 +2086,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     {
         SizeChanged?.Invoke(this, e);
 
-        // Don't trigger layout during arrange/layout operation to prevent infinite recursion
-        if (!IsPerformingLayout && !_isArranging)
+        // A container resized by parent layout still needs to arrange its own children
+        // (e.g. nested Dock/Anchor scenarios). Guard only against re-entrant PerformLayout.
+        if (!IsPerformingLayout)
         {
             // If this control has children, layout them within new size
             if (Controls.Count > 0)
@@ -2400,8 +2419,6 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnDockChanged(EventArgs e)
     {
         DockChanged?.Invoke(this, e);
-        if (Parent is UIWindowBase parentWindow) parentWindow.PerformLayout();
-        else if (Parent is ElementBase parentElement) parentElement.PerformLayout();
     }
 
     internal virtual void OnAutoSizeChanged(EventArgs e)
@@ -2564,7 +2581,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         {
             // Don't scale Location - layout engine will handle positioning based on parent DPI
             // Only scale Size, Padding, Margin
-            if (!AutoSize)
+            if (!AutoSize && ShouldScaleSizeOnDpiChange(newDpi, oldDpi))
             {
                 var scaledSize = new SKSize(
                     Math.Max(1, (int)Math.Round(previousSize.Width * scaleFactor)),

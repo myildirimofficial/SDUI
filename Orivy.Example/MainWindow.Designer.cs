@@ -19,6 +19,7 @@ internal partial class MainWindow
         // panel
         this.panel = new()
         {
+            Text = "Backend Renderer",
             Name = "panel",
             Padding = new(5),
             Dock = SDUI.DockStyle.Fill,
@@ -57,6 +58,19 @@ internal partial class MainWindow
 
         buttonSoftware.Click += ButtonSoftware_Click;
 
+        this.buttonDirectX = new()
+        {
+            Name = "buttonDirectX",
+            Text = "DirectX",
+            BackColor = SKColors.Green,
+            Size = new(100, 32),
+            Dock = SDUI.DockStyle.Bottom,
+            Radius = new(4),
+            Border = new(1)
+        };
+
+        buttonDirectX.Click += ButtonDirectX_Click;
+
         this.buttonDarkMode = new()
         {
             Name = "buttonDarkMode",
@@ -70,6 +84,16 @@ internal partial class MainWindow
 
         buttonDarkMode.Click += ButtonDarkMode_Click;
 
+        windowPageControl = new()
+        {
+            Name = "windowPageControl",
+            Dock = SDUI.DockStyle.Fill,
+        };
+
+        windowPageControl.Controls.Add(panel);
+        windowPageControl.Controls.Add(panel);
+        windowPageControl.Controls.Add(panel);
+
         // 
         // MainWindow
         // 
@@ -78,11 +102,14 @@ internal partial class MainWindow
         this.Width = 800;
         this.Height = 450;
         this.DwmMargin = -1;
+        this.Padding = new(10);
         this.EnableMica = true;
+        this.WindowPageControl = windowPageControl;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
         this.Controls.Add(this.panel);
         this.panel.Controls.Add(this.buttonOpenGL);
         this.panel.Controls.Add(this.buttonSoftware);
+        this.panel.Controls.Add(this.buttonDirectX);
         this.panel.Controls.Add(this.buttonDarkMode);
         this.ResumeLayout(false);
     }
@@ -90,5 +117,7 @@ internal partial class MainWindow
     private Element panel;
     private Element buttonOpenGL;
     private Element buttonSoftware;
+    private Element buttonDirectX;
     private Element buttonDarkMode;
+    private WindowPageControl windowPageControl;
 }

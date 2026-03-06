@@ -216,12 +216,13 @@ internal partial class CommonProperties
 
         // Element bounds may need to truncated to new maximum
 
-        element.SetBounds(new SkiaSharp.SKRect(
+        element.SetBounds(
+            SKRect.Create(
                 element.Bounds.Left,
                 element.Bounds.Top,
-                Math.Min(element.Bounds.Width, value.Width) - element.Bounds.Left,
-                Math.Min(element.Bounds.Height, value.Height) - element.Bounds.Top
-            ), BoundsSpecified.Size);
+                Math.Min(element.Bounds.Width, value.Width),
+                Math.Min(element.Bounds.Height, value.Height)),
+            BoundsSpecified.Size);
 
         // element.SetBounds does a SetBoundsCore. We still need to explicitly refresh parent layout.
         LayoutTransaction.DoLayout(element.Container, element, PropertyNames.MaximumSize);
@@ -242,13 +243,13 @@ internal partial class CommonProperties
         using (new LayoutTransaction(element.Container as ElementBase, element, PropertyNames.MinimumSize))
         {
             // Element bounds may need to inflated to new minimum
-            element.SetBounds(new SkiaSharp.SKRect(
-                element.Bounds.Left,
-                element.Bounds.Top,
-                Math.Max(element.Bounds.Width, value.Width) - element.Bounds.Left,
-                Math.Max(element.Bounds.Height, value.Height) - element.Bounds.Top
-            )
-            , BoundsSpecified.Size);
+            element.SetBounds(
+                SkiaSharp.SKRect.Create(
+                    element.Bounds.Left,
+                    element.Bounds.Top,
+                    Math.Max(element.Bounds.Width, value.Width),
+                    Math.Max(element.Bounds.Height, value.Height)),
+                BoundsSpecified.Size);
         }
 
         Debug.Assert(GetMinimumSize(element, new SKSize(-7109, -7107)) == value, "Error detected setting MinimumSize.");

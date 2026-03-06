@@ -233,7 +233,7 @@ internal partial class DefaultLayout : LayoutEngine
             }
         }
  
-        return new SkiaSharp.SKRect(anchorInfo.Left, anchorInfo.Top, width, height);
+        return SkiaSharp.SKRect.Create(anchorInfo.Left, anchorInfo.Top, width, height);
     }
  
     private static SkiaSharp.SKRect ComputeAnchoredBounds(IArrangedElement element, SkiaSharp.SKRect displayRect, bool measureOnly)
@@ -335,7 +335,7 @@ internal partial class DefaultLayout : LayoutEngine
             }
         }
  
-        return new SkiaSharp.SKRect(left, top, right - left, bottom - top);
+        return SkiaSharp.SKRect.Create(left, top, right - left, bottom - top);
     }
  
     private static void LayoutAnchoredControls(IArrangedElement container)
@@ -387,25 +387,38 @@ internal partial class DefaultLayout : LayoutEngine
                     case DockStyle.Top:
                         {
                             SKSize elementSize = GetVerticalDockedSize(element, remainingBounds.Size, measureOnly);
-                            SkiaSharp.SKRect newElementBounds = new(remainingBounds.Location.X, remainingBounds.Location.Y, elementSize.Width, elementSize.Height);
+                            SkiaSharp.SKRect newElementBounds = SkiaSharp.SKRect.Create(
+                                remainingBounds.Left,
+                                remainingBounds.Top,
+                                elementSize.Width,
+                                elementSize.Height);
  
                             TryCalculatePreferredSizeDockedControl(element, newElementBounds, measureOnly, ref preferredSize, ref remainingBounds);
  
-                            // What we are really doing here: top += control.Bounds.Height;
-                            remainingBounds.Top += element.Bounds.Height;
-                            remainingBounds.Bottom -= element.Bounds.Height;
+                            if (!measureOnly)
+                            {
+                                // What we are really doing here: top += control.Bounds.Height;
+                                remainingBounds.Top += element.Bounds.Height;
+                            }
                             break;
                         }
  
                     case DockStyle.Bottom:
                         {
                             SKSize elementSize = GetVerticalDockedSize(element, remainingBounds.Size, measureOnly);
-                            SkiaSharp.SKRect newElementBounds = new(remainingBounds.Left, remainingBounds.Bottom - elementSize.Height, elementSize.Width, elementSize.Height);
+                            SkiaSharp.SKRect newElementBounds = SkiaSharp.SKRect.Create(
+                                remainingBounds.Left,
+                                remainingBounds.Bottom - elementSize.Height,
+                                elementSize.Width,
+                                elementSize.Height);
  
                             TryCalculatePreferredSizeDockedControl(element, newElementBounds, measureOnly, ref preferredSize, ref remainingBounds);
  
-                            // What we are really doing here: bottom -= control.Bounds.Height;
-                            remainingBounds.Bottom -= element.Bounds.Height;
+                            if (!measureOnly)
+                            {
+                                // What we are really doing here: bottom -= control.Bounds.Height;
+                                remainingBounds.Bottom -= element.Bounds.Height;
+                            }
  
                             break;
                         }
@@ -413,32 +426,49 @@ internal partial class DefaultLayout : LayoutEngine
                     case DockStyle.Left:
                         {
                             SKSize elementSize = GetHorizontalDockedSize(element, remainingBounds.Size, measureOnly);
-                            SkiaSharp.SKRect newElementBounds = new(remainingBounds.Left, remainingBounds.Top, elementSize.Width, elementSize.Height);
+                            SkiaSharp.SKRect newElementBounds = SkiaSharp.SKRect.Create(
+                                remainingBounds.Left,
+                                remainingBounds.Top,
+                                elementSize.Width,
+                                elementSize.Height);
  
                             TryCalculatePreferredSizeDockedControl(element, newElementBounds, measureOnly, ref preferredSize, ref remainingBounds);
  
-                            // What we are really doing here: left += control.Bounds.Width;
-                            remainingBounds.Left += element.Bounds.Width;
-                            remainingBounds.Right -= element.Bounds.Width;
+                            if (!measureOnly)
+                            {
+                                // What we are really doing here: left += control.Bounds.Width;
+                                remainingBounds.Left += element.Bounds.Width;
+                            }
                             break;
                         }
  
                     case DockStyle.Right:
                         {
                             SKSize elementSize = GetHorizontalDockedSize(element, remainingBounds.Size, measureOnly);
-                            SkiaSharp.SKRect newElementBounds = new(remainingBounds.Right - elementSize.Width, remainingBounds.Top, elementSize.Width, elementSize.Height);
+                            SkiaSharp.SKRect newElementBounds = SkiaSharp.SKRect.Create(
+                                remainingBounds.Right - elementSize.Width,
+                                remainingBounds.Top,
+                                elementSize.Width,
+                                elementSize.Height);
  
                             TryCalculatePreferredSizeDockedControl(element, newElementBounds, measureOnly, ref preferredSize, ref remainingBounds);
  
-                            // What we are really doing here: right -= control.Bounds.Width;
-                            remainingBounds.Right -= element.Bounds.Width;
+                            if (!measureOnly)
+                            {
+                                // What we are really doing here: right -= control.Bounds.Width;
+                                remainingBounds.Right -= element.Bounds.Width;
+                            }
                             break;
                         }
  
                     case DockStyle.Fill:
                         {
                             SKSize elementSize = remainingBounds.Size;
-                            SkiaSharp.SKRect newElementBounds = new(remainingBounds.Left, remainingBounds.Top, elementSize.Width, elementSize.Height);
+                            SkiaSharp.SKRect newElementBounds = SkiaSharp.SKRect.Create(
+                                remainingBounds.Left,
+                                remainingBounds.Top,
+                                elementSize.Width,
+                                elementSize.Height);
  
                             TryCalculatePreferredSizeDockedControl(element, newElementBounds, measureOnly, ref preferredSize, ref remainingBounds);
                         }

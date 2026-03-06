@@ -70,7 +70,6 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         var flags = DeviceCreationFlags.BgraSupport;
         var featureLevels = new[]
         {
-            FeatureLevel.Level_11_1,
             FeatureLevel.Level_11_0,
             FeatureLevel.Level_10_1,
             FeatureLevel.Level_10_0
@@ -204,10 +203,10 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         }
     }
 
-    public void Render(int width, int height, Action<SKCanvas, SKImageInfo> draw)
+    public bool Render(int width, int height, Action<SKCanvas, SKImageInfo> draw)
     {
         if (_swapChain == null)
-            return;
+            return false;
 
         Resize(width, height);
 
@@ -221,7 +220,7 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
             GrContext.Submit();
             // Use SyncInterval 0 (no VSync) to prevent potential blocking/freezing on some systems.
             _swapChain.Present(0, PresentFlags.None);
-            return;
+            return true;
         }
 
         // #####################
@@ -238,7 +237,7 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
                 try
                 {
                     PresentFromCpuCacheViaD3D11Upload(_cacheBitmap, width, height);
-                    return;
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -253,7 +252,7 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         var pixels = tempBitmap.GetPixels();
         using var tempSurface = SKSurface.Create(info, pixels, tempBitmap.RowBytes);
         if (tempSurface == null)
-            return;
+            return false;
 
         draw(tempSurface.Canvas, info);
         tempSurface.Canvas.Flush();
@@ -261,10 +260,12 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         try
         {
             PresentFromCpuCacheViaD3D11Upload(tempBitmap, width, height);
+            return true;
         }
         catch (Exception ex)
         {
             LastInitError = $"D3D11 upload present failed: {ex.Message}; no fallback available for this frame.";
+            return false;
         }
         // #####################
     }
@@ -348,7 +349,8 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
                 SampleDescription = new SampleDescription(1, 0),
                 BufferUsage = Usage.RenderTargetOutput,
                 BufferCount = 2,
-                Scaling = Scaling.None,
+                // Stretch is more broadly compatible for HWND flip-model swapchains.
+                Scaling = Scaling.Stretch,
                 SwapEffect = SwapEffect.FlipDiscard,
                 AlphaMode = AlphaMode.Ignore,
                 Flags = SwapChainFlags.None
@@ -466,7 +468,8 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
             ArraySize = 1,
             Format = Format.B8G8R8A8_UNorm,
             SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Dynamic,
+            // CPU upload texture: stage on CPU, then copy into swapchain backbuffer.
+            Usage = ResourceUsage.Staging,
             BindFlags = BindFlags.None,
             CPUAccessFlags = CpuAccessFlags.Write,
             MiscFlags = ResourceOptionFlags.None
@@ -482,59 +485,62 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         if (_context == null || _swapChain == null || srcBitmap == null)
             return;
 
-        EnsureCpuUploadResources(width, height);
-        if (_cpuUploadTexture == null || _presentBackBuffer == null)
-            return;
-
-        lock (_cpuCacheLock)
+        var stage = "EnsureCpuUploadResources";
+        try
         {
-            var mapped = _context.Map(_cpuUploadTexture, 0, MapMode.WriteDiscard);
-            try
+            EnsureCpuUploadResources(width, height);
+            if (_cpuUploadTexture == null || _presentBackBuffer == null)
+                return;
+
+            lock (_cpuCacheLock)
             {
-                // Defensive guard: re-check srcBitmap and pixel pointer
-                var pixelsPtr = srcBitmap.GetPixels();
-                if (pixelsPtr == IntPtr.Zero)
-                    return;
+                stage = "Map";
+                var mapped = _context.Map(_cpuUploadTexture, 0, MapMode.Write);
+                try
+                {
+                    // Defensive guard: re-check srcBitmap and pixel pointer
+                    var pixelsPtr = srcBitmap.GetPixels();
+                    if (pixelsPtr == IntPtr.Zero)
+                        return;
 
-                var srcBase = (byte*)pixelsPtr.ToPointer();
-                var dstBase = (byte*)mapped.DataPointer.ToPointer();
+                    var srcBase = (byte*)pixelsPtr.ToPointer();
+                    var dstBase = (byte*)mapped.DataPointer.ToPointer();
 
-                var srcStride = srcBitmap.RowBytes;
-                var dstStride = mapped.RowPitch;
-                var rowBytes = width * 4;
+                    var srcStride = srcBitmap.RowBytes;
+                    var dstStride = mapped.RowPitch;
+                    var rowBytes = width * 4;
 
-                for (var y = 0; y < height; y++)
-                    Buffer.MemoryCopy(srcBase + y * srcStride, dstBase + y * dstStride, dstStride, rowBytes);
+                    for (var y = 0; y < height; y++)
+                        Buffer.MemoryCopy(srcBase + y * srcStride, dstBase + y * dstStride, dstStride, rowBytes);
+                }
+                finally
+                {
+                    _context.Unmap(_cpuUploadTexture, 0);
+                }
+
+                stage = "CopyResource";
+                _context.CopyResource(_presentBackBuffer, _cpuUploadTexture);
+
+                stage = "Present";
+                // Use SyncInterval 0 (no VSync) to prevent potential blocking/freezing on some systems.
+                _swapChain.Present(0, PresentFlags.None);
             }
-            finally
-            {
-                _context.Unmap(_cpuUploadTexture, 0);
-            }
-
-            _context.CopyResource(_presentBackBuffer, _cpuUploadTexture);
-            // Use SyncInterval 0 (no VSync) to prevent potential blocking/freezing on some systems.
-            _swapChain.Present(0, PresentFlags.None);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"DX11 CPU upload failed at {stage}: {ex.Message}", ex);
         }
     }
 
     private static (ID3D11Device device, ID3D11DeviceContext context) CreateDeviceWithFallback(
         DeviceCreationFlags flags, FeatureLevel[] featureLevels)
     {
-        var errors = new List<Exception>(2);
+        var errors = new List<Exception>(6);
 
-        // Try real hardware first.
-        if (TryCreateDevice(DriverType.Hardware, flags, featureLevels, out var device, out var context, out var error))
-            return (device, context);
-        if (error != null)
-            errors.Add(error);
+        var without11_1 = featureLevels.Contains(FeatureLevel.Level_11_1)
+            ? featureLevels.Where(f => f != FeatureLevel.Level_11_1).ToArray()
+            : featureLevels;
 
-        // Common failure scenario: running over RDP / no proper GPU driver.
-        if (TryCreateDevice(DriverType.Warp, flags, featureLevels, out device, out context, out error))
-            return (device, context);
-        if (error != null)
-            errors.Add(error);
-
-        // As a last resort, broaden feature levels and retry WARP.
         var wideFeatureLevels = featureLevels.Concat(new[]
         {
             FeatureLevel.Level_9_3,
@@ -542,10 +548,29 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
             FeatureLevel.Level_9_1
         }).Distinct().ToArray();
 
-        if (TryCreateDevice(DriverType.Warp, flags, wideFeatureLevels, out device, out context, out error))
-            return (device, context);
-        if (error != null)
-            errors.Add(error);
+        var wideWithout11_1 = wideFeatureLevels.Where(f => f != FeatureLevel.Level_11_1).ToArray();
+
+        var attempts = new (DriverType Driver, FeatureLevel[] Levels)[]
+        {
+            (DriverType.Hardware, featureLevels),
+            (DriverType.Hardware, without11_1),
+            (DriverType.Warp, featureLevels),
+            (DriverType.Warp, without11_1),
+            (DriverType.Warp, wideFeatureLevels),
+            (DriverType.Warp, wideWithout11_1)
+        };
+
+        foreach (var attempt in attempts)
+        {
+            if (attempt.Levels == null || attempt.Levels.Length == 0)
+                continue;
+
+            if (TryCreateDevice(attempt.Driver, flags, attempt.Levels, out var device, out var context, out var error))
+                return (device, context);
+
+            if (error != null)
+                errors.Add(error);
+        }
 
         var message = "Failed to create a D3D11 device (Hardware and WARP).";
         if (errors.Count > 0)
