@@ -253,8 +253,8 @@ public partial class UIWindow : UIWindowBase
         newTabHoverAnimationManager = CreateHoverAnimation();
         formMenuHoverAnimationManager = CreateHoverAnimation();
 
-        _hoverAnimationManagers.AddRange(new[]
-        {
+        _hoverAnimationManagers.AddRange(
+        [
             pageAreaAnimationManager,
             minBoxHoverAnimationManager,
             maxBoxHoverAnimationManager,
@@ -263,7 +263,7 @@ public partial class UIWindow : UIWindowBase
             tabCloseHoverAnimationManager,
             newTabHoverAnimationManager,
             formMenuHoverAnimationManager
-        });
+        ]);
 
         //WindowsHelper.ApplyRoundCorner(this.Handle);
     }
@@ -406,15 +406,24 @@ public partial class UIWindow : UIWindowBase
     }
 
     /// <summary>
-    ///     Gets or sets whether to show the title bar of the form
+    ///     Gets or sets whether a small menu glyph is displayed in the left side
+    ///     of the title bar instead of the window icon. When this property is
+    ///     false and no icon is shown (either <see cref="ShowIcon"/> is false
+    ///     or <see cref="Icon"/> is null), the left padding used for tabs and
+    ///     title text collapses back to zero, eliminating the empty gap.
     /// </summary>
     public bool ShowMenuInsteadOfIcon
     {
         get => showMenuInsteadOfIcon;
         set
         {
+            if (showMenuInsteadOfIcon == value)
+                return;
+
             showMenuInsteadOfIcon = value;
             CalcSystemBoxPos();
+            InvalidateMeasureRecursive();
+            PerformLayout();
             Invalidate();
         }
     }
@@ -704,7 +713,7 @@ public partial class UIWindow : UIWindowBase
     {
         if (!ShowTitle)
             return 0;
-        
+
         return (int)MathF.Ceiling(_titleBarBottomDPI);
     }
 
@@ -819,7 +828,7 @@ public partial class UIWindow : UIWindowBase
         bool isShowing = ShowTitle;
         int paddingTop = Padding.Top;
         float titleHeightDpi = _titleBarBottomDPI;
-        
+
         System.Diagnostics.Debug.WriteLine(
             $"[IsCaptionHit] clientPt=({clientPt.X}, {clientPt.Y}), ShowTitle={isShowing}, Padding.Top={paddingTop}, TitleHeightDPI={titleHeightDpi}");
 
@@ -875,7 +884,9 @@ public partial class UIWindow : UIWindowBase
             System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (new tab box): {_newTabBoxRect}");
             return false;
         }
-        if (_formMenuRect.Contains(clientPt))
+        // if the menu glyph is visible we must exclude its bounds from the
+        // caption area, otherwise the user should be able to drag from there.
+        if (showMenuInsteadOfIcon && _formMenuRect.Contains(clientPt))
         {
             System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (form menu): {_formMenuRect}");
             return false;
@@ -1191,7 +1202,7 @@ public partial class UIWindow : UIWindowBase
                                   || _extendBoxRect.Contains(e.Location)
                                   || (_tabCloseButton && _closeTabBoxRect.Contains(e.Location))
                                   || (_newTabButton && _newTabBoxRect.Contains(e.Location))
-                                  || _formMenuRect.Contains(e.Location);
+                                  || (showMenuInsteadOfIcon && _formMenuRect.Contains(e.Location));
 
             if (!inControlBoxDbl && !inTabHeaderDbl)
             {
@@ -1258,8 +1269,11 @@ public partial class UIWindow : UIWindowBase
 
         IsStayAtTopBorder = false;
         Cursor.Clip = null;
-        if (_formMoveMouseDown)
-            ReleaseCapture();
+        // Always release capture on mouse-up regardless of which code path acquired it
+        // (title-bar drag, tab-header drag detection, or child element capture). If capture
+        // is not released here, WM_NCHITTEST is never sent and resize stops working until
+        // the window is maximised/restored.
+        ReleaseCapture();
         _formMoveMouseDown = false;
 
         if (shouldSelectPendingTab && _windowPageControl != null && pendingTabSelectionIndex < _windowPageControl.Count)
@@ -1402,7 +1416,7 @@ public partial class UIWindow : UIWindowBase
             var inMaxBox = _maximizeBoxRect.Contains(e.Location.X, e.Location.Y);
             var inMinBox = _minimizeBoxRect.Contains(e.Location.X, e.Location.Y);
             var inExtendBox = _extendBoxRect.Contains(e.Location.X, e.Location.Y);
-            var inFormMenuBox = _formMenuRect.Contains(e.Location.X, e.Location.Y);
+            var inFormMenuBox = showMenuInsteadOfIcon && _formMenuRect.Contains(e.Location.X, e.Location.Y);
             var inCloseTabBox = _tabCloseButton && _closeTabBoxRect.Contains(e.Location.X, e.Location.Y);
             var inNewTabBox = _newTabButton && _newTabBoxRect.Contains(e.Location.X, e.Location.Y);
 
@@ -1596,58 +1610,25 @@ public partial class UIWindow : UIWindowBase
 
         if (!ShowTitle)
         {
-            canvas.Clear(ColorScheme.BackColor);
+            canvas.Clear(ColorScheme.Surface);
             return;
         }
 
         var foreColor = ColorScheme.ForeColor;
         var hoverColor = ColorScheme.BorderColor;
 
-        bool hasManualTitleBackground = titleColor != SKColor.Empty ||
-                                        (_gradient.Length == 2 &&
-                                         !(_gradient[0] == SKColors.Transparent && _gradient[1] == SKColors.Transparent));
-        bool keepTitleTransparentForMica = EnableMica && !hasManualTitleBackground;
-
-        canvas.Clear(ColorScheme.BackColor);
-
-        if (keepTitleTransparentForMica)
-        {
-            if (RenderBackend == SDUI.Rendering.RenderBackend.Software)
-            {
-                // GDI software presentation cannot preserve alpha in client pixels.
-                // Use a themed fallback instead of transparent black artifacts.
-                using var fallbackTitlePaint = new SKPaint { Color = ColorScheme.Surface };
-                canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, fallbackTitlePaint);
-            }
-            else
-            {
-                using var transparentTitlePaint = new SKPaint
-                {
-                    Color = SKColors.Transparent,
-                    BlendMode = SKBlendMode.Src
-                };
-                canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, transparentTitlePaint);
-            }
-        }
+        canvas.Clear(ColorScheme.Surface);
 
         if (FullDrawHatch)
         {
-            using var paint = new SKPaint
-            {
-                Color = hoverColor,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1,
-                PathEffect = SKPathEffect.Create2DLine(4, SKMatrix.CreateScale(4, 4))
-            };
-            canvas.DrawRect(0, 0, Width, Height, paint);
+            using var hatchBrush = new HatchBrush(_hatch, hoverColor.WithAlpha(30), SKColors.Transparent);
+            using var hatchPaint = hatchBrush.CreatePaint();
+
+            canvas.DrawRect(0, 0, Width, Height, hatchPaint);
         }
 
-        // Title bar background rendering:
-        // - If EnableMica is true, leave title bar transparent (backdrop effect shows through)
-        // - Otherwise, paint solid color or gradient (if manually configured)
         if (titleColor != SKColor.Empty)
         {
-            // Manual title color takes priority
             foreColor = titleColor.Determine();
             hoverColor = foreColor.WithAlpha(20);
             using var paint = new SKPaint { Color = titleColor };
@@ -1670,21 +1651,7 @@ public partial class UIWindow : UIWindowBase
             foreColor = _gradient[0].Determine();
             hoverColor = foreColor.WithAlpha(20);
         }
-        else if (!EnableMica)
-        {
-            // Auto theme-based color: use actual theme surface colors from ColorScheme
-            // when Mica is disabled (Mica needs transparent title bar to show backdrop effect)
-            var themeTitleBg = ColorScheme.Surface;  // Use actual transitioning theme color
-            
-            using var paint = new SKPaint { Color = themeTitleBg };
-            canvas.DrawRect(0, _titleBarTopDPI, Width, _titleHeightDPI, paint);
-            
-            foreColor = ColorScheme.ForeColor;
-            hoverColor = ColorScheme.BorderColor;
-        }
-        // else: EnableMica=true and no manual colors -> title bar stays transparent
 
-        // Kontrol d��meleri �izimi
         if (controlBox)
         {
             var closeHoverColor = new SkiaSharp.SKColor(232, 17, 35);
@@ -1707,7 +1674,6 @@ public partial class UIWindow : UIWindowBase
                 StrokeCap = SKStrokeCap.Round
             };
 
-            // �arp� i�areti
             var centerX = _controlBoxRect.Left + _controlBoxRect.Width / 2;
             var centerY = _controlBoxRect.Top + _controlBoxRect.Height / 2;
             var size = 5 * ScaleFactor;
@@ -1743,43 +1709,61 @@ public partial class UIWindow : UIWindowBase
             {
                 Color = foreColor,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.1f * ScaleFactor,
+                StrokeWidth = 1.2f * ScaleFactor,
                 IsAntialias = true,
-                StrokeCap = SKStrokeCap.Round
+                StrokeCap = SKStrokeCap.Butt,
+                StrokeJoin = SKStrokeJoin.Round
             };
 
             // Maximize simgesi
             var centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
             var centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
-            var size = 5 * ScaleFactor;
+            var size = (WindowState != FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
 
-            if (WindowState == FormWindowState.Maximized)
-            {
-                // Restore simgesi
-                var offset = 2 * ScaleFactor;
-                canvas.DrawRect(
-                    centerX - size + offset,
-                    centerY - size - offset,
-                    size * 2,
-                    size * 2,
-                    maxPaint);
+            float offset = size * 0.5f;
+            float cornerRadius = 2.0f * ScaleFactor;
+            float strokeWidth = 1.2f * ScaleFactor;
 
-                canvas.DrawRect(
-                    centerX - size - offset,
-                    centerY - size + offset,
-                    size * 2,
-                    size * 2,
-                    maxPaint);
-            }
-            else
+            using SKPaint strokePaint = new SKPaint
             {
-                canvas.DrawRect(
-                    centerX - size,
-                    centerY - size,
-                    size * 2,
-                    size * 2,
-                    maxPaint);
+                Style = SKPaintStyle.Stroke,
+                Color = foreColor,
+                StrokeWidth = strokeWidth,
+                IsAntialias = true,
+                StrokeJoin = SKStrokeJoin.Round,
+                StrokeCap = SKStrokeCap.Round
+            };
+
+            var frontRect = new SKRect(
+                centerX - size,
+                centerY - size,
+                centerX + size,
+                centerY + size
+            );
+
+            if (WindowState != FormWindowState.Maximized)
+            {
+                var backRect = new SKRect(
+                    frontRect.Left + offset,
+                    frontRect.Top - offset,
+                    frontRect.Right + offset,
+                    frontRect.Bottom - offset
+                );
+
+                canvas.Save();
+
+                SKRect clipRect = frontRect;
+                clipRect.Inflate(strokeWidth / 2f, strokeWidth / 2f);
+                SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (strokeWidth / 2f));
+
+                canvas.ClipRoundRect(clipRoundRect, SKClipOperation.Difference, true);
+
+                canvas.DrawRoundRect(backRect, cornerRadius, cornerRadius, strokePaint);
+
+                canvas.Restore();
             }
+
+            canvas.DrawRoundRect(frontRect, cornerRadius, cornerRadius, strokePaint);
         }
 
         if (MinimizeBox)
@@ -1828,7 +1812,7 @@ public partial class UIWindow : UIWindowBase
                 };
 
                 using var path = new SKPath();
-                path.AddRoundRect(SKRect.Create(
+                path.AddRoundRect(new SKRect(
                     _extendBoxRect.Left + 20 * ScaleFactor,
                     _titleBarCenterYDPI - hoverSize / 2,
                     _extendBoxRect.Left + 20 * ScaleFactor + hoverSize,
@@ -1868,8 +1852,8 @@ public partial class UIWindow : UIWindowBase
                 extendPaint);
         }
 
-        // Form Menu veya Icon �izimi
         var faviconSize = 16 * ScaleFactor;
+
         if (showMenuInsteadOfIcon)
         {
             using var paint = new SKPaint
@@ -1904,19 +1888,15 @@ public partial class UIWindow : UIWindowBase
                 _formMenuRect.Top + _formMenuRect.Height / 2 + 3 * ScaleFactor,
                 menuPaint);
         }
-        else
+        else if (ShowIcon && Icon != null)
         {
-            if (ShowIcon && Icon != null)
-            {
-                using var bitmap = Icon.ToBitmap();
-                using var skBitmap = bitmap.ToSKBitmap();
-                using var image = SKImage.FromBitmap(skBitmap);
-                var iconRect = SkiaSharp.SKRect.Create(_titleBarLeftInsetDPI + 10, _titleBarCenterYDPI - faviconSize / 2, faviconSize, faviconSize);
-                canvas.DrawImage(image, iconRect);
-            }
+            using var bitmap = Icon.ToBitmap();
+            using var skBitmap = bitmap.ToSKBitmap();
+            using var image = SKImage.FromBitmap(skBitmap);
+            var iconRect = SKRect.Create(_titleBarLeftInsetDPI + 10, _titleBarCenterYDPI - faviconSize / 2, faviconSize, faviconSize);
+            canvas.DrawImage(image, iconRect);
         }
 
-        // Form ba�l��� �izimi
         if (_windowPageControl == null || _windowPageControl.Count == 0)
         {
             var font = GetOrCreateFont("title", () => new SKFont
@@ -1930,17 +1910,16 @@ public partial class UIWindow : UIWindowBase
             var textPaint = GetOrCreatePaint("titleText", () => new SKPaint { IsAntialias = true });
             textPaint.Color = foreColor;
 
-            var bounds = new SkiaSharp.SKRect();
+            var bounds = new SKRect();
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
                 ? _formMenuRect.Left + _formMenuRect.Width + 8 * ScaleFactor
-                : _titleBarLeftInsetDPI + faviconSize + 14 * ScaleFactor;
+                : _titleBarLeftInsetDPI + ((ShowIcon && Icon != null) ? faviconSize  + 14 * ScaleFactor : 0);
             var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
             TextRenderer.DrawText(canvas, Text, textX, textY, SKTextAlign.Left, font, textPaint);
         }
 
-        // Tab kontrollerinin �izimi
         if (_windowPageControl != null && _windowPageControl.Count > 0)
         {
             var isPageTransitionAnimating = pageAreaAnimationManager.IsAnimating();
@@ -1998,7 +1977,7 @@ public partial class UIWindow : UIWindowBase
             if (_tabDesingMode == TabDesingMode.Rectangle)
             {
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.15f);
+                tabPaint.Color = ColorScheme.Surface.InterpolateColor(hoverColor, 0.15f);
 
                 canvas.DrawRect(x, _titleBarTopDPI, width, _titleHeightDPI, tabPaint);
 
@@ -2011,9 +1990,9 @@ public partial class UIWindow : UIWindowBase
                     hoverColor = foreColor.WithAlpha(60);
 
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
+                tabPaint.Color = ColorScheme.Surface.InterpolateColor(hoverColor, 0.2f);
 
-                var tabRect = new SkiaSharp.SKRect(x, _titleBarTopDPI + 6, x + width, _titleBarBottomDPI);
+                var tabRect = new SKRect(x, _titleBarTopDPI + 6, x + width, _titleBarBottomDPI);
                 var radius = 9 * ScaleFactor;
 
                 _tempPath.Reset();
@@ -2026,9 +2005,9 @@ public partial class UIWindow : UIWindowBase
                     hoverColor = foreColor.WithAlpha(60);
 
                 var tabPaint = GetOrCreatePaint("tabBg", () => new SKPaint { IsAntialias = true });
-                tabPaint.Color = ColorScheme.BackColor.InterpolateColor(hoverColor, 0.2f);
+                tabPaint.Color = ColorScheme.Surface.InterpolateColor(hoverColor, 0.2f);
 
-                var tabRect = new SkiaSharp.SKRect(x, _titleBarTopDPI + 5, x + width, _titleBarBottomDPI - 7);
+                var tabRect = new SKRect(x, _titleBarTopDPI + 5, x + width, _titleBarBottomDPI - 7);
                 var radius = 12;
 
                 _tempPath.Reset();
@@ -2072,7 +2051,7 @@ public partial class UIWindow : UIWindowBase
                     var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
                     TextRenderer.DrawText(canvas, "", iconX, textY, SKTextAlign.Center, font, textPaint);
 
-                    var bounds = new SkiaSharp.SKRect();
+                    var bounds = new SKRect();
                     font.MeasureText(page.Text, out bounds);
                     var textX = adjustedRect.Left + adjustedRect.Width / 2;
                     TextRenderer.DrawText(canvas, page.Text, textX, textY, SKTextAlign.Center, font, textPaint);
@@ -2090,7 +2069,7 @@ public partial class UIWindow : UIWindowBase
                     var textPaint = GetOrCreatePaint("tabText", () => new SKPaint { IsAntialias = true });
                     textPaint.Color = foreColor;
 
-                    var bounds = new SkiaSharp.SKRect();
+                    var bounds = new SKRect();
                     font.MeasureText(page.Text, out bounds);
                     var textX = rect.Location.X + rect.Width / 2;
                     var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
@@ -2122,8 +2101,7 @@ public partial class UIWindow : UIWindowBase
                 using var linePaint = new SKPaint
                 {
                     Color = foreColor,
-                    StrokeWidth = 1.1f * ScaleFactor,
-                    IsAntialias = true,
+                    StrokeWidth = 1f * ScaleFactor,
                     StrokeCap = SKStrokeCap.Round
                 };
 
@@ -2219,7 +2197,7 @@ public partial class UIWindow : UIWindowBase
     {
         CalcSystemBoxPos();
         NeedsFullChildRedraw = true;
-        
+
         base.OnSizeChanged(e);
     }
 
@@ -2248,7 +2226,12 @@ public partial class UIWindow : UIWindowBase
 
         var leadingInset = _titleBarLeftInsetDPI;
         var trailingInset = _titleBarRightInsetDPI;
-        var occupiedWidth = 44 * ScaleFactor + leadingInset + trailingInset;
+        // determine if we actually need the large left inset that was previously hard-coded to 44*scale.
+        // reserve extra space only when there is an icon or the "menu" glyph.
+        bool leftGroupVisible = showMenuInsteadOfIcon || (ShowIcon && Icon != null);
+        var initialOffset = leftGroupVisible ? 44 * ScaleFactor : 0;
+
+        var occupiedWidth = initialOffset + leadingInset + trailingInset;
 
         if (controlBox)
             occupiedWidth += _controlBoxRect.Width;
@@ -2314,7 +2297,7 @@ public partial class UIWindow : UIWindowBase
             extraPerTab = extra / _windowPageControl.Count;
         }
 
-        var currentX = leadingInset + 44 * ScaleFactor;
+        var currentX = leadingInset + (leftGroupVisible ? 44 * ScaleFactor : 0);
 
         for (int i = 0; i < desiredWidths.Count; i++)
         {
@@ -2327,7 +2310,7 @@ public partial class UIWindow : UIWindowBase
             currentX += finalWidth;
         }
     }
-    
+
     private void InvalidateElement(ElementBase element)
     {
         if (LayoutSuspendCount > 0) return;

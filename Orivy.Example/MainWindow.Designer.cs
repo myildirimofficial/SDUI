@@ -3,6 +3,7 @@ using SDUI.Controls;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -22,14 +23,7 @@ internal partial class MainWindow
             Text = "Backend Renderer",
             Name = "panel",
             Padding = new(5),
-            Dock = SDUI.DockStyle.Fill,
-            Radius = new(4, 4, 0, 0),
-            Border = new(2),
-            Shadows = new[] {
-                new BoxShadow(0, 1, 3, 0, SKColors.Black.WithAlpha(30)),           // soft outer
-                new BoxShadow(0, 4, 12, new Radius(2), SKColors.Black.WithAlpha(15)), // wide spread
-                new BoxShadow(0, 1, 2, 0, SKColors.Black.WithAlpha(40), inset: true)     // subtle inset
-            }
+            Dock = SDUI.DockStyle.Fill
         };
 
         
@@ -60,8 +54,7 @@ internal partial class MainWindow
             BackColor = SKColors.Red,
             Dock = SDUI.DockStyle.Bottom,
             Size = new(100, 32),
-            Radius = new(4),
-            Border = new(1),
+            Radius = new(6),
         };
 
         buttonOpenGL.Click += ButtonOpenGL_Click;
@@ -87,7 +80,12 @@ internal partial class MainWindow
             Size = new(100, 32),
             Dock = SDUI.DockStyle.Bottom,
             Radius = new(4),
-            Border = new(1)
+            Border = new(1),
+            Shadows = new[] {
+                new BoxShadow(0, 1, 3, 0, SKColors.Black.WithAlpha(30)),           // soft outer
+                new BoxShadow(0, 4, 12, new Radius(2), SKColors.Black.WithAlpha(15)), // wide spread
+                new BoxShadow(0, 1, 2, 0, SKColors.Black.WithAlpha(40), inset: true)     // subtle inset
+            }
         };
 
         buttonDirectX.Click += ButtonDirectX_Click;
@@ -99,8 +97,7 @@ internal partial class MainWindow
             BackColor = SKColors.Blue,
             Dock = SDUI.DockStyle.Bottom,
             Size = new(100, 32),
-            Radius = new(4),
-            Border = new(0, 1, 0, 1),
+            Radius = new(6),
         };
 
         buttonDarkMode.Click += ButtonDarkMode_Click;
@@ -110,6 +107,51 @@ internal partial class MainWindow
             Name = "windowPageControl",
             Dock = SDUI.DockStyle.Fill,
         };
+
+        // build example menu strip demonstrating top‑level menus and submenus
+        this.menuStrip = new MenuStrip
+        {
+            Name = "menuStrip",
+            Dock = DockStyle.Top
+        };
+
+        // use extension helpers for concise syntax
+        var fileMenu = this.menuStrip.AddMenuItem("File");
+        fileMenu.AddMenuItem("Open", (s, e) => { /* nop */ }, Keys.Control | Keys.O);
+        fileMenu.AddSeparator();
+        fileMenu.AddMenuItem("Exit", (s, e) => this.Close(), Keys.Control | Keys.X);
+
+        var helpMenu = this.menuStrip.AddMenuItem("Help");
+        helpMenu.AddMenuItem("About", (s, e) =>
+        {
+            Debug.WriteLine("Orivy Example\nA simple demo of the Orivy UI framework.\n\nhttps://github.com/mahmutyildirim/orivy");
+        });
+
+        // add the menu strip as a child of the main window so it renders above
+        this.Controls.Add(this.menuStrip);
+
+        // --- ExtendMenu: drop-down that appears when the extend button (⋯) in
+        // the title bar is clicked. ExtendBox must be true to show the button.
+        this.extendMenu = new ContextMenuStrip();
+        this.extendMenu.AddMenuItem("Settings", (s, e) => Debug.WriteLine("Settings clicked"));
+        this.extendMenu.AddMenuItem("Check for Updates", (s, e) => Debug.WriteLine("Update check"));
+        this.extendMenu.AddSeparator();
+        var themeItem = this.extendMenu.AddMenuItem("Dark Mode");
+        themeItem.CheckOnClick = true;
+        themeItem.Checked = ColorScheme.IsDarkMode;
+        themeItem.CheckedChanged += (s, e) => ColorScheme.IsDarkMode = !ColorScheme.IsDarkMode;
+
+        // assign a real icon so the title bar shows one; the menu glyph option
+        // below can be toggled to switch behaviour
+        this.Icon = System.Drawing.SystemIcons.Application;
+        // Uncomment to replace the icon with a tiny menu glyph:
+        // this.ShowMenuInsteadOfIcon = true;
+
+        // wire up ExtendBox + ExtendMenu
+        this.ExtendBox = true;
+        this.ExtendMenu = this.extendMenu;
+        this.ShowMenuInsteadOfIcon = true;
+        this.FormMenu = this.extendMenu;
 
         this.panel.Controls.Add(this.buttonOpenGL);
         this.panel.Controls.Add(this.buttonSoftware);
@@ -144,4 +186,6 @@ internal partial class MainWindow
     private Element buttonDirectX;
     private Element buttonDarkMode;
     private WindowPageControl windowPageControl;
+    private MenuStrip menuStrip;
+    private ContextMenuStrip extendMenu;
 }

@@ -542,8 +542,8 @@ public partial class UIWindowBase : ElementBase, IDisposable
             if (c is ElementBase child)
                 child.EnsureLoadedRecursively();
 
-        if (BackColor != ColorScheme.BackColor)
-            BackColor = ColorScheme.BackColor;
+        if (BackColor != ColorScheme.Surface)
+            BackColor = ColorScheme.Surface;
     }
 
     /// <summary>
@@ -1225,13 +1225,13 @@ public partial class UIWindowBase : ElementBase, IDisposable
         if (!IsHandleCreated || !SDUI.Native.Windows.Helpers.IsModern)
             return;
 
-        SDUI.Native.Windows.Helpers.UseImmersiveDarkMode(Handle, ColorScheme.BackColor.IsDark());
+        SDUI.Native.Windows.Helpers.UseImmersiveDarkMode(Handle, ColorScheme.Surface.IsDark());
 
         if (EnableMica)
         {
             SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW);
         }
-        else if (ColorScheme.BackColor.IsDark())
+        else if (ColorScheme.Surface.IsDark())
         {
             SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_TABBEDWINDOW);
         }

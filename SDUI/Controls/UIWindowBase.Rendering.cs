@@ -591,7 +591,7 @@ public partial class UIWindowBase
 
     protected virtual void RenderWindowFrame(SKCanvas canvas, SKImageInfo info)
     {
-        canvas.Clear(ColorScheme.BackColor);
+        canvas.Clear(ColorScheme.Surface);
     }
 
     private void DrawPerfOverlay(SKCanvas canvas)

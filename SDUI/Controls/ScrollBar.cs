@@ -380,7 +380,7 @@ public class ScrollBar : ElementBase
         if (visibility <= 0f)
             return; // tamamen gizli
 
-        var baseTrackColor = TrackColor == SKColors.Transparent ? ColorScheme.BackColor2 : TrackColor;
+        var baseTrackColor = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
         var blendedTrack = baseTrackColor.BlendWith(ColorScheme.ForeColor, 0.18f);
         var trackAlpha = (byte)(50 * visibility);
         var trackSk = blendedTrack.WithAlpha(trackAlpha);
@@ -407,7 +407,7 @@ public class ScrollBar : ElementBase
         else if (_isThumbHovered || _isHovered || _hostHovered)
             stateColor = schemeBase.BlendWith(ColorScheme.ForeColor, 0.25f);
         else
-            stateColor = schemeBase.BlendWith(ColorScheme.BackColor, 0.15f);
+            stateColor = schemeBase.BlendWith(ColorScheme.Surface, 0.15f);
 
         var thumbColor = stateColor.WithAlpha((byte)(220 * Math.Clamp(visibility, 0f, 1f)));
 

@@ -65,7 +65,7 @@ public class MenuStrip : ElementBase
     public MenuStrip()
     {
         Height = (int)_itemHeight;
-        BackColor = ColorScheme.BackColor;
+        BackColor = ColorScheme.Surface;
         ForeColor = ColorScheme.ForeColor;
         InitializeAnimationTimer();
     }
@@ -145,7 +145,7 @@ public class MenuStrip : ElementBase
     [Category("Appearance")]
     public SKColor MenuForeColor
     {
-        get => _menuForeColor.IsEmpty() ? ColorScheme.OnSurface : _menuForeColor;
+        get => _menuForeColor.IsEmpty() ? ColorScheme.ForeColor : _menuForeColor;
         set
         {
             if (_menuForeColor == value) return;
@@ -205,7 +205,7 @@ public class MenuStrip : ElementBase
     [Category("Appearance")]
     public SKColor SeparatorColor
     {
-        get => _separatorColor.IsEmpty() ? ColorScheme.OutlineVariant : _separatorColor;
+        get => _separatorColor.IsEmpty() ? ColorScheme.Outline : _separatorColor;
         set
         {
             if (_separatorColor == value) return;
