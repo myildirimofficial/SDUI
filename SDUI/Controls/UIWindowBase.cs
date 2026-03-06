@@ -727,15 +727,11 @@ public partial class UIWindowBase : ElementBase, IDisposable
 
                     // treat title region as caption if derived class wants it
                     bool isCaption = IsCaptionHit(clientPt);
-                    System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] clientPt=({clientPt.X}, {clientPt.Y}), IsCaptionHit={isCaption}");
                     if (isCaption)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] Returning HTCAPTION");
                         return (IntPtr)HTCAPTION;
                     }
 
-                    // fallback to client area for everything else
-                    System.Diagnostics.Debug.WriteLine($"[WM_NCHITTEST] Returning HTCLIENT");
                     return (IntPtr)HTCLIENT;
                 }
             case WindowMessage.WM_NCCALCSIZE:

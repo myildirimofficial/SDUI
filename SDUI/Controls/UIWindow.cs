@@ -829,70 +829,44 @@ public partial class UIWindow : UIWindowBase
         int paddingTop = Padding.Top;
         float titleHeightDpi = _titleBarBottomDPI;
 
-        System.Diagnostics.Debug.WriteLine(
-            $"[IsCaptionHit] clientPt=({clientPt.X}, {clientPt.Y}), ShowTitle={isShowing}, Padding.Top={paddingTop}, TitleHeightDPI={titleHeightDpi}");
-
         // if title not shown, definitely not caption
         if (!isShowing)
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT: ShowTitle is false");
             return false;
-        }
 
         // clientPt.Y >= titleHeightDpi means below the title region, including the
         // hidden maximized frame inset that we reserve visually.
         if (clientPt.Y >= titleHeightDpi)
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (below title): Y={clientPt.Y} >= TitleHeight={titleHeightDpi}");
             return false;
-        }
 
         if (IsPointOverTabHeader(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (tab header): ({clientPt.X}, {clientPt.Y})");
             return false;
-        }
 
         // ignore control button areas
         if (_controlBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (control box): {_controlBoxRect}");
             return false;
-        }
+        
         if (_maximizeBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (maximize box): {_maximizeBoxRect}");
             return false;
-        }
+        
         if (_minimizeBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (minimize box): {_minimizeBoxRect}");
             return false;
-        }
+        
         if (_extendBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (extend box): {_extendBoxRect}");
             return false;
-        }
+        
         if (_tabCloseButton && _closeTabBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (close tab box): {_closeTabBoxRect}");
             return false;
-        }
+        
         if (_newTabButton && _newTabBoxRect.Contains(clientPt))
-        {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (new tab box): {_newTabBoxRect}");
             return false;
-        }
+        
         // if the menu glyph is visible we must exclude its bounds from the
         // caption area, otherwise the user should be able to drag from there.
         if (showMenuInsteadOfIcon && _formMenuRect.Contains(clientPt))
         {
-            System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] REJECT (form menu): {_formMenuRect}");
             return false;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[IsCaptionHit] ACCEPT CAPTION: ({clientPt.X}, {clientPt.Y})");
         return true;
     }
 
