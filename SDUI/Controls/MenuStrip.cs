@@ -40,8 +40,8 @@ public class MenuStrip : ElementBase
     private SKSize _imageScalingSize = new(20, 20);
     private SKPaint? _imgPaint;
     private bool _isAnimating;
-    private float _itemHeight = 24f;
-    private float _itemPadding = 7f; // temel boşluk, ekstra spacing sınırlanacak
+    private float _itemHeight = 28f;
+    private float _itemPadding = 6f;
     private SKColor _menuBackColor = SKColor.Empty;
     private SKColor _menuForeColor = SKColor.Empty;
     private MenuItem _openedItem;
@@ -50,21 +50,21 @@ public class MenuStrip : ElementBase
     private SKColor _separatorBackColor = SKColor.Empty;
     private SKColor _separatorColor = SKColor.Empty;
     private SKColor _separatorForeColor = SKColor.Empty;
-    private float _separatorHeight = 1f;
-    private float _separatorMargin = 4f;
+    private float _separatorMargin = 2f;
     private bool _showCheckMargin = true;
     private bool _showHoverEffect = true;
     private bool _showIcons = true;
     private bool _showImageMargin = false;
     private bool _showSubmenuArrow = true;
-    private bool _stretch = true;
+    private bool _stretch;
     private SKColor _submenuBackColor = SKColor.Empty;
     private SKColor _submenuBorderColor = SKColor.Empty;
     private SKPaint? _textPaint;
 
     public MenuStrip()
     {
-        Height = (int)_itemHeight;
+        Padding = new Thickness(8, 2, 8, 2);
+        UpdateMenuStripHeight();
         BackColor = ColorScheme.Surface;
         ForeColor = ColorScheme.ForeColor;
         InitializeAnimationTimer();
@@ -73,7 +73,7 @@ public class MenuStrip : ElementBase
     [Browsable(false)] public List<MenuItem> Items { get; } = new();
 
     [Category("Behavior")]
-    [DefaultValue(true)]
+    [DefaultValue(false)]
     public bool Stretch
     {
         get => _stretch;
@@ -222,7 +222,7 @@ public class MenuStrip : ElementBase
         {
             if (_itemHeight == value) return;
             _itemHeight = value;
-            Height = (int)value;
+            UpdateMenuStripHeight();
             Invalidate();
         }
     }
@@ -346,6 +346,12 @@ public class MenuStrip : ElementBase
         _defaultSkFontDpi = 0;
     }
 
+    internal override void OnPaddingChanged(EventArgs e)
+    {
+        base.OnPaddingChanged(e);
+        UpdateMenuStripHeight();
+    }
+
     private SKFont GetDefaultSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
@@ -411,6 +417,7 @@ public class MenuStrip : ElementBase
     {
         base.OnPaint(canvas);
         var bounds = ClientRectangle;
+        var contentBounds = GetContentBounds(bounds);
 
         // Flat modern background
         _bgPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -419,7 +426,7 @@ public class MenuStrip : ElementBase
 
         // Subtle bottom border
         _bottomBorderPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
-        _bottomBorderPaint.Color = SeparatorColor.WithAlpha(100);
+        _bottomBorderPaint.Color = SeparatorColor.WithAlpha(72);
         canvas.DrawLine(0, bounds.Height - 1, bounds.Width, bounds.Height - 1, _bottomBorderPaint);
 
         if (Orientation == Orientation.Horizontal)
@@ -441,12 +448,12 @@ public class MenuStrip : ElementBase
         }
         else
         {
-            var y = ItemPadding;
+            var y = contentBounds.Top + ItemPadding;
             for (var i = 0; i < Items.Count; i++)
             {
                 var item = Items[i];
-                var w = bounds.Width - ItemPadding * 2;
-                var r = new SkiaSharp.SKRect(ItemPadding, y, ItemPadding + w, y + ItemHeight);
+                var w = contentBounds.Width - ItemPadding * 2;
+                var r = new SkiaSharp.SKRect(contentBounds.Left + ItemPadding, y, contentBounds.Left + ItemPadding + w, y + ItemHeight);
                 DrawMenuItem(canvas, item, r);
                 y += ItemHeight + ItemPadding;
             }
@@ -466,15 +473,14 @@ public class MenuStrip : ElementBase
             anim.StartNewAnimation(AnimationDirection.Out);
 
         var prog = (float)anim.GetProgress();
-        
         var scale = ScaleFactor;
+        var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
 
         // High-quality hover background with proper anti-aliasing
         if (ShowHoverEffect && hover)
         {
-            var blend = _hoverBackColor;
-            // Reduced opacity for softer look (approx 10% to 25%) - much lighter than before
-            var alpha = (byte)(25 + 40 * prog);
+            var blend = HoverBackColor;
+            var alpha = (byte)(150 * prog);
             _hoverBgPaint ??= new SKPaint
             {
                 IsAntialias = true,
@@ -482,15 +488,18 @@ public class MenuStrip : ElementBase
                 FilterQuality = SKFilterQuality.High
             };
             _hoverBgPaint.Color = blend.WithAlpha(alpha);
-            var rr = new SKRoundRect(bounds, 5 * scale);
+            var hoverBounds = GetHoverBounds(bounds, vertical, scale);
+            var rr = new SKRoundRect(hoverBounds, 7 * scale);
             c.DrawRoundRect(rr, _hoverBgPaint);
         }
 
-        var tx = bounds.Left + 6 * scale;
+        var contentLeftInset = GetPrimaryTextInset(item, vertical);
+        var contentRightInset = GetTrailingTextInset(item, vertical);
+        var tx = bounds.Left + contentLeftInset;
 
         // Checkmark area (left margin for checkbox/radio)
         float checkAreaWidth = 20 * scale;
-        if (item.CheckState != CheckState.Unchecked || item.Icon != null)
+        if (vertical && (item.CheckState != CheckState.Unchecked || item.Icon != null))
         {
             var checkX = bounds.Left + 8 * scale;
             var checkY = bounds.MidY;
@@ -569,14 +578,11 @@ public class MenuStrip : ElementBase
         _textPaint.Color = textColor;
         
         // Reserve space for chevron in vertical mode
-        var drawWidth = bounds.Right - tx;
-        var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
-        if (vertical && ShowSubmenuArrow && item.HasDropDown)
-        {
-            drawWidth -= 35 * scale; // Reserve space for chevron
-        }
-        
-        var drawBounds = SkiaSharp.SKRect.Create(tx, bounds.Top, drawWidth, bounds.Height);
+        var drawBounds = new SkiaSharp.SKRect(
+            tx,
+            bounds.Top,
+            Math.Max(tx, bounds.Right - contentRightInset),
+            bounds.Bottom);
         c.DrawControlText(item.Text, drawBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
 
         // Measure text width for arrow positioning
@@ -598,7 +604,7 @@ public class MenuStrip : ElementBase
             var arrowColor = hover ? textColor : MenuForeColor; // Use active text color on hover
             _arrowPaint.Color = arrowColor.WithAlpha(arrowAlpha);
 
-            var chevronSize = 5f * scale; // Increased from 5 to 6 for better visibility
+            var chevronSize = 5f * scale;
             float arrowX;
             var arrowY = bounds.MidY;
 
@@ -622,7 +628,7 @@ public class MenuStrip : ElementBase
             else
             {
                 // Horizontal: chevron after text
-                arrowX = tx + textBounds.Width + 10 * scale;
+                arrowX = bounds.Right - GetHorizontalArrowEndPadding() - GetHorizontalArrowSlotWidth() / 2f;
 
                 // Down arrow v (filled triangle)
                 _chevronPath.MoveTo(arrowX - chevronSize, arrowY - chevronSize / 2);
@@ -638,36 +644,46 @@ public class MenuStrip : ElementBase
     private List<SkiaSharp.SKRect> ComputeItemRects()
     {
         var rects = new List<SkiaSharp.SKRect>(Items.Count);
-        var b = ClientRectangle;
+        var b = GetContentBounds(ClientRectangle);
 
         if (Orientation == Orientation.Horizontal)
         {
-            var x = ItemPadding + 6 * ScaleFactor;
-            var available = b.Width - ItemPadding * 2 - 12 * ScaleFactor;
+            var x = b.Left + GetHorizontalMenuInset();
+            var gap = GetHorizontalItemGap();
+            var available = Math.Max(0, b.Width - GetHorizontalMenuInset() * 2);
             float total = 0;
             var widths = new float[Items.Count];
+            var visibleCount = 0;
 
             for (var i = 0; i < Items.Count; i++)
             {
+                if (!Items[i].Visible)
+                    continue;
+
                 widths[i] = MeasureItemWidth(Items[i]);
                 total += widths[i];
-                if (i < Items.Count - 1)
-                    total += ItemPadding;
+                visibleCount++;
             }
 
+            if (visibleCount > 1)
+                total += gap * (visibleCount - 1);
+
             float extra = 0;
-            if (Stretch && Items.Count > 1 && total < available)
+            if (Stretch && visibleCount > 1 && total < available)
             {
-                var rawExtra = (available - total) / (Items.Count - 1);
-                var maxExtraPerGap = ItemPadding;
+                var rawExtra = (available - total) / (visibleCount - 1);
+                var maxExtraPerGap = Math.Max(2f * ScaleFactor, gap * 0.5f);
                 extra = Math.Min(rawExtra, maxExtraPerGap);
             }
 
             for (var i = 0; i < Items.Count; i++)
             {
+                if (!Items[i].Visible)
+                    continue;
+
                 var w = widths[i];
-                rects.Add(SKRect.Create(x, 0, w, ItemHeight));
-                x += w + ItemPadding + (i < Items.Count - 1 ? extra : 0);
+                rects.Add(SKRect.Create(x, b.Top, w, ItemHeight));
+                x += w + gap + extra;
             }
         }
         else
@@ -676,9 +692,9 @@ public class MenuStrip : ElementBase
             // ContextMenuStrip'teki satır yerleşimi ile aynı mantığı kullanmalı ki
             // hover alanı ile çizim hizalı olsun.
             var margin = this is ContextMenuStrip ? ContextMenuStrip.ShadowMargin : 0f;
-            var y = margin + ItemPadding;
-            var w = b.Width - margin * 2 - ItemPadding * 2;
-            var x = margin + ItemPadding;
+            var y = margin + _itemPadding;
+            var w = b.Width - margin * 2 - _itemPadding * 2;
+            var x = margin + _itemPadding;
 
             for (var i = 0; i < Items.Count; i++)
             {
@@ -690,14 +706,14 @@ public class MenuStrip : ElementBase
                 if (item.IsSeparator)
                 {
                     // İnce çizgi için küçük bir satır yüksekliği ayırıyoruz.
-                    var sepHeight = SeparatorMargin * 2 + 1;
+                    var sepHeight = _separatorMargin * 2 + 1;
                     rects.Add(SKRect.Create(x, y, w, sepHeight));
-                    y += sepHeight + ItemPadding;
+                    y += sepHeight + _itemPadding;
                     continue;
                 }
 
-                rects.Add(SKRect.Create(x, y, w, ItemHeight));
-                y += ItemHeight + ItemPadding;
+                rects.Add(SKRect.Create(x, y, w, _itemHeight));
+                y += _itemHeight + _itemPadding;
             }
         }
 
@@ -807,6 +823,7 @@ public class MenuStrip : ElementBase
 
         CloseSubmenu();
         EnsureDropDownHost();
+    _activeDropDown.ParentDropDown = this as ContextMenuStrip;
         _activeDropDown.Items.Clear();
 
         foreach (var child in item.DropDownItems)
@@ -954,6 +971,7 @@ public class MenuStrip : ElementBase
     {
         if (_activeDropDown != null) return;
         _activeDropDown = new ContextMenuStrip { AutoClose = true, Dock = DockStyle.None };
+        _activeDropDown.ParentDropDown = this as ContextMenuStrip;
         _activeDropDown.Opening += (_, _) => SyncDropDownAppearance();
         _activeDropDown.Closing += (_, _) =>
         {
@@ -1015,35 +1033,110 @@ public class MenuStrip : ElementBase
         if (item is MenuItemSeparator) return 20f * ScaleFactor;
 
         var font = GetDefaultSkFont();
+        var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
 
         var tb = new SkiaSharp.SKRect();
-        font.MeasureText(item.Text, out tb);
-        var w = tb.Width + 12 * ScaleFactor; // Scaled padding (6 left + 6 right)
+        font.MeasureText(item.Text.Replace("&", string.Empty), out tb);
+        var w = tb.Width + GetPrimaryTextInset(item, vertical) + GetTrailingTextInset(item, vertical);
 
         // Check/Icon area logic matching DrawMenuItem
         // If has check state OR icon, we reserve checkAreaWidth (20)
         // If has icon AND ShowIcons, we reserve iconWidth (IconSize + 6)
-        
-        bool hasCheckArea = item.CheckState != CheckState.Unchecked || item.Icon != null;
+
+        bool hasCheckArea = vertical && (item.CheckState != CheckState.Unchecked || item.Icon != null);
         if (hasCheckArea) w += 20 * ScaleFactor;
 
-        if (ShowIcons && item.Icon != null)
+        if (vertical && ShowIcons && item.Icon != null)
             w += (_iconSize + 6) * ScaleFactor;
-
-        var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
         
-        if (ShowSubmenuArrow && item.HasDropDown)
+        return w;
+    }
+
+    private float GetHorizontalMenuInset()
+    {
+        return Math.Max(4f * ScaleFactor, ItemPadding * 0.5f);
+    }
+
+    private float GetHorizontalItemGap()
+    {
+        return Math.Max(4f * ScaleFactor, ItemPadding);
+    }
+
+    private void UpdateMenuStripHeight()
+    {
+        Height = (int)Math.Ceiling(ItemHeight + Padding.Vertical);
+    }
+
+    private static SkiaSharp.SKRect GetContentBounds(SkiaSharp.SKRect bounds, Thickness padding)
+    {
+        return new SkiaSharp.SKRect(
+            bounds.Left + padding.Left,
+            bounds.Top + padding.Top,
+            Math.Max(bounds.Left + padding.Left, bounds.Right - padding.Right),
+            Math.Max(bounds.Top + padding.Top, bounds.Bottom - padding.Bottom));
+    }
+
+    private SkiaSharp.SKRect GetContentBounds(SkiaSharp.SKRect bounds)
+    {
+        return GetContentBounds(bounds, Padding);
+    }
+
+    private static SkiaSharp.SKRect GetHoverBounds(SkiaSharp.SKRect bounds, bool vertical, float scale)
+    {
+        if (vertical)
+            return bounds;
+
+        var insetX = 1.5f * scale;
+        var insetY = 1f * scale;
+        return new SkiaSharp.SKRect(
+            bounds.Left + insetX,
+            bounds.Top + insetY,
+            bounds.Right - insetX,
+            bounds.Bottom - insetY);
+    }
+
+    private float GetHorizontalArrowReserve()
+    {
+        return GetHorizontalArrowGap() + GetHorizontalArrowSlotWidth() + GetHorizontalArrowEndPadding();
+    }
+
+    private float GetHorizontalArrowGap()
+    {
+        return 2f * ScaleFactor;
+    }
+
+    private float GetHorizontalArrowSlotWidth()
+    {
+        return Math.Max((_submenuArrowSize + 2f) * ScaleFactor, 10f * ScaleFactor);
+    }
+
+    private float GetHorizontalArrowEndPadding()
+    {
+        return 8f * ScaleFactor;
+    }
+
+    private float GetPrimaryTextInset(MenuItem item, bool vertical)
+    {
+        if (vertical)
+            return Math.Max(6f * ScaleFactor, item.Padding.Left * ScaleFactor);
+
+        return Math.Max(10f * ScaleFactor, item.Padding.Left * ScaleFactor + 2f * ScaleFactor);
+    }
+
+    private float GetTrailingTextInset(MenuItem item, bool vertical)
+    {
+        if (vertical)
         {
-            // Reserve space for arrow.
-            // Vertical uses right-aligned arrow logic (reserved space).
-            // Horizontal uses appended arrow logic (text + gap + arrow).
-            if (vertical)
-                w += 30 * ScaleFactor;
-            else
-                w += 4 * ScaleFactor; // Support for horizontal menu arrows
+            var reserve = Math.Max(6f * ScaleFactor, item.Padding.Right * ScaleFactor);
+            if (ShowSubmenuArrow && item.HasDropDown)
+                reserve += 24f * ScaleFactor;
+            return reserve;
         }
 
-        return w;
+        var trailing = Math.Max(10f * ScaleFactor, item.Padding.Right * ScaleFactor + 2f * ScaleFactor);
+        if (ShowSubmenuArrow && item.HasDropDown)
+            trailing += GetHorizontalArrowReserve();
+        return trailing;
     }
 
     protected override void Dispose(bool disposing)

@@ -112,7 +112,8 @@ internal partial class MainWindow
         this.menuStrip = new MenuStrip
         {
             Name = "menuStrip",
-            Dock = DockStyle.Top
+            Dock = DockStyle.Top,
+            ShowSubmenuArrow = false,
         };
 
         // use extension helpers for concise syntax
@@ -126,9 +127,6 @@ internal partial class MainWindow
         {
             Debug.WriteLine("Orivy Example\nA simple demo of the Orivy UI framework.\n\nhttps://github.com/mahmutyildirim/orivy");
         });
-
-        // add the menu strip as a child of the main window so it renders above
-        this.Controls.Add(this.menuStrip);
 
         // --- ExtendMenu: drop-down that appears when the extend button (⋯) in
         // the title bar is clicked. ExtendBox must be true to show the button.
@@ -172,9 +170,12 @@ internal partial class MainWindow
         this.DwmMargin = -1;
         this.Padding = new(10);
         this.EnableMica = true;
+        this.ContextMenuStrip = this.extendMenu;
         this.WindowPageControl = windowPageControl;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
         this.Controls.Add(this.windowPageControl);
+        this.Controls.Add(this.menuStrip);
+        this.menuStrip.BringToFront();
         this.ResumeLayout(false);
     }
 

@@ -91,6 +91,8 @@ public class ContextMenuStrip : MenuStrip
     [Browsable(false)]
     public ElementBase SourceElement { get; private set; }
 
+    internal ContextMenuStrip? ParentDropDown { get; set; }
+
     public event CancelEventHandler Opening;
     public event CancelEventHandler Closing;
 
@@ -180,7 +182,31 @@ public class ContextMenuStrip : MenuStrip
         _ownerWindow?.Invalidate();
         _ownerWindow = null;
         SourceElement = null;
+        ParentDropDown = null;
         IsOpen = false;
+    }
+
+    protected override void OnItemClicked(MenuItem item)
+    {
+        if (item.HasDropDown)
+        {
+            base.OnItemClicked(item);
+            return;
+        }
+
+        item.OnClick();
+        ClosePopupChain();
+    }
+
+    private void ClosePopupChain()
+    {
+        ContextMenuStrip? current = this;
+        while (current != null)
+        {
+            var parent = current.ParentDropDown;
+            current.Hide();
+            current = parent;
+        }
     }
 
     private void PositionDropDown(SKPoint screenLocation)
@@ -490,7 +516,7 @@ public class ContextMenuStrip : MenuStrip
             if (hoverProgress > 0.001f || isHovered)
             {
                 // Soft hover logic identical to MenuStrip
-                var hoverAlpha = (byte)(25 + 40 * hoverProgress);
+                var hoverAlpha = (byte)(150 * hoverProgress);
                 _hoverPaint!.Color = HoverBackColor.WithAlpha((byte)(fadeAlpha * hoverAlpha / 255f));
                 canvas.DrawRoundRect(itemRect, 7 * scale, 7 * scale, _hoverPaint);
             }

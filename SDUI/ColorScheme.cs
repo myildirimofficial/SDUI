@@ -44,7 +44,7 @@ public static class ColorScheme
 
     public static SKColor Surface => CurrentBackground;
     public static SKColor BackColor => CurrentBackground;
-    public static SKColor ForeColor => _isDark ? White : Black;
+    public static SKColor ForeColor => Surface.Determine();
 
     public static SKColor SurfaceVariant => SurfaceAdjust(Surface, .10);
     public static SKColor SurfaceContainer => SurfaceAdjust(Surface, .08);
@@ -56,7 +56,6 @@ public static class ColorScheme
     private static SKColor _primary = new(33,150,243);
 
     public static SKColor Primary => _primary;
-    public static SKColor OnPrimary => White;
 
     public static SKColor Outline => SurfaceAdjust(Surface, .22);
     public static SKColor BorderColor => Outline;

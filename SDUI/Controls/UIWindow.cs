@@ -1692,7 +1692,7 @@ public partial class UIWindow : UIWindowBase
             // Maximize simgesi
             var centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
             var centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
-            var size = (WindowState != FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
+            var size = (WindowState == FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
 
             float offset = size * 0.5f;
             float cornerRadius = 2.0f * ScaleFactor;
@@ -1715,7 +1715,7 @@ public partial class UIWindow : UIWindowBase
                 centerY + size
             );
 
-            if (WindowState != FormWindowState.Maximized)
+            if (WindowState == FormWindowState.Maximized)
             {
                 var backRect = new SKRect(
                     frontRect.Left + offset,
@@ -1731,9 +1731,7 @@ public partial class UIWindow : UIWindowBase
                 SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (strokeWidth / 2f));
 
                 canvas.ClipRoundRect(clipRoundRect, SKClipOperation.Difference, true);
-
                 canvas.DrawRoundRect(backRect, cornerRadius, cornerRadius, strokePaint);
-
                 canvas.Restore();
             }
 
