@@ -65,7 +65,7 @@ internal partial class MainWindow
             Text = "Software",
             BackColor = SKColors.Green,
             Size = new(100, 32),
-            Dock = SDUI.DockStyle.Bottom,
+            Dock = SDUI.DockStyle.Left,
             Radius = new(4),
             Border = new(1)
         };
@@ -78,7 +78,7 @@ internal partial class MainWindow
             Text = "DirectX",
             BackColor = SKColors.Green,
             Size = new(100, 32),
-            Dock = SDUI.DockStyle.Bottom,
+            Dock = SDUI.DockStyle.Right,
             Radius = new(4),
             Border = new(1),
             Shadows = new[] {

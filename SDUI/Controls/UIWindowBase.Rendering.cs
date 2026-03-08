@@ -89,6 +89,7 @@ public partial class UIWindowBase
             _perfLastTimestamp = 0;
             _perfSmoothedFrameMs = 0;
             _backendSwitchPaintTraceFrames = 4;
+            ReleaseRetainedRenderResources();
             RecreateRenderer();
             ApplyRenderStyles();
             InvalidateWindow();
@@ -227,6 +228,14 @@ public partial class UIWindowBase
         _cacheBitmap = null;
     }
 
+    private void ReleaseRetainedRenderResources()
+    {
+        DisposeSoftwareBackBuffer();
+        DisposeCachedDIB();
+        _perfOverlayPaint?.Dispose();
+        _perfOverlayPaint = null;
+    }
+
     private void RecreateRenderer()
     {
         if (!IsHandleCreated)
@@ -243,6 +252,7 @@ public partial class UIWindowBase
             _cachedGrContextIsValid = false;  // Invalidate GRContext cache on renderer change
         }
         DisposeRendererSafely(oldRenderer);
+        ReleaseRetainedRenderResources();
 
         if (_renderBackend == RenderBackend.Software)
         {

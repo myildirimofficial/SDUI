@@ -1451,7 +1451,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     // Cached buffer for child rendering — avoids per-frame allocations
     private readonly List<ElementBase> _childRenderBuffer = new();
 
-    private ElementBase? FindTopmostInputTarget(SKPoint originalPoint, SKPoint adjustedPoint, float scale, out SKPoint hitPoint)
+    protected ElementBase? FindTopmostInputTarget(SKPoint originalPoint, SKPoint adjustedPoint, float scale, out SKPoint hitPoint)
     {
         hitPoint = originalPoint;
 
@@ -1460,7 +1460,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         for (var i = 0; i < Controls.Count; i++)
         {
-            if (Controls[i] is not ElementBase control || !control.Visible || !control.Enabled)
+            if (Controls[i] is not ElementBase control)
+                continue;
+
+            if (!ShouldIncludeHitTestElement(control, requireEnabled: true))
                 continue;
 
             var candidatePoint = (UseAutoScrollTranslation && AutoScroll && !IsScrollBar(control))
@@ -1486,6 +1489,192 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
 
         return target;
+    }
+
+    protected bool TryGetInputTarget(MouseEventArgs e, out ElementBase? target, out MouseEventArgs? childEventArgs)
+    {
+        var scrollOffset = GetScrollOffset();
+        var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
+        var scale = ChildRenderScale;
+
+        target = FindTopmostInputTarget(e.Location, adjusted, scale, out var hitPoint);
+        if (target == null)
+        {
+            childEventArgs = null;
+            return false;
+        }
+
+        childEventArgs = new MouseEventArgs(
+            e.Button,
+            e.Clicks,
+            (int)(hitPoint.X - target.Location.X),
+            (int)(hitPoint.Y - target.Location.Y),
+            e.Delta);
+        return true;
+    }
+
+    protected ElementBase? FindHitTestElement(SKPoint location, bool requireEnabled)
+    {
+        var hitTestElements = BuildHitTestList(requireEnabled);
+        for (var i = 0; i < hitTestElements.Count; i++)
+        {
+            var element = hitTestElements[i];
+            if (GetWindowRelativeBounds(element).Contains(location))
+                return element;
+        }
+
+        return null;
+    }
+
+    protected static MouseEventArgs CreateChildMouseEvent(MouseEventArgs source, ElementBase element)
+    {
+        var elementWindowRect = GetWindowRelativeBounds(element);
+        return new MouseEventArgs(
+            source.Button,
+            source.Clicks,
+            source.X - (int)elementWindowRect.Location.X,
+            source.Y - (int)elementWindowRect.Location.Y,
+            source.Delta);
+    }
+
+    protected static SKRect GetWindowRelativeBounds(ElementBase element)
+    {
+        if (element.Parent == null)
+            return SKRect.Create(element.Location, element.Size);
+
+        if (element.Parent is UIWindowBase window && !window.IsDisposed)
+        {
+            var screenLoc = element.PointToScreen(SKPoint.Empty);
+            var clientLoc = window.PointToClient(screenLoc);
+            return SKRect.Create(clientLoc, element.Size);
+        }
+
+        if (element.Parent is ElementBase parentElement)
+        {
+            var screenLoc = element.PointToScreen(SKPoint.Empty);
+            UIWindowBase? parentWindow = null;
+            var current = parentElement;
+
+            while (current != null && parentWindow == null)
+            {
+                if (current.Parent is UIWindowBase windowParent)
+                {
+                    parentWindow = windowParent;
+                    break;
+                }
+
+                current = current.Parent;
+            }
+
+            if (parentWindow != null)
+            {
+                var clientLoc = parentWindow.PointToClient(screenLoc);
+                return SKRect.Create(clientLoc, element.Size);
+            }
+        }
+
+        return SKRect.Create(element.Location, element.Size);
+    }
+
+    protected static bool HasContextMenuInChain(ElementBase? start)
+    {
+        var current = start;
+        while (current != null)
+        {
+            if (current.ContextMenuStrip != null)
+                return true;
+
+            current = current.Parent;
+        }
+
+        return false;
+    }
+
+    protected static bool PropagateMouseWheel(ElementCollection elements, SKPoint windowMousePos, MouseEventArgs e)
+    {
+        ElementBase? topmostElement = null;
+        var topmostZOrder = int.MinValue;
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            if (elements[i] is not ElementBase element || !element.Visible || !element.Enabled)
+                continue;
+
+            var elementBounds = GetWindowRelativeBounds(element);
+            if (!elementBounds.Contains(windowMousePos))
+                continue;
+
+            if (topmostElement == null || element.ZOrder > topmostZOrder)
+            {
+                topmostElement = element;
+                topmostZOrder = element.ZOrder;
+            }
+        }
+
+        if (topmostElement == null)
+            return false;
+
+        if (topmostElement.Controls.Count > 0 && PropagateMouseWheel(topmostElement.Controls, windowMousePos, e))
+            return true;
+
+        var topmostBounds = GetWindowRelativeBounds(topmostElement);
+        var localEvent = new MouseEventArgs(
+            e.Button,
+            e.Clicks,
+            (int)windowMousePos.X - (int)topmostBounds.Left,
+            (int)windowMousePos.Y - (int)topmostBounds.Top,
+            e.Delta);
+
+        topmostElement.OnMouseWheel(localEvent);
+        return true;
+    }
+
+    protected virtual bool ShouldIncludeHitTestElement(ElementBase element, bool requireEnabled)
+    {
+        if (!element.Visible)
+            return false;
+
+        return !requireEnabled || element.Enabled;
+    }
+
+    private readonly List<ElementBase> _hitTestElements = new();
+    private readonly List<ZOrderSortItem> _zOrderSortBuffer = new();
+
+    protected IReadOnlyList<ElementBase> BuildHitTestList(bool requireEnabled)
+    {
+        _hitTestElements.Clear();
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is not ElementBase element)
+                continue;
+
+            if (!ShouldIncludeHitTestElement(element, requireEnabled))
+                continue;
+
+            _hitTestElements.Add(element);
+        }
+
+        StableSortByZOrderDescending(_hitTestElements);
+        return _hitTestElements;
+    }
+
+    private void StableSortByZOrderDescending(List<ElementBase> list)
+    {
+        _zOrderSortBuffer.Clear();
+        for (var i = 0; i < list.Count; i++)
+        {
+            var element = list[i];
+            _zOrderSortBuffer.Add(new ZOrderSortItem(element, element.ZOrder, i));
+        }
+
+        _zOrderSortBuffer.Sort(static (a, b) =>
+        {
+            var cmp = b.ZOrder.CompareTo(a.ZOrder);
+            return cmp != 0 ? cmp : a.Sequence.CompareTo(b.Sequence);
+        });
+
+        for (var i = 0; i < list.Count; i++)
+            list[i] = _zOrderSortBuffer[i].Element;
     }
 
     protected void RenderChildren(SKCanvas canvas)
@@ -2784,6 +2973,20 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     {
         if (IsDisposed)
             throw new ObjectDisposedException(GetType().Name);
+    }
+
+    private readonly struct ZOrderSortItem
+    {
+        public readonly ElementBase Element;
+        public readonly int ZOrder;
+        public readonly int Sequence;
+
+        public ZOrderSortItem(ElementBase element, int zOrder, int sequence)
+        {
+            Element = element;
+            ZOrder = zOrder;
+            Sequence = sequence;
+        }
     }
 
     #endregion

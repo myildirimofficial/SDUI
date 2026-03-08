@@ -577,6 +577,10 @@ internal partial class DefaultLayout : LayoutEngine
  
     private static SKSize xGetDockedSize(IArrangedElement element, SKSize constraints)
     {
+        constraints = new SKSize(
+            Math.Max(0, constraints.Width),
+            Math.Max(0, constraints.Height));
+
         SKSize desiredSize;
         if (CommonProperties.GetAutoSize(element))
         {
@@ -588,6 +592,14 @@ internal partial class DefaultLayout : LayoutEngine
         else
         {
             desiredSize = element.Bounds.Size;
+        }
+
+        if (desiredSize.Width < 0 || desiredSize.Height < 0)
+        {
+            Debug.WriteLine($"[DefaultLayout] Clamping negative dock size for '{element}': {desiredSize} with constraints {constraints}.");
+            desiredSize = new SKSize(
+                Math.Max(0, desiredSize.Width),
+                Math.Max(0, desiredSize.Height));
         }
  
         Debug.Assert(desiredSize.Width >= 0 && desiredSize.Height >= 0, "Error detected in xGetDockSize: Element size was negative.");

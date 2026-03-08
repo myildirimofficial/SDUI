@@ -37,8 +37,6 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
     private nint _hwnd;
     private ID3D11Texture2D? _presentBackBuffer;
     private IDXGISwapChain1? _swapChain;
-
-    private bool _useCpuUploadPath;
     private bool _useSkiaGpu;
 
     private int _width;
@@ -104,7 +102,6 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
 
     public void TrimCaches()
     {
-        // Only purge GPU resources; do not dispose CPU/GDI resources here to avoid invalid state.
         try
         {
             if (GrContext == null)
@@ -135,24 +132,9 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         _width = width;
         _height = height;
 
-        _grSurface?.Dispose();
-        _grSurface = null;
-        _grRenderTarget?.Dispose();
-        _grRenderTarget = null;
-        _backBuffer?.Dispose();
-        _backBuffer = null;
-
-        _presentBackBuffer?.Dispose();
-        _presentBackBuffer = null;
-        _cpuUploadTexture?.Dispose();
-        _cpuUploadTexture = null;
-        _cpuUploadWidth = 0;
-        _cpuUploadHeight = 0;
-
-        _cacheSurface?.Dispose();
-        _cacheSurface = null;
-        _cacheBitmap?.Dispose();
-        _cacheBitmap = null;
+        ReleaseGpuResources();
+        ReleaseCpuUploadResources();
+        DisposeCpuCacheResources();
 
         // If GPU init was attempted and later disabled, we may still have a flip-model swapchain.
         // Ensure we have a swapchain and CPU cache resources for the CPU upload path.
@@ -177,13 +159,6 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         if (_useSkiaGpu && GrContext != null)
         {
             TryCreateSkiaBackBufferSurface(width, height);
-            return;
-        }
-
-        // Prefer the D3D upload path; if we already switched to upload mode, ensure CPU cache resources.
-        if (_useCpuUploadPath)
-        {
-            CreateCpuCacheResources(width, height);
             return;
         }
 
@@ -272,29 +247,13 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
 
     public void Dispose()
     {
-        _grSurface?.Dispose();
-        _grSurface = null;
-
-        _grRenderTarget?.Dispose();
-        _grRenderTarget = null;
-
-        _backBuffer?.Dispose();
-        _backBuffer = null;
-
-        _presentBackBuffer?.Dispose();
-        _presentBackBuffer = null;
-
-        _cpuUploadTexture?.Dispose();
-        _cpuUploadTexture = null;
+        ReleaseGpuResources();
+        ReleaseCpuUploadResources();
 
         GrContext?.Dispose();
         GrContext = null;
 
-        _cacheSurface?.Dispose();
-        _cacheSurface = null;
-
-        _cacheBitmap?.Dispose();
-        _cacheBitmap = null;
+        DisposeCpuCacheResources();
 
         _swapChain?.Dispose();
         _swapChain = null;
@@ -306,6 +265,30 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
         _device = null;
 
         _hwnd = 0;
+    }
+
+    private void ReleaseGpuResources()
+    {
+        _grSurface?.Dispose();
+        _grSurface = null;
+
+        _grRenderTarget?.Dispose();
+        _grRenderTarget = null;
+
+        _backBuffer?.Dispose();
+        _backBuffer = null;
+    }
+
+    private void ReleaseCpuUploadResources()
+    {
+        _presentBackBuffer?.Dispose();
+        _presentBackBuffer = null;
+
+        _cpuUploadTexture?.Dispose();
+        _cpuUploadTexture = null;
+
+        _cpuUploadWidth = 0;
+        _cpuUploadHeight = 0;
     }
 
     private IDXGISwapChain1 CreateSwapChainForHwnd(int width, int height, bool gdiCompatible)
@@ -735,12 +718,7 @@ internal sealed class DirectX11WindowRenderer : IWindowRenderer, IGpuWindowRende
             // If anything fails, fall back to the CPU upload path for this session.
             LastInitError = $"Skia D3D backbuffer init failed: {ex.Message}";
             _useSkiaGpu = false;
-            _grSurface?.Dispose();
-            _grSurface = null;
-            _grRenderTarget?.Dispose();
-            _grRenderTarget = null;
-            _backBuffer?.Dispose();
-            _backBuffer = null;
+            ReleaseGpuResources();
 
             // Ensure we have a swapchain suitable for CPU upload/present.
             if (EnsureCpuSwapChain(width, height))

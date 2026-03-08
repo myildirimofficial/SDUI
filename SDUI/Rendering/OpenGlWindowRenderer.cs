@@ -69,10 +69,7 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
         _width = width;
         _height = height;
 
-        _surface?.Dispose();
-        _surface = null;
-        _renderTarget?.Dispose();
-        _renderTarget = null;
+        ReleaseSurfaceResources();
 
         if (GrContext == null)
             return;
@@ -121,22 +118,18 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
     {
         try
         {
-            // GrContext.PurgeResources() must be called on the OpenGL thread
-            // If context is not current, skip purge to avoid crashes
+            // GrContext.PurgeResources() must be called on the OpenGL thread.
+            // If the context is not current, skip purge to avoid destabilizing render state.
             if (GrContext != null && _hglrc != 0)
             {
-                // Make sure our context is current before purging
                 if (wglGetCurrentContext() == _hglrc)
                 {
                     GrContext.PurgeResources();
                 }
-                // If not current, skip purge (will happen on next render)
             }
         }
         catch (AccessViolationException)
         {
-            // GPU context may have been disposed or invalidated
-            // Dispose our reference to prevent further crashes
             GrContext?.Dispose();
             GrContext = null;
         }
@@ -148,11 +141,7 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
 
     public void Dispose()
     {
-        _surface?.Dispose();
-        _surface = null;
-
-        _renderTarget?.Dispose();
-        _renderTarget = null;
+        ReleaseSurfaceResources();
 
         GrContext?.Dispose();
         GrContext = null;
@@ -174,6 +163,15 @@ internal sealed class OpenGlWindowRenderer : IWindowRenderer, IGpuWindowRenderer
         }
 
         _hwnd = 0;
+    }
+
+    private void ReleaseSurfaceResources()
+    {
+        _surface?.Dispose();
+        _surface = null;
+
+        _renderTarget?.Dispose();
+        _renderTarget = null;
     }
 
     private static void TryEnableVSync()

@@ -1,14 +1,16 @@
-﻿using SDUI.Helpers;
+﻿using SDUI.Collections;
+using SDUI.Helpers;
 using SDUI.Native.Windows;
 using SkiaSharp;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
 
-public partial class UIWindowBase : ElementBase, IDisposable
+public partial class UIWindowBase : ElementBase
 {
     private const uint WM_APP_THEMECHANGED = 0x8000 + 0x250;
     private const uint WM_APP_IDLEMAINTENANCE = 0x8000 + 0x251;
@@ -104,22 +106,6 @@ public partial class UIWindowBase : ElementBase, IDisposable
         }
     }
 
-    private FormBorderStyle _formBorderStyle = FormBorderStyle.None;
-    // FormBorderStyle public removed - always use borderless (WS_POPUP)
-
-    /// <summary>
-    /// Gets the native Windows styles. Uses WS_OVERLAPPEDWINDOW for proper Windows animations
-    /// (minimize/maximize/restore). The native caption bar is hidden via WM_NCCALCSIZE.
-    /// </summary>
-    private static (uint style, uint exStyle) GetWindowStylesForBorderStyle(FormBorderStyle borderStyle)
-    {
-        // Window is created hidden; visibility is controlled explicitly via Show()/ShowDialog().
-        // This prevents WM_SHOWWINDOW/OnShown from firing before InitializeComponent completes.
-        uint style = (uint)WindowStyles.WS_OVERLAPPEDWINDOW;
-        uint exStyle = 0;
-        return (style, exStyle);
-    }
-
     private FormStartPosition _formStartPosition = FormStartPosition.WindowsDefaultLocation;
     public FormStartPosition FormStartPosition
     {
@@ -144,19 +130,6 @@ public partial class UIWindowBase : ElementBase, IDisposable
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Represents the current state of the window, such as normal, minimized, or maximized.
-    /// </summary>
-    /// <summary>
-    /// Virtual method that returns the height (in pixels) to reserve at the top of the window
-    /// for custom rendering (e.g., custom title bar). Override in derived classes.
-    /// </summary>
-    /// <returns>Height in pixels to reserve at top (0 for standard windows)</returns>
-    protected virtual int GetCustomTitleBarHeight()
-    {
-        return 0;  // Base Windows has no custom title bar
     }
 
     private FormWindowState _windowState = FormWindowState.Normal;
@@ -293,10 +266,10 @@ public partial class UIWindowBase : ElementBase, IDisposable
             cp.Width = Width > 0 ? Width : 800;  // Default width if not set
             cp.Height = Height > 0 ? Height : 600; // Default height if not set
 
-            // Get native styles based on FormBorderStyle
-            var (style, exStyle) = GetWindowStylesForBorderStyle(_formBorderStyle);
-            cp.Style = (int)style;
-            cp.ExStyle = exStyle;
+            // Window is created hidden; visibility is controlled explicitly via Show()/ShowDialog().
+            // This prevents WM_SHOWWINDOW/OnShown from firing before InitializeComponent completes.
+            cp.Style = (int)WindowStyles.WS_OVERLAPPEDWINDOW;
+            cp.ExStyle = 0;
 
             // Class styles
             if (!_aeroEnabled)
@@ -1331,7 +1304,7 @@ public partial class UIWindowBase : ElementBase, IDisposable
         }
 
         DisposeRendererSafely(rendererToDispose);
-        DisposeCachedDIB();
+        ReleaseRetainedRenderResources();
     }
 
     /// <summary>
@@ -1417,4 +1390,5 @@ public partial class UIWindowBase : ElementBase, IDisposable
             _disposed = true;
         }
     }
+
 }

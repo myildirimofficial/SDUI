@@ -29,10 +29,8 @@ public partial class UIWindow : UIWindowBase
 
     private const float HOVER_ANIMATION_SPEED = 0.1f;
     // Hot-path caches (avoid per-frame LINQ allocations)
-    private readonly List<ElementBase> _hitTestElements = new();
     private readonly Dictionary<string, SKPaint> _paintCache = new();
     private readonly Dictionary<string, SKFont> _fontCache = new();
-    private readonly List<ZOrderSortItem> _zOrderSortBuffer = new();
     // scratch buffer used by UpdateTabRects
     private readonly List<float> _tabWidthBuffer = new();
     // reusable temporary path for rounded rectangles
@@ -555,8 +553,6 @@ public partial class UIWindow : UIWindowBase
         set => _stickyBorderTime = value * 10000;
     }
 
-    public new ContextMenuStrip ContextMenuStrip { get; set; }
-
     public SKSize CanvasSize =>
         _cacheBitmap == null ? SKSize.Empty : new SKSize(_cacheBitmap.Width, _cacheBitmap.Height);
 
@@ -662,9 +658,6 @@ public partial class UIWindow : UIWindowBase
     // Helper to toggle hover animations consistently
     private static void SetHoverState(AnimationManager manager, bool enter)
     {
-        if (manager == null)
-            return;
-
         manager.StartNewAnimation(enter ? AnimationDirection.In : AnimationDirection.Out);
     }
 
@@ -678,43 +671,12 @@ public partial class UIWindow : UIWindowBase
         }
     }
 
-
-    private void StableSortByZOrderDescending(List<ElementBase> list)
-    {
-        _zOrderSortBuffer.Clear();
-        for (var i = 0; i < list.Count; i++)
-        {
-            var element = list[i];
-            _zOrderSortBuffer.Add(new ZOrderSortItem(element, element.ZOrder, i));
-        }
-
-        _zOrderSortBuffer.Sort(static (a, b) =>
-        {
-            var cmp = b.ZOrder.CompareTo(a.ZOrder);
-            return cmp != 0 ? cmp : a.Sequence.CompareTo(b.Sequence);
-        });
-
-        for (var i = 0; i < list.Count; i++)
-            list[i] = _zOrderSortBuffer[i].Element;
-    }
-
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
         EnsureInitialLayoutAndDpiSync();
         // Ensure caption hit test state is correct from the start
         CalcSystemBoxPos();
-    }
-
-    /// <summary>
-    /// Returns the height of the custom title bar that should be reserved when window is maximized.
-    /// </summary>
-    protected override int GetCustomTitleBarHeight()
-    {
-        if (!ShowTitle)
-            return 0;
-
-        return (int)MathF.Ceiling(_titleBarBottomDPI);
     }
 
     private void EnsureInitialLayoutAndDpiSync()
@@ -760,56 +722,6 @@ public partial class UIWindow : UIWindowBase
         Invalidate();
     }
 
-    private static MouseEventArgs CreateChildMouseEvent(MouseEventArgs source, ElementBase element)
-    {
-        var elementWindowRect = GetWindowRelativeBoundsStatic(element);
-        return new MouseEventArgs(
-            source.Button,
-            source.Clicks,
-            source.X - (int)elementWindowRect.Location.X,
-            source.Y - (int)elementWindowRect.Location.Y,
-            source.Delta);
-    }
-
-    private static SkiaSharp.SKRect GetWindowRelativeBoundsStatic(ElementBase element)
-    {
-        if (element?.Parent == null)
-            return SKRect.Create(element?.Location ?? SKPoint.Empty, element?.Size ?? SKSize.Empty);
-
-        if (element.Parent is UIWindowBase window && !window.IsDisposed)
-        {
-            var screenLoc = element.PointToScreen(SKPoint.Empty);
-            var clientLoc = window.PointToClient(screenLoc);
-            return SKRect.Create(clientLoc, element.Size);
-        }
-
-        if (element.Parent is ElementBase parentElement)
-        {
-            var screenLoc = element.PointToScreen(SKPoint.Empty);
-            // Pencereyi zincirden bul
-            UIWindowBase parentWindow = null;
-            var current = parentElement;
-            while (current != null && parentWindow == null)
-            {
-                if (current.Parent is UIWindowBase w)
-                {
-                    parentWindow = w;
-                    break;
-                }
-
-                current = current.Parent as ElementBase;
-            }
-
-            if (parentWindow != null)
-            {
-                var clientLoc = parentWindow.PointToClient(screenLoc);
-                return SKRect.Create(clientLoc, element.Size);
-            }
-        }
-
-        return SKRect.Create(element.Location, element.Size);
-    }
-
     internal override void OnControlAdded(ElementEventArgs e)
     {
         base.OnControlAdded(e);
@@ -824,18 +736,13 @@ public partial class UIWindow : UIWindowBase
 
     protected override bool IsCaptionHit(SKPoint clientPt)
     {
-        // Debug: log entry point
-        bool isShowing = ShowTitle;
-        int paddingTop = Padding.Top;
-        float titleHeightDpi = _titleBarBottomDPI;
-
         // if title not shown, definitely not caption
-        if (!isShowing)
+        if (!ShowTitle)
             return false;
 
         // clientPt.Y >= titleHeightDpi means below the title region, including the
         // hidden maximized frame inset that we reserve visually.
-        if (clientPt.Y >= titleHeightDpi)
+        if (clientPt.Y >= _titleBarBottomDPI)
             return false;
 
         if (IsPointOverTabHeader(clientPt))
@@ -958,41 +865,21 @@ public partial class UIWindow : UIWindowBase
         return TryGetTabIndexAtPoint(point, out _);
     }
 
-    private void BuildHitTestList(bool requireEnabled)
+    protected override bool ShouldIncludeHitTestElement(ElementBase element, bool requireEnabled)
     {
-        _hitTestElements.Clear();
-        for (var i = 0; i < Controls.Count; i++)
-        {
-            if (Controls[i] is not ElementBase element)
-                continue;
-            if (!element.Visible)
-                continue;
-            if (requireEnabled && !element.Enabled)
-                continue;
-            if (ShowTitle && !AllowAddControlOnTitle && element.Location.Y < _titleBarBottomDPI)
-                continue;
-            _hitTestElements.Add(element);
-        }
+        if (!base.ShouldIncludeHitTestElement(element, requireEnabled))
+            return false;
 
-        // Stable ordering prevents subtle behavior changes when ZOrder ties exist.
-        StableSortByZOrderDescending(_hitTestElements);
+        // Floating popups must remain hit-testable even when they overlap the custom title area.
+        if (element is ContextMenuStrip contextMenu && contextMenu.IsOpen)
+            return true;
+
+        return !ShowTitle || AllowAddControlOnTitle || element.Location.Y >= _titleBarBottomDPI;
     }
 
     protected internal override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-
-        BuildHitTestList(true);
-        for (var i = 0; i < _hitTestElements.Count; i++)
-        {
-            var element = _hitTestElements[i];
-            if (!GetWindowRelativeBoundsStatic(element).Contains(e.Location))
-                continue;
-
-            var localEvent = CreateChildMouseEvent(e, element);
-            element.OnMouseClick(localEvent);
-            break;
-        }
 
         if (!ShowTitle)
             return;
@@ -1069,8 +956,6 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseDown(MouseEventArgs e)
     {
-        base.OnMouseDown(e);
-
         // Make sure this Form receives keyboard input.
         if (CanFocus)
             Focus();
@@ -1107,53 +992,12 @@ public partial class UIWindow : UIWindowBase
             return;
         }
 
-        var elementClicked = false;
-        // Z-order'a göre tersten kontrol et (üstteki elementten başla)
-        BuildHitTestList(true);
-        for (var i = 0; i < _hitTestElements.Count; i++)
+        base.OnMouseDown(e);
+
+        var element = FindHitTestElement(e.Location, requireEnabled: true);
+        if (element != null)
         {
-            var element = _hitTestElements[i];
-            if (!GetWindowRelativeBoundsStatic(element).Contains(e.Location))
-                continue;
-
-            elementClicked = true;
-
-            // If the element (or its descendants) doesn't set focus, fall back to focusing this element.
-            var prevFocus = FocusedElement;
-
-            var localEvent = CreateChildMouseEvent(e, element);
-            element.OnMouseDown(localEvent);
-
-            if (FocusedElement == prevFocus)
-            {
-                static bool IsDescendantOf(ElementBase? maybeChild, ElementBase ancestor)
-                {
-                    var current = maybeChild;
-                    while (current != null)
-                    {
-                        if (ReferenceEquals(current, ancestor))
-                            return true;
-                        current = current.Parent as ElementBase;
-                    }
-
-                    return false;
-                }
-
-                // If focus stayed on an existing descendant (common when clicking inside an already-focused TextBox),
-                // don't steal focus back to the container.
-                if (prevFocus == null || !IsDescendantOf(prevFocus, element))
-                    FocusedElement = element;
-            }
-
-            // Tıklanan elementi en üste getir
             BringToFront(element);
-            break; // İlk tıklanan elementten sonra diğerlerini kontrol etmeye gerek yok
-        }
-
-        if (!elementClicked)
-        {
-            FocusManager.SetFocus(null);
-            FocusedElement = null;
         }
 
         // NOTE: Window context menus should open on MouseUp (standard behavior).
@@ -1163,8 +1007,6 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseDoubleClick(MouseEventArgs e)
     {
-        base.OnMouseDoubleClick(e);
-
         // Title bar maximize gesture has priority — check before child hit-testing.
         var inTitleAreaDbl = ShowTitle && MaximizeBox && e.Y < Padding.Top;
         if (inTitleAreaDbl)
@@ -1185,26 +1027,11 @@ public partial class UIWindow : UIWindowBase
             }
         }
 
-        var elementClicked = false;
-        BuildHitTestList(true);
-        for (var i = 0; i < _hitTestElements.Count; i++)
+        base.OnMouseDoubleClick(e);
+
+        if (FindHitTestElement(e.Location, requireEnabled: true) is { } element)
         {
-            var element = _hitTestElements[i];
-            if (!GetWindowRelativeBoundsStatic(element).Contains(e.Location))
-                continue;
-
-            elementClicked = true;
-
-            var localEvent = CreateChildMouseEvent(e, element);
-            element.OnMouseDoubleClick(localEvent);
             BringToFront(element);
-            break;
-        }
-
-        if (!elementClicked)
-        {
-            FocusManager.SetFocus(null);
-            FocusedElement = null;
         }
     }
 
@@ -1217,7 +1044,7 @@ public partial class UIWindow : UIWindowBase
         if (_mouseCapturedElement != null)
         {
             var captured = _mouseCapturedElement;
-            var bounds = GetWindowRelativeBoundsStatic(captured);
+            var bounds = GetWindowRelativeBounds(captured);
             var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
             captured.OnMouseUp(localEvent);
             if (e.Button == MouseButtons.Left) ReleaseMouseCapture(captured);
@@ -1257,38 +1084,11 @@ public partial class UIWindow : UIWindowBase
 
         animationSource = e.Location;
 
-        // Z-order'a g�re tersten kontrol et
-        var elementClicked = false;
-        ElementBase? hitElement = null;
-        BuildHitTestList(true);
-        for (var i = 0; i < _hitTestElements.Count; i++)
-        {
-            var element = _hitTestElements[i];
-            if (!GetWindowRelativeBoundsStatic(element).Contains(e.Location))
-                continue;
-
-            elementClicked = true;
-            hitElement = element;
-            var localEvent = CreateChildMouseEvent(e, element);
-            element.OnMouseUp(localEvent);
-            break;
-        }
+        var hitElement = FindHitTestElement(e.Location, requireEnabled: true);
+        var elementClicked = hitElement != null;
 
         if (e.Button == MouseButtons.Right && ContextMenuStrip != null)
         {
-            static bool HasContextMenuInChain(ElementBase? start)
-            {
-                var current = start;
-                while (current != null)
-                {
-                    if (current.ContextMenuStrip != null)
-                        return true;
-                    current = current.Parent as ElementBase;
-                }
-
-                return false;
-            }
-
             // If nothing was hit, show the window menu.
             // If an element was hit but no element/parent has a menu, fall back to the window menu.
             // Exception: TextBox can show a native menu fallback; don't show window menu on top.
@@ -1341,7 +1141,7 @@ public partial class UIWindow : UIWindowBase
             // Forward all mouse move events to the captured element so dragging
             // continues even when the cursor leaves its bounds.
             var captured = _mouseCapturedElement;
-            var bounds = GetWindowRelativeBoundsStatic(captured);
+            var bounds = GetWindowRelativeBounds(captured);
             var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
             captured.OnMouseMove(localEvent);
             return;
@@ -1467,18 +1267,6 @@ public partial class UIWindow : UIWindowBase
     internal override void OnMouseEnter(EventArgs e)
     {
         base.OnMouseEnter(e);
-
-        BuildHitTestList(true);
-        for (var i = 0; i < _hitTestElements.Count; i++)
-        {
-            var element = _hitTestElements[i];
-            var mousePos = PointToClient(MousePosition);
-            if (GetWindowRelativeBoundsStatic(element).Contains(mousePos))
-            {
-                element.OnMouseEnter(e);
-                break;
-            }
-        }
     }
 
     internal override void OnMouseWheel(MouseEventArgs e)
@@ -1491,54 +1279,6 @@ public partial class UIWindow : UIWindowBase
         // Recursive olarak do�ru child'� bul ve wheel olay�n� ilet
         if (PropagateMouseWheel(Controls, mousePos, e))
             return; // Event i�lendi
-    }
-
-    /// <summary>
-    ///     Recursive olarak child elementlere mouse wheel olay�n� iletir
-    /// </summary>
-    private bool PropagateMouseWheel(SDUI.Collections.ElementCollection elements, SKPoint windowMousePos, MouseEventArgs e)
-    {
-        ElementBase? topmostElement = null;
-        var topmostZOrder = int.MinValue;
-
-        for (var i = 0; i < elements.Count; i++)
-        {
-            if (elements[i] is not ElementBase element || !element.Visible || !element.Enabled)
-                continue;
-
-            var elementBounds = GetWindowRelativeBoundsStatic(element);
-            if (!elementBounds.Contains(windowMousePos))
-                continue;
-
-            if (topmostElement == null || element.ZOrder > topmostZOrder)
-            {
-                topmostElement = element;
-                topmostZOrder = element.ZOrder;
-            }
-        }
-
-        if (topmostElement == null)
-            return false;
-
-        var topmostBounds = GetWindowRelativeBoundsStatic(topmostElement);
-
-        // �nce bu elementin child'lar�n� kontrol et (daha spesifik -> daha genel)
-        if (topmostElement.Controls != null && topmostElement.Controls.Count > 0)
-        {
-            if (PropagateMouseWheel(topmostElement.Controls, windowMousePos, e))
-                return true; // Child i�ledi
-        }
-
-        // Child i�lemediyse bu elemente g�nder
-        var localEvent = new MouseEventArgs(
-            e.Button,
-            e.Clicks,
-            (int)windowMousePos.X - (int)topmostBounds.Left,
-            (int)windowMousePos.Y - (int)topmostBounds.Top,
-            e.Delta);
-
-        topmostElement.OnMouseWheel(localEvent);
-        return true; // Event i�lendi
     }
 
     private void ShowMaximize(bool IsOnMoving = false)
@@ -2349,19 +2089,5 @@ public partial class UIWindow : UIWindowBase
         }
 
         base.Dispose(disposing);
-    }
-
-    private readonly struct ZOrderSortItem
-    {
-        public readonly ElementBase Element;
-        public readonly int ZOrder;
-        public readonly int Sequence;
-
-        public ZOrderSortItem(ElementBase element, int zOrder, int sequence)
-        {
-            Element = element;
-            ZOrder = zOrder;
-            Sequence = sequence;
-        }
     }
 }
