@@ -871,14 +871,58 @@ public partial class UIWindow : UIWindowBase
             return false;
 
         // Floating popups must remain hit-testable even when they overlap the custom title area.
-        if (element is ContextMenuStrip contextMenu && contextMenu.IsOpen)
+        if (element is ContextMenuStrip contextMenu && contextMenu.Visible)
             return true;
 
         return !ShowTitle || AllowAddControlOnTitle || element.Location.Y >= _titleBarBottomDPI;
     }
 
+    private ContextMenuStrip? FindTopmostOpenPopup(SKPoint location)
+    {
+        ContextMenuStrip? popup = null;
+        var bestZOrder = int.MinValue;
+
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is not ContextMenuStrip contextMenu || !contextMenu.Visible || !contextMenu.IsOpen)
+                continue;
+
+            if (!GetWindowRelativeBounds(contextMenu).Contains(location))
+                continue;
+
+            if (popup == null || contextMenu.ZOrder > bestZOrder)
+            {
+                popup = contextMenu;
+                bestZOrder = contextMenu.ZOrder;
+            }
+        }
+
+        return popup;
+    }
+
+    private bool TryRouteMouseEventToOpenPopup(MouseEventArgs e, Action<ContextMenuStrip, MouseEventArgs> route)
+    {
+        var popup = FindTopmostOpenPopup(e.Location);
+        if (popup == null)
+            return false;
+
+        var bounds = GetWindowRelativeBounds(popup);
+        var localEvent = new MouseEventArgs(
+            e.Button,
+            e.Clicks,
+            (int)(e.X - bounds.Left),
+            (int)(e.Y - bounds.Top),
+            e.Delta);
+
+        route(popup, localEvent);
+        return true;
+    }
+
     protected internal override void OnMouseClick(MouseEventArgs e)
     {
+        if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseClick(localEvent)))
+            return;
+
         base.OnMouseClick(e);
 
         if (!ShowTitle)
@@ -960,6 +1004,9 @@ public partial class UIWindow : UIWindowBase
         if (CanFocus)
             Focus();
 
+        if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseDown(localEvent)))
+            return;
+
         // Title bar drag has absolute priority over child controls.
         // Check this BEFORE hit-testing children so that a misplaced child
         // (e.g. during the first layout pass) cannot steal the drag.
@@ -1007,6 +1054,9 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseDoubleClick(MouseEventArgs e)
     {
+        if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseDoubleClick(localEvent)))
+            return;
+
         // Title bar maximize gesture has priority — check before child hit-testing.
         var inTitleAreaDbl = ShowTitle && MaximizeBox && e.Y < Padding.Top;
         if (inTitleAreaDbl)
@@ -1037,6 +1087,10 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseUp(MouseEventArgs e)
     {
+        if (!_formMoveMouseDown && _mouseCapturedElement == null &&
+            TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseUp(localEvent)))
+            return;
+
         var pendingTabSelectionIndex = _pendingTabSelectionIndex;
         var shouldSelectPendingTab = e.Button == MouseButtons.Left && pendingTabSelectionIndex >= 0 && !_formMoveMouseDown;
 
@@ -1115,6 +1169,10 @@ public partial class UIWindow : UIWindowBase
         // Without this ordering, a child control that accidentally captured the mouse
         // (e.g. due to a wrong initial layout position) would block all window movement.
         var screenCursor = CursorScreenPosition;
+
+        if (!_formMoveMouseDown && _mouseCapturedElement == null && _pendingTabSelectionIndex < 0 &&
+            TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseMove(localEvent)))
+            return;
 
         if (!_formMoveMouseDown && _pendingTabSelectionIndex >= 0)
         {

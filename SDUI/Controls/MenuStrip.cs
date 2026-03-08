@@ -811,7 +811,7 @@ public class MenuStrip : ElementBase
         Invalidate();
     }
 
-    private void OpenSubmenu(MenuItem item)
+    protected void OpenSubmenu(MenuItem item)
     {
         if (!item.HasDropDown)
         {

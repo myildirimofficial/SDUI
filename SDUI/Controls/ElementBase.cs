@@ -1448,6 +1448,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         return control is ScrollBar;
     }
 
+    private static bool IsFloatingPopup(ElementBase control)
+    {
+        return control is ContextMenuStrip contextMenu && contextMenu.Visible && contextMenu.IsOpen;
+    }
+
     // Cached buffer for child rendering — avoids per-frame allocations
     private readonly List<ElementBase> _childRenderBuffer = new();
 
@@ -1479,6 +1484,23 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
             if (!control.Bounds.Contains(candidatePoint))
                 continue;
+
+            if (target != null)
+            {
+                var currentIsPopup = IsFloatingPopup(control);
+                var bestIsPopup = IsFloatingPopup(target);
+                if (currentIsPopup != bestIsPopup)
+                {
+                    if (currentIsPopup)
+                    {
+                        target = control;
+                        bestZ = control.ZOrder;
+                        hitPoint = candidatePoint;
+                    }
+
+                    continue;
+                }
+            }
 
             if (target == null || control.ZOrder > bestZ)
             {
@@ -1669,6 +1691,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         _zOrderSortBuffer.Sort(static (a, b) =>
         {
+            var aIsPopup = IsFloatingPopup(a.Element);
+            var bIsPopup = IsFloatingPopup(b.Element);
+            if (aIsPopup != bIsPopup)
+                return aIsPopup ? -1 : 1;
+
             var cmp = b.ZOrder.CompareTo(a.ZOrder);
             return cmp != 0 ? cmp : a.Sequence.CompareTo(b.Sequence);
         });
@@ -1718,7 +1745,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             for (var i = 0; i < _childRenderBuffer.Count; i++)
             {
                 var child = _childRenderBuffer[i];
-                if (!IsScrollBar(child))
+                if (!IsScrollBar(child) && !IsFloatingPopup(child))
                     child.Render(canvas);
             }
 
@@ -1730,11 +1757,36 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 if (IsScrollBar(child))
                     child.Render(canvas);
             }
+
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
+            {
+                var child = _childRenderBuffer[i];
+                if (IsFloatingPopup(child))
+                    child.Render(canvas);
+            }
         }
         else
         {
             for (var i = 0; i < _childRenderBuffer.Count; i++)
-                _childRenderBuffer[i].Render(canvas);
+            {
+                var child = _childRenderBuffer[i];
+                if (!IsScrollBar(child) && !IsFloatingPopup(child))
+                    child.Render(canvas);
+            }
+
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
+            {
+                var child = _childRenderBuffer[i];
+                if (IsScrollBar(child))
+                    child.Render(canvas);
+            }
+
+            for (var i = 0; i < _childRenderBuffer.Count; i++)
+            {
+                var child = _childRenderBuffer[i];
+                if (IsFloatingPopup(child))
+                    child.Render(canvas);
+            }
         }
     }
 

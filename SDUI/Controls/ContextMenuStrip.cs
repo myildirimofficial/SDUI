@@ -19,6 +19,10 @@ public class ContextMenuStrip : MenuStrip
     internal const float ShadowMargin = 7f;
     private const int MaxIconCacheEntries = 256;
     private const float CheckMarginWidth = 22f;
+    private const float PopupMargin = 8f;
+    private const float ScrollBarGap = 4f;
+    private const float MinimumContentWidth = 180f;
+    private const int MinimumVisibleItemCount = 3;
     private readonly AnimationManager _fadeInAnimation;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
@@ -40,12 +44,19 @@ public class ContextMenuStrip : MenuStrip
     private SKPaint? _iconPaint;
     private EventHandler _ownerDeactivateHandler;
     private KeyEventHandler _ownerKeyDownHandler;
+    private EventHandler _ownerLocationChangedHandler;
     private MouseEventHandler _ownerMouseDownHandler;
     private bool _ownerPreviousKeyPreview;
+    private EventHandler _ownerSizeChangedHandler;
     private UIWindowBase _ownerWindow;
     private SKPaint? _separatorPaint;
     private SKPaint? _textPaint;
     private SKPaint? _layerPaint;
+    private SKPoint _anchorClientLocation;
+    private float _contentHeight;
+    private float _scrollOffset;
+    private float _viewportHeight;
+    private float _viewportWidth;
     private OpeningEffectType _openingEffect = OpeningEffectType.Fade;
     private bool _openingUpwards;
 
@@ -56,8 +67,30 @@ public class ContextMenuStrip : MenuStrip
         TabStop = false;
         Orientation = Orientation.Vertical;
         BackColor = SKColors.Transparent;
+        AutoScroll = false;
         ItemHeight = 32f; // Increased height significantly
         ItemPadding = 8f; // Increased vertical margin
+
+        if (_vScrollBar != null)
+        {
+            _vScrollBar.Dock = DockStyle.None;
+            _vScrollBar.Visible = false;
+            _vScrollBar.Thickness = 8;
+            _vScrollBar.AutoHide = false;
+            _vScrollBar.SmallChange = ItemHeight;
+            _vScrollBar.LargeChange = ItemHeight * 3;
+            _vScrollBar.ValueChanged += (_, _) =>
+            {
+                _scrollOffset = _vScrollBar.Value;
+                Invalidate();
+            };
+        }
+
+        if (_hScrollBar != null)
+        {
+            _hScrollBar.Dock = DockStyle.None;
+            _hScrollBar.Visible = false;
+        }
 
         _fadeInAnimation = new AnimationManager
         {
@@ -103,7 +136,12 @@ public class ContextMenuStrip : MenuStrip
 
     public void Show(ElementBase element, SKPoint location)
     {
-        if (IsOpen) return;
+        if (IsOpen)
+        {
+            Hide();
+            return;
+        }
+
         var owner = ResolveOwner(element);
         if (owner == null) return;
 
@@ -120,8 +158,10 @@ public class ContextMenuStrip : MenuStrip
             _ownerWindow.Controls.Add(this);
 
         // Konumu ve boyutu belirle, sonra z-order'ı en üste çek.
+        _anchorClientLocation = _ownerWindow.PointToClient(location);
         PositionDropDown(location);
         Visible = true;
+        EnsureTopMostInOwner();
 
         // WinForms z-order + SDUI'nin kendi ZOrder sistemini güncelle.
         BringToFront();
@@ -137,6 +177,7 @@ public class ContextMenuStrip : MenuStrip
                 {
                     try
                     {
+                        EnsureTopMostInOwner();
                         BringToFront();
                         uiw.BringToFront(this);
                         uiw.Invalidate();
@@ -186,6 +227,32 @@ public class ContextMenuStrip : MenuStrip
         IsOpen = false;
     }
 
+    private void EnsureTopMostInOwner()
+    {
+        if (_ownerWindow == null)
+            return;
+
+        if (_ownerWindow.Controls.Contains(this))
+        {
+            _ownerWindow.Controls.SetChildIndex(this, _ownerWindow.Controls.Count - 1);
+            _ownerWindow.UpdateZOrder();
+        }
+
+        var siblings = _ownerWindow.Controls.OfType<ElementBase>();
+        var maxZOrder = -1;
+        foreach (var sibling in siblings)
+        {
+            if (ReferenceEquals(sibling, this))
+                continue;
+
+            if (sibling.ZOrder > maxZOrder)
+                maxZOrder = sibling.ZOrder;
+        }
+
+        ZOrder = maxZOrder + 1;
+        _ownerWindow.InvalidateRenderTree();
+    }
+
     protected override void OnItemClicked(MenuItem item)
     {
         if (item.HasDropDown)
@@ -213,53 +280,232 @@ public class ContextMenuStrip : MenuStrip
     {
         if (_ownerWindow == null) return;
 
-        var windowLocation = _ownerWindow.PointToClient(screenLocation);
+        _anchorClientLocation = _ownerWindow.PointToClient(screenLocation);
+        PositionDropDownCore(_anchorClientLocation);
+    }
+
+    private void PositionDropDownCore(SKPoint anchorClientLocation)
+    {
+        if (_ownerWindow == null)
+            return;
+
         var size = GetPrefSize();
         var client = _ownerWindow.ClientRectangle;
 
-        const int MARGIN = 8;
-        var maxWidth = client.Width - MARGIN * 2;
-        var maxHeight = client.Height - MARGIN * 2;
+        var marginX = Math.Min(PopupMargin, Math.Max(0f, (client.Width - 1f) * 0.5f));
+        var marginY = Math.Min(PopupMargin, Math.Max(0f, (client.Height - 1f) * 0.5f));
+        var maxWidth = Math.Max(1f, client.Width - marginX * 2f);
+        var maxHeight = Math.Max(1f, client.Height - marginY * 2f);
+        var minimumSize = GetMinimumPopupSize(maxWidth, maxHeight);
 
-        size.Width = Math.Min(size.Width, maxWidth);
-        size.Height = Math.Min(size.Height, maxHeight);
+        size.Width = Math.Min(Math.Max(size.Width, minimumSize.Width), maxWidth);
+        size.Height = Math.Min(Math.Max(size.Height, minimumSize.Height), maxHeight);
 
-        var targetX = windowLocation.X;
-        var targetY = windowLocation.Y;
+        var targetX = anchorClientLocation.X;
+        var targetY = anchorClientLocation.Y;
+        var requestedUpwards = false;
 
-        if (targetX + size.Width > client.Right - MARGIN)
+        if (targetX + size.Width > client.Right - marginX)
         {
             var leftPos = targetX - size.Width;
-            if (leftPos >= client.Left + MARGIN)
+            if (leftPos >= client.Left + marginX)
                 targetX = leftPos;
             else
-                targetX = client.Right - size.Width - MARGIN;
+                targetX = client.Right - size.Width - marginX;
         }
 
-        if (targetY + size.Height > client.Bottom - MARGIN)
+        if (targetY + size.Height > client.Bottom - marginY)
         {
             var topPos = targetY - size.Height;
-            if (topPos >= client.Top + MARGIN)
+            if (topPos >= client.Top + marginY)
             {
                 targetY = topPos;
-                _openingUpwards = true;
+                requestedUpwards = true;
             }
             else
             {
-                targetY = client.Bottom - size.Height - MARGIN;
-                _openingUpwards = false;
+                targetY = client.Bottom - size.Height - marginY;
             }
         }
-        else
-        {
-            _openingUpwards = false;
-        }
 
-        targetX = Math.Max(client.Left + MARGIN, Math.Min(targetX, client.Right - size.Width - MARGIN));
-        targetY = Math.Max(client.Top + MARGIN, Math.Min(targetY, client.Bottom - size.Height - MARGIN));
+        targetX = Math.Max(client.Left + marginX, Math.Min(targetX, client.Right - size.Width - marginX));
+        targetY = Math.Max(client.Top + marginY, Math.Min(targetY, client.Bottom - size.Height - marginY));
+
+        _openingUpwards = requestedUpwards || targetY < anchorClientLocation.Y;
 
         Location = new SKPoint(targetX, targetY);
         Size = size;
+        UpdateScrollState();
+    }
+
+    private SKSize GetMinimumPopupSize(float maxWidth, float maxHeight)
+    {
+        var visibleItemCount = Math.Max(1, MinimumVisibleItemCount);
+        var minContentHeight = ItemPadding + visibleItemCount * (ItemHeight + ItemPadding);
+        var desiredWidth = MinimumContentWidth + ShadowMargin * 2f;
+        var desiredHeight = minContentHeight + ShadowMargin * 2f;
+
+        return new SKSize(
+            Math.Min(desiredWidth, maxWidth),
+            Math.Min(desiredHeight, maxHeight));
+    }
+
+    private void RepositionToOwnerBounds()
+    {
+        if (!IsOpen || _ownerWindow == null)
+            return;
+
+        PositionDropDownCore(_anchorClientLocation);
+        EnsureTopMostInOwner();
+        _ownerWindow.Invalidate();
+    }
+
+    private float GetScrollBarWidth()
+    {
+        if (_vScrollBar == null || !_vScrollBar.Visible)
+            return 0f;
+
+        return Math.Max(_vScrollBar.Width, _vScrollBar.Thickness);
+    }
+
+    private bool IsScrollViewportActive()
+    {
+        return _vScrollBar != null && _vScrollBar.Visible;
+    }
+
+    private float GetContentHeight()
+    {
+        var contentHeight = ItemPadding;
+
+        foreach (var item in Items)
+        {
+            if (!item.Visible)
+                continue;
+
+            if (item.IsSeparator)
+                contentHeight += SeparatorMargin * 2 + 1 + ItemPadding;
+            else
+                contentHeight += ItemHeight + ItemPadding;
+        }
+
+        return contentHeight;
+    }
+
+    private void UpdateScrollState()
+    {
+        _contentHeight = GetContentHeight();
+        _viewportHeight = Math.Max(1f, Height - ShadowMargin * 2);
+
+        if (_hScrollBar != null)
+            _hScrollBar.Visible = false;
+
+        if (_vScrollBar == null)
+        {
+            _scrollOffset = 0f;
+            _viewportWidth = Math.Max(1f, Width - ShadowMargin * 2 - ItemPadding * 2);
+            return;
+        }
+
+        var needsVScroll = _contentHeight > _viewportHeight;
+        _vScrollBar.Visible = needsVScroll;
+
+        if (needsVScroll)
+        {
+            var scrollBarWidth = Math.Max(_vScrollBar.Width, _vScrollBar.Thickness);
+            _vScrollBar.Location = new SKPoint(Width - ShadowMargin - scrollBarWidth, ShadowMargin);
+            _vScrollBar.Size = new SKSize(scrollBarWidth, _viewportHeight);
+            _vScrollBar.Minimum = 0;
+            _vScrollBar.Maximum = Math.Max(0, _contentHeight - _viewportHeight);
+            _vScrollBar.LargeChange = Math.Max(ItemHeight, _viewportHeight * 0.85f);
+            _vScrollBar.SmallChange = Math.Max(8f, ItemHeight * 0.75f);
+            if (_vScrollBar.Value > _vScrollBar.Maximum)
+                _vScrollBar.Value = _vScrollBar.Maximum;
+            _scrollOffset = _vScrollBar.Value;
+        }
+        else
+        {
+            _vScrollBar.Value = 0;
+            _scrollOffset = 0f;
+        }
+
+        _viewportWidth = Math.Max(1f,
+            Width - ShadowMargin * 2 - ItemPadding * 2 - (needsVScroll ? GetScrollBarWidth() + ScrollBarGap : 0f));
+    }
+
+    private List<(MenuItem Item, SKRect Rect)> GetVisibleItemRects()
+    {
+        var rects = new List<(MenuItem Item, SKRect Rect)>(Items.Count);
+        var y = ShadowMargin + ItemPadding - _scrollOffset;
+        var x = ShadowMargin + ItemPadding;
+        var width = _viewportWidth;
+
+        foreach (var item in Items)
+        {
+            if (!item.Visible)
+                continue;
+
+            if (item.IsSeparator)
+            {
+                var sepHeight = SeparatorMargin * 2 + 1;
+                rects.Add((item, SKRect.Create(x, y, width, sepHeight)));
+                y += sepHeight + ItemPadding;
+                continue;
+            }
+
+            rects.Add((item, SKRect.Create(x, y, width, ItemHeight)));
+            y += ItemHeight + ItemPadding;
+        }
+
+        return rects;
+    }
+
+    private bool TryRouteScrollableMouseMove(MouseEventArgs e)
+    {
+        if (!TryGetInputTarget(e, out var target, out var childEventArgs) || target == null || childEventArgs == null)
+        {
+            if (LastHoveredElement != null)
+            {
+                LastHoveredElement.OnMouseLeave(EventArgs.Empty);
+                LastHoveredElement = null;
+            }
+
+            return false;
+        }
+
+        target.OnMouseMove(childEventArgs);
+
+        if (!ReferenceEquals(target, LastHoveredElement))
+        {
+            LastHoveredElement?.OnMouseLeave(EventArgs.Empty);
+            target.OnMouseEnter(EventArgs.Empty);
+            LastHoveredElement = target;
+        }
+
+        return true;
+    }
+
+    private bool TryRouteScrollableMouseDown(MouseEventArgs e)
+    {
+        if (!TryGetInputTarget(e, out var target, out var childEventArgs) || target == null || childEventArgs == null)
+            return false;
+
+        target.OnMouseDown(childEventArgs);
+
+        var window = GetParentWindow();
+        if (window is UIWindowBase uiWindow)
+        {
+            uiWindow.FocusedElement = target;
+        }
+        else if (window != null)
+        {
+            window.FocusManager.SetFocus(target);
+        }
+        else if (FocusedElement != target)
+        {
+            FocusedElement = target;
+        }
+
+        return true;
     }
 
     private UIWindowBase ResolveOwner(ElementBase element)
@@ -277,7 +523,17 @@ public class ContextMenuStrip : MenuStrip
 
     private void AttachHandlers()
     {
-        if (_ownerWindow == null || !AutoClose) return;
+        if (_ownerWindow == null)
+            return;
+
+        _ownerSizeChangedHandler ??= OnOwnerBoundsChanged;
+        _ownerLocationChangedHandler ??= OnOwnerBoundsChanged;
+        _ownerWindow.SizeChanged += _ownerSizeChangedHandler;
+        _ownerWindow.LocationChanged += _ownerLocationChangedHandler;
+
+        if (!AutoClose)
+            return;
+
         _ownerMouseDownHandler ??= OnOwnerMouseDown;
         _ownerDeactivateHandler ??= OnOwnerDeactivate;
         _ownerKeyDownHandler ??= OnOwnerKeyDown;
@@ -291,10 +547,17 @@ public class ContextMenuStrip : MenuStrip
     private void DetachHandlers()
     {
         if (_ownerWindow == null) return;
+        if (_ownerSizeChangedHandler != null) _ownerWindow.SizeChanged -= _ownerSizeChangedHandler;
+        if (_ownerLocationChangedHandler != null) _ownerWindow.LocationChanged -= _ownerLocationChangedHandler;
         if (_ownerMouseDownHandler != null) _ownerWindow.MouseDown -= _ownerMouseDownHandler;
         if (_ownerDeactivateHandler != null) _ownerWindow.Deactivate -= _ownerDeactivateHandler;
         if (_ownerKeyDownHandler != null) _ownerWindow.KeyDown -= _ownerKeyDownHandler;
         _ownerWindow.KeyPreview = _ownerPreviousKeyPreview;
+    }
+
+    private void OnOwnerBoundsChanged(object? sender, EventArgs e)
+    {
+        RepositionToOwnerBounds();
     }
 
     private void OnOwnerMouseDown(object sender, MouseEventArgs e)
@@ -321,8 +584,6 @@ public class ContextMenuStrip : MenuStrip
 
     private SKSize GetPrefSize()
     {
-        const float MinContentWidth = 180f; // Minimum içerik genişliği
-
         // İçerik genişlik/yükseklik hesabı (shadow hariç)
         var contentWidth = ItemPadding * 2;
         var contentHeight = ItemPadding; // Üst padding
@@ -345,7 +606,7 @@ public class ContextMenuStrip : MenuStrip
         }
 
         // Minimum genişlik garantisi
-        contentWidth = Math.Max(contentWidth, MinContentWidth);
+        contentWidth = Math.Max(contentWidth, MinimumContentWidth);
 
         // En alttaki öğenin border ile kesilmemesi için ekstra alan yok,
         // çünkü son item'dan sonra zaten ItemPadding var.
@@ -359,29 +620,89 @@ public class ContextMenuStrip : MenuStrip
 
     internal override void OnMouseMove(MouseEventArgs e)
     {
-        base.OnMouseMove(e);
-        var y = ShadowMargin + ItemPadding;
-        _hoveredItem = null;
-        foreach (var item in Items)
+        if (!IsScrollViewportActive())
         {
-            if (item.IsSeparator)
-            {
-                y += SeparatorMargin * 2 + 1 + ItemPadding;
-                continue;
-            }
+            base.OnMouseMove(e);
+        }
+        else if (TryRouteScrollableMouseMove(e))
+        {
+            _hoveredItem = null;
+            Invalidate();
+            return;
+        }
 
-            var w = Width - ShadowMargin * 2 - ItemPadding * 2;
-            var r = SKRect.Create(ShadowMargin + ItemPadding, y, w, ItemHeight);
-            if (r.Contains(e.Location))
+        var previousHoveredItem = _hoveredItem;
+        _hoveredItem = null;
+        var viewportBottom = ShadowMargin + _viewportHeight;
+        var rects = GetVisibleItemRects();
+        for (var i = 0; i < rects.Count; i++)
+        {
+            var entry = rects[i];
+            if (entry.Rect.Bottom < ShadowMargin || entry.Rect.Top > viewportBottom || entry.Item.IsSeparator)
+                continue;
+
+            if (entry.Rect.Contains(e.Location))
             {
-                _hoveredItem = item;
+                _hoveredItem = entry.Item;
                 break;
             }
+        }
 
-            y += ItemHeight + ItemPadding;
+        if (previousHoveredItem != _hoveredItem && IsScrollViewportActive())
+        {
+            if (_hoveredItem?.HasDropDown == true)
+                OpenSubmenu(_hoveredItem);
+            else
+                CloseSubmenu();
         }
 
         Invalidate();
+    }
+
+    internal override void OnMouseDown(MouseEventArgs e)
+    {
+        if (!IsScrollViewportActive())
+        {
+            base.OnMouseDown(e);
+            return;
+        }
+
+        RaiseMouseDown(e);
+        if (TryRouteScrollableMouseDown(e))
+            return;
+
+        if (e.Button != MouseButtons.Left)
+            return;
+
+        var rects = GetVisibleItemRects();
+        var viewportBottom = ShadowMargin + _viewportHeight;
+        for (var i = 0; i < rects.Count; i++)
+        {
+            var entry = rects[i];
+            if (entry.Rect.Bottom < ShadowMargin || entry.Rect.Top > viewportBottom || entry.Item.IsSeparator)
+                continue;
+
+            if (entry.Rect.Contains(e.Location))
+            {
+                OnItemClicked(entry.Item);
+                return;
+            }
+        }
+
+        CloseSubmenu();
+    }
+
+    internal override void OnMouseWheel(MouseEventArgs e)
+    {
+        if (_vScrollBar != null && _vScrollBar.Visible)
+        {
+            var step = Math.Max(1f, _vScrollBar.SmallChange);
+            var deltaValue = (e.Delta / 120f) * step;
+            _vScrollBar.Value = Math.Clamp(_vScrollBar.Value - deltaValue, _vScrollBar.Minimum, _vScrollBar.Maximum);
+            return;
+        }
+
+        base.OnMouseWheel(e);
     }
 
     internal override void OnMouseLeave(EventArgs e)
@@ -417,15 +738,17 @@ public class ContextMenuStrip : MenuStrip
         var fadeProgress = (float)_fadeInAnimation.GetProgress();
         var fadeAlpha = (byte)(fadeProgress * 255);
         const float CORNER_RADIUS = 10f;
+        var surfaceAlpha = _openingUpwards ? (byte)Math.Max((int)fadeAlpha, 235) : fadeAlpha;
 
         // Apply animation effect based on OpeningEffect property
+        var animationSaveCount = -1;
         if (_openingEffect == OpeningEffectType.SlideDownFade)
         {
             _layerPaint ??= new SKPaint { IsAntialias = true };
             _layerPaint.Color = SKColors.White.WithAlpha(fadeAlpha);
-            canvas.SaveLayer(_layerPaint);
+            animationSaveCount = canvas.SaveLayer(_layerPaint);
 
-            // Slide animation: 8px movement
+            // Restore the original slide feel while respecting upward opening direction.
             var translateY = (_openingUpwards ? 1f - fadeProgress : fadeProgress - 1f) * 8f;
             canvas.Translate(0, translateY);
         }
@@ -464,11 +787,11 @@ public class ContextMenuStrip : MenuStrip
         canvas.Restore();
 
         // High-quality background
-        _bgPaint!.Color = MenuBackColor.WithAlpha(fadeAlpha);
+        _bgPaint!.Color = MenuBackColor.WithAlpha(surfaceAlpha);
         canvas.DrawRoundRect(contentRect, CORNER_RADIUS, CORNER_RADIUS, _bgPaint);
 
         // Border
-        _borderPaint!.Color = SeparatorColor.WithAlpha((byte)(fadeAlpha * 0.35f));
+        _borderPaint!.Color = SeparatorColor.WithAlpha((byte)(surfaceAlpha * 0.35f));
         var borderRect = new SkiaSharp.SKRect(
             contentRect.Left + 0.5f,
             contentRect.Top + 0.5f,
@@ -477,33 +800,41 @@ public class ContextMenuStrip : MenuStrip
         canvas.DrawRoundRect(borderRect, CORNER_RADIUS, CORNER_RADIUS, _borderPaint);
 
         var scale = ScaleFactor;
-        var y = contentRect.Top + ItemPadding;
+        var viewportRect = new SKRect(
+            contentRect.Left,
+            contentRect.Top,
+            contentRect.Left + Math.Max(1f, _viewportWidth + ItemPadding * 2),
+            contentRect.Top + _viewportHeight);
 
-        foreach (var item in Items)
+        var itemClipSave = canvas.Save();
+        canvas.ClipRoundRect(_radius.ToRoundRect(viewportRect), antialias: true);
+
+        var rects = GetVisibleItemRects();
+        var viewportBottom = ShadowMargin + _viewportHeight;
+
+        for (var itemIndex = 0; itemIndex < rects.Count; itemIndex++)
         {
+            var item = rects[itemIndex].Item;
+            var itemRect = rects[itemIndex].Rect;
+
             // Skip hidden items — visibility should control drawing and layout
             if (!item.Visible)
+                continue;
+
+            if (itemRect.Bottom < ShadowMargin || itemRect.Top > viewportBottom)
                 continue;
 
             if (item.IsSeparator)
             {
                 _separatorPaint!.Color = SeparatorColor.WithAlpha(fadeAlpha);
                 canvas.DrawLine(
-                    contentRect.Left + ItemPadding + 8,
-                    y + SeparatorMargin,
-                    contentRect.Right - ItemPadding - 8,
-                    y + SeparatorMargin,
+                    itemRect.Left + 8,
+                    itemRect.Top + SeparatorMargin,
+                    itemRect.Right - 8,
+                    itemRect.Top + SeparatorMargin,
                     _separatorPaint);
-                y += SeparatorMargin * 2 + 1 + ItemPadding;
                 continue;
             }
-
-            var w = contentRect.Width - ItemPadding * 2;
-            var itemRect = new SkiaSharp.SKRect(
-                contentRect.Left + ItemPadding,
-                y,
-                contentRect.Left + ItemPadding + w,
-                y + ItemHeight);
 
             var isHovered = item == _hoveredItem;
             var anim = EnsureItemHoverAnim(item);
@@ -634,14 +965,14 @@ public class ContextMenuStrip : MenuStrip
 
                 canvas.DrawPath(_chevronPath, _arrowPaint);
             }
-
-            y += ItemHeight + ItemPadding;
         }
 
+        canvas.RestoreToCount(itemClipSave);
+
         // Restore layer if SlideDownFade effect was applied
-        if (_openingEffect == OpeningEffectType.SlideDownFade)
+        if (animationSaveCount >= 0)
         {
-            canvas.Restore();
+            canvas.RestoreToCount(animationSaveCount);
         }
     }
 
