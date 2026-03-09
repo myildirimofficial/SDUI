@@ -589,8 +589,8 @@ public partial class UIWindowBase : ElementBase
 
     private SKPoint GetMousePosition(IntPtr lParam)
     {
-        int x = (int)(lParam.ToInt64() & 0xFFFF);
-        int y = (int)((lParam.ToInt64() >> 16) & 0xFFFF);
+        int x = (short)(lParam.ToInt64() & 0xFFFF);
+        int y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
 
         POINT pt = new POINT { X = x, Y = y };
         ScreenToClient(_hWnd, ref pt);
@@ -645,7 +645,9 @@ public partial class UIWindowBase : ElementBase
 
                     if (WindowState != FormWindowState.Maximized)
                     {
-                        var gripDist = 10;
+                        var dpiScale = (DeviceDpi > 0 ? DeviceDpi : 96f) / 96f;
+                        var gripDist = Math.Max(6, (int)Math.Round(8f * dpiScale));
+                        var topGripDist = Math.Max(2, (int)Math.Round(2f * dpiScale));
                         var clientSize = ClientSize;
 
                         // Allow resize on the lower right corner
@@ -674,7 +676,7 @@ public partial class UIWindowBase : ElementBase
                         }
 
                         // Allow resize on the top border
-                        if (clientPt.Y <= 2 && clientSize.Height >= 2)
+                        if (clientPt.Y <= topGripDist && clientSize.Height >= topGripDist)
                         {
                             return (IntPtr)HTTOP;
                         }
@@ -1094,6 +1096,10 @@ public partial class UIWindowBase : ElementBase
                                 SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
 
                             OnDpiChanged(newDpi, oldDpi);
+                            _currentCursor = Cursors.Default;
+                            var defaultCursor = Cursors.Default;
+                            if (defaultCursor != null && defaultCursor.Handle != IntPtr.Zero)
+                                SetCursor(defaultCursor.Handle);
                             InvalidateWindow();
                         }
                         finally
