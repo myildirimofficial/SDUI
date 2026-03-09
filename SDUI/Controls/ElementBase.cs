@@ -1932,7 +1932,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                     if (x < padding.Left) x = padding.Left;
                     if (y < padding.Top) y = padding.Top;
 
-                    targetCanvas.DrawText(Text, x, y, SKTextAlign.Left, font, paint);
+                    TextRenderer.DrawText(targetCanvas, Text, x, y, ForeColor);
+                    //targetCanvas.DrawText(Text, x, y, SKTextAlign.Left, font, paint);
                 }
                 catch
                 {

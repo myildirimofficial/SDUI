@@ -918,6 +918,24 @@ public partial class UIWindow : UIWindowBase
         return true;
     }
 
+    private bool TryRouteMouseWheelToOpenPopup(MouseEventArgs e)
+    {
+        var popup = FindTopmostOpenPopup(e.Location);
+        if (popup == null)
+            return false;
+
+        var popupBounds = popup.Bounds;
+        var localEvent = new MouseEventArgs(
+            e.Button,
+            e.Clicks,
+            (int)(e.X - popupBounds.Left),
+            (int)(e.Y - popupBounds.Top),
+            e.Delta);
+
+        popup.OnMouseWheel(localEvent);
+        return true;
+    }
+
     protected internal override void OnMouseClick(MouseEventArgs e)
     {
         if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseClick(localEvent)))
@@ -1329,6 +1347,9 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseWheel(MouseEventArgs e)
     {
+        if (TryRouteMouseWheelToOpenPopup(e))
+            return;
+
         base.OnMouseWheel(e);
 
         // Mouse pozisyonunu window client koordinatlar�na �evir

@@ -349,27 +349,36 @@ public class ScrollBar : ElementBase
         if (Maximum <= Minimum)
         {
             _thumbRect = SkiaSharp.SKRect.Empty;
+            _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
             return;
         }
 
-        var trackLength = IsVertical ? Height : Width;
-        var thumbLength = Math.Max(20, (int)((float)LargeChange / (Maximum - Minimum + LargeChange) * trackLength));
-        int thumbPos;
+        var trackLength = Math.Max(1f, IsVertical ? Height : Width);
+        var thumbLength = Math.Max(20f, (float)Math.Round(LargeChange / (Maximum - Minimum + LargeChange) * trackLength));
+        thumbLength = Math.Min(trackLength, thumbLength);
 
         var currentValue = _animatedValue;
+        var range = Math.Max(0.0001, Maximum - Minimum);
+        var trackTravel = Math.Max(0f, trackLength - thumbLength);
+        var normalized = (float)Math.Clamp((currentValue - Minimum) / range, 0d, 1d);
+        var thumbPos = (float)Math.Round(normalized * trackTravel);
 
         if (IsVertical)
         {
-            thumbPos = (int)((currentValue - Minimum) / (Maximum - Minimum) * (Height - thumbLength));
-            _thumbRect = new SkiaSharp.SKRect(0, thumbPos, Width, thumbLength);
+            _thumbRect = new SkiaSharp.SKRect(0, thumbPos, Width, thumbPos + thumbLength);
             _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
         }
         else
         {
-            thumbPos = (int)((currentValue - Minimum) / (Maximum - Minimum) * (Width - thumbLength));
-            _thumbRect = new SkiaSharp.SKRect(thumbPos, 0, thumbLength, Height);
+            _thumbRect = new SkiaSharp.SKRect(thumbPos, 0, thumbPos + thumbLength, Height);
             _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
         }
+    }
+
+    internal override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        UpdateThumbRect();
     }
 
     public override void OnPaint(SKCanvas canvas)
@@ -517,7 +526,7 @@ public class ScrollBar : ElementBase
             var trackLength = IsVertical ? Height - _thumbRect.Height : Width - _thumbRect.Width;
             if (trackLength <= 0) return;
             var valuePerPixel = (float)(Maximum - Minimum) / trackLength;
-            var newValue = _dragStartValue + (int)(delta * valuePerPixel);
+            var newValue = _dragStartValue + delta * valuePerPixel;
             Value = Math.Max(Minimum, Math.Min(Maximum, newValue));
             OnScroll(EventArgs.Empty);
         }

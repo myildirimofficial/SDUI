@@ -22,7 +22,6 @@ public class ContextMenuStrip : MenuStrip
     private const float PopupMargin = 8f;
     private const float ScrollBarGap = 4f;
     private const float MinimumContentWidth = 180f;
-    private const int MinimumVisibleItemCount = 3;
     private readonly AnimationManager _fadeInAnimation;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
@@ -76,12 +75,16 @@ public class ContextMenuStrip : MenuStrip
             _vScrollBar.Dock = DockStyle.None;
             _vScrollBar.Visible = false;
             _vScrollBar.Thickness = 8;
+            _vScrollBar.MinimumSize = new SKSize(8, 0);
+            _vScrollBar.MaximumSize = new SKSize(8, 0);
             _vScrollBar.AutoHide = false;
+            _vScrollBar.ScrollAnimationIncrement = 1.0;
+            _vScrollBar.ScrollAnimationType = AnimationType.Linear;
             _vScrollBar.SmallChange = ItemHeight;
             _vScrollBar.LargeChange = ItemHeight * 3;
             _vScrollBar.ValueChanged += (_, _) =>
             {
-                _scrollOffset = _vScrollBar.Value;
+                _scrollOffset = (float)Math.Round(_vScrollBar.Value);
                 Invalidate();
             };
         }
@@ -281,10 +284,10 @@ public class ContextMenuStrip : MenuStrip
         if (_ownerWindow == null) return;
 
         _anchorClientLocation = _ownerWindow.PointToClient(screenLocation);
-        PositionDropDownCore(_anchorClientLocation);
+        PositionDropDownCore(_anchorClientLocation, preserveDirection: false);
     }
 
-    private void PositionDropDownCore(SKPoint anchorClientLocation)
+    private void PositionDropDownCore(SKPoint anchorClientLocation, bool preserveDirection)
     {
         if (_ownerWindow == null)
             return;
@@ -296,14 +299,46 @@ public class ContextMenuStrip : MenuStrip
         var marginY = Math.Min(PopupMargin, Math.Max(0f, (client.Height - 1f) * 0.5f));
         var maxWidth = Math.Max(1f, client.Width - marginX * 2f);
         var maxHeight = Math.Max(1f, client.Height - marginY * 2f);
-        var minimumSize = GetMinimumPopupSize(maxWidth, maxHeight);
 
-        size.Width = Math.Min(Math.Max(size.Width, minimumSize.Width), maxWidth);
-        size.Height = Math.Min(Math.Max(size.Height, minimumSize.Height), maxHeight);
+        size.Width = Math.Min(Math.Max(size.Width, Math.Min(MinimumContentWidth + ShadowMargin * 2f, maxWidth)), maxWidth);
+        size.Height = Math.Min(size.Height, maxHeight);
+        var preferredHeight = size.Height;
 
         var targetX = anchorClientLocation.X;
         var targetY = anchorClientLocation.Y;
-        var requestedUpwards = false;
+        var availableBelow = Math.Max(1f, client.Bottom - marginY - anchorClientLocation.Y);
+        var availableAbove = Math.Max(1f, anchorClientLocation.Y - (client.Top + marginY));
+        var directionSwitchThreshold = Math.Max(ItemHeight, ItemPadding * 2f);
+        var openingUpwards = preserveDirection
+            ? _openingUpwards
+            : availableAbove > availableBelow && size.Height > availableBelow;
+
+        if (preserveDirection)
+        {
+            if (!openingUpwards && availableBelow < preferredHeight)
+            {
+                var shouldFlipUp = availableAbove >= preferredHeight || availableAbove > availableBelow + directionSwitchThreshold;
+                if (shouldFlipUp)
+                    openingUpwards = true;
+            }
+            else if (openingUpwards && availableAbove < preferredHeight)
+            {
+                var shouldFlipDown = availableBelow >= preferredHeight || availableBelow > availableAbove + directionSwitchThreshold;
+                if (shouldFlipDown)
+                    openingUpwards = false;
+            }
+        }
+
+        if (openingUpwards)
+        {
+            size.Height = Math.Min(size.Height, availableAbove);
+            targetY = anchorClientLocation.Y - size.Height;
+        }
+        else
+        {
+            size.Height = Math.Min(size.Height, availableBelow);
+            targetY = anchorClientLocation.Y;
+        }
 
         if (targetX + size.Width > client.Right - marginX)
         {
@@ -314,40 +349,14 @@ public class ContextMenuStrip : MenuStrip
                 targetX = client.Right - size.Width - marginX;
         }
 
-        if (targetY + size.Height > client.Bottom - marginY)
-        {
-            var topPos = targetY - size.Height;
-            if (topPos >= client.Top + marginY)
-            {
-                targetY = topPos;
-                requestedUpwards = true;
-            }
-            else
-            {
-                targetY = client.Bottom - size.Height - marginY;
-            }
-        }
-
         targetX = Math.Max(client.Left + marginX, Math.Min(targetX, client.Right - size.Width - marginX));
         targetY = Math.Max(client.Top + marginY, Math.Min(targetY, client.Bottom - size.Height - marginY));
 
-        _openingUpwards = requestedUpwards || targetY < anchorClientLocation.Y;
+        _openingUpwards = openingUpwards;
 
         Location = new SKPoint(targetX, targetY);
         Size = size;
         UpdateScrollState();
-    }
-
-    private SKSize GetMinimumPopupSize(float maxWidth, float maxHeight)
-    {
-        var visibleItemCount = Math.Max(1, MinimumVisibleItemCount);
-        var minContentHeight = ItemPadding + visibleItemCount * (ItemHeight + ItemPadding);
-        var desiredWidth = MinimumContentWidth + ShadowMargin * 2f;
-        var desiredHeight = minContentHeight + ShadowMargin * 2f;
-
-        return new SKSize(
-            Math.Min(desiredWidth, maxWidth),
-            Math.Min(desiredHeight, maxHeight));
     }
 
     private void RepositionToOwnerBounds()
@@ -355,7 +364,7 @@ public class ContextMenuStrip : MenuStrip
         if (!IsOpen || _ownerWindow == null)
             return;
 
-        PositionDropDownCore(_anchorClientLocation);
+        PositionDropDownCore(_anchorClientLocation, preserveDirection: true);
         EnsureTopMostInOwner();
         _ownerWindow.Invalidate();
     }
@@ -365,7 +374,7 @@ public class ContextMenuStrip : MenuStrip
         if (_vScrollBar == null || !_vScrollBar.Visible)
             return 0f;
 
-        return Math.Max(_vScrollBar.Width, _vScrollBar.Thickness);
+        return _vScrollBar.Thickness;
     }
 
     private bool IsScrollViewportActive()
@@ -394,7 +403,7 @@ public class ContextMenuStrip : MenuStrip
     private void UpdateScrollState()
     {
         _contentHeight = GetContentHeight();
-        _viewportHeight = Math.Max(1f, Height - ShadowMargin * 2);
+        _viewportHeight = Math.Max(1f, (float)Math.Floor(Height - ShadowMargin * 2));
 
         if (_hScrollBar != null)
             _hScrollBar.Visible = false;
@@ -402,7 +411,7 @@ public class ContextMenuStrip : MenuStrip
         if (_vScrollBar == null)
         {
             _scrollOffset = 0f;
-            _viewportWidth = Math.Max(1f, Width - ShadowMargin * 2 - ItemPadding * 2);
+            _viewportWidth = Math.Max(1f, (float)Math.Floor(Width - ShadowMargin * 2 - ItemPadding * 2));
             return;
         }
 
@@ -411,16 +420,20 @@ public class ContextMenuStrip : MenuStrip
 
         if (needsVScroll)
         {
-            var scrollBarWidth = Math.Max(_vScrollBar.Width, _vScrollBar.Thickness);
-            _vScrollBar.Location = new SKPoint(Width - ShadowMargin - scrollBarWidth, ShadowMargin);
-            _vScrollBar.Size = new SKSize(scrollBarWidth, _viewportHeight);
+            var scrollBarWidth = GetScrollBarWidth();
+            var scrollBarHeight = Math.Max(1f, (float)Math.Round(_viewportHeight));
+            var scrollBarLeft = (float)Math.Round(Width - ShadowMargin - scrollBarWidth);
+            var scrollBarTop = (float)Math.Round(ShadowMargin);
+
+            _vScrollBar.Location = new SKPoint(scrollBarLeft, scrollBarTop);
+            _vScrollBar.Size = new SKSize(scrollBarWidth, scrollBarHeight);
             _vScrollBar.Minimum = 0;
             _vScrollBar.Maximum = Math.Max(0, _contentHeight - _viewportHeight);
             _vScrollBar.LargeChange = Math.Max(ItemHeight, _viewportHeight * 0.85f);
-            _vScrollBar.SmallChange = Math.Max(8f, ItemHeight * 0.75f);
+            _vScrollBar.SmallChange = Math.Max(8f, ItemHeight + ItemPadding);
             if (_vScrollBar.Value > _vScrollBar.Maximum)
                 _vScrollBar.Value = _vScrollBar.Maximum;
-            _scrollOffset = _vScrollBar.Value;
+            _scrollOffset = (float)Math.Round(_vScrollBar.Value);
         }
         else
         {
@@ -429,15 +442,15 @@ public class ContextMenuStrip : MenuStrip
         }
 
         _viewportWidth = Math.Max(1f,
-            Width - ShadowMargin * 2 - ItemPadding * 2 - (needsVScroll ? GetScrollBarWidth() + ScrollBarGap : 0f));
+            (float)Math.Floor(Width - ShadowMargin * 2 - ItemPadding * 2 - (needsVScroll ? GetScrollBarWidth() + ScrollBarGap : 0f)));
     }
 
     private List<(MenuItem Item, SKRect Rect)> GetVisibleItemRects()
     {
         var rects = new List<(MenuItem Item, SKRect Rect)>(Items.Count);
-        var y = ShadowMargin + ItemPadding - _scrollOffset;
-        var x = ShadowMargin + ItemPadding;
-        var width = _viewportWidth;
+        var y = (float)Math.Round(ShadowMargin + ItemPadding - _scrollOffset);
+        var x = (float)Math.Round(ShadowMargin + ItemPadding);
+        var width = Math.Max(1f, (float)Math.Round(_viewportWidth));
 
         foreach (var item in Items)
         {
@@ -446,17 +459,23 @@ public class ContextMenuStrip : MenuStrip
 
             if (item.IsSeparator)
             {
-                var sepHeight = SeparatorMargin * 2 + 1;
+                var sepHeight = (float)Math.Round(SeparatorMargin * 2 + 1);
                 rects.Add((item, SKRect.Create(x, y, width, sepHeight)));
                 y += sepHeight + ItemPadding;
                 continue;
             }
 
-            rects.Add((item, SKRect.Create(x, y, width, ItemHeight)));
+            rects.Add((item, SKRect.Create(x, y, width, (float)Math.Round(ItemHeight))));
             y += ItemHeight + ItemPadding;
         }
 
         return rects;
+    }
+
+    internal override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        UpdateScrollState();
     }
 
     private bool TryRouteScrollableMouseMove(MouseEventArgs e)
@@ -696,9 +715,10 @@ public class ContextMenuStrip : MenuStrip
     {
         if (_vScrollBar != null && _vScrollBar.Visible)
         {
-            var step = Math.Max(1f, _vScrollBar.SmallChange);
+            var step = Math.Max(1f, (float)Math.Round(_vScrollBar.SmallChange));
             var deltaValue = (e.Delta / 120f) * step;
             _vScrollBar.Value = Math.Clamp(_vScrollBar.Value - deltaValue, _vScrollBar.Minimum, _vScrollBar.Maximum);
+            Invalidate();
             return;
         }
 
