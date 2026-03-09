@@ -178,6 +178,8 @@ public partial class UIWindow : UIWindowBase
     private SkiaSharp.SKRect _newTabBoxRect;
 
     private bool _newTabButton;
+    private bool _popupMouseInteractionActive;
+    private bool _suppressNextPopupClick;
 
     private long _stickyBorderTime = 5000000;
 
@@ -938,6 +940,12 @@ public partial class UIWindow : UIWindowBase
 
     protected internal override void OnMouseClick(MouseEventArgs e)
     {
+        if (_suppressNextPopupClick)
+        {
+            _suppressNextPopupClick = false;
+            return;
+        }
+
         if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseClick(localEvent)))
             return;
 
@@ -1023,7 +1031,10 @@ public partial class UIWindow : UIWindowBase
             Focus();
 
         if (TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseDown(localEvent)))
+        {
+            _popupMouseInteractionActive = true;
             return;
+        }
 
         // Title bar drag has absolute priority over child controls.
         // Check this BEFORE hit-testing children so that a misplaced child
@@ -1105,6 +1116,15 @@ public partial class UIWindow : UIWindowBase
 
     internal override void OnMouseUp(MouseEventArgs e)
     {
+        if (_popupMouseInteractionActive)
+        {
+            _popupMouseInteractionActive = false;
+            _suppressNextPopupClick = true;
+
+            TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseUp(localEvent));
+            return;
+        }
+
         if (!_formMoveMouseDown && _mouseCapturedElement == null &&
             TryRouteMouseEventToOpenPopup(e, static (popup, localEvent) => popup.OnMouseUp(localEvent)))
             return;
