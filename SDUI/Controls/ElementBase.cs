@@ -2500,8 +2500,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     {
         MouseClick?.Invoke(this, e);
 
-        // Standart WinForms davranışı: MouseClick sonrası Click olayı
-        OnClick(EventArgs.Empty);
+        if (e.Button == MouseButtons.Left)
+            OnClick(EventArgs.Empty);
 
         // Z-order'a göre tersten kontrol et (üstteki element önce)
         var scrollOffset = GetScrollOffset();

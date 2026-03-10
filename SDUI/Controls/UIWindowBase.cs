@@ -28,12 +28,12 @@ public partial class UIWindowBase : ElementBase
     /// </summary>
     public IntPtr Handle => _hWnd;
 
-    private FocusManager? _focusManager;
+    private FocusManager _focusManager;
     private bool _mouseInClient;
     protected bool enableFullDraggable;
 
     // element which currently has native mouse capture; used by derived classes
-    protected ElementBase? _mouseCapturedElement;
+    protected ElementBase _mouseCapturedElement;
 
     // cursor caching avoids redundant SetCursor calls
     private Cursor _currentCursor = Cursors.Default;
@@ -293,13 +293,13 @@ public partial class UIWindowBase : ElementBase
     }
 
 
-    private Icon? _icon;
+    private Icon _icon;
     private bool _showIcon = true;
 
     /// <summary>
     /// Gets or sets the icon for the window.
     /// </summary>
-    public Icon? Icon
+    public Icon Icon
     {
         get => _icon;
         set
@@ -1300,7 +1300,7 @@ public partial class UIWindowBase : ElementBase
         _idleMaintenanceTimer?.Dispose();
         _idleMaintenanceTimer = null;
 
-        SDUI.Rendering.IWindowRenderer? rendererToDispose;
+        SDUI.Rendering.IWindowRenderer rendererToDispose;
         lock (_rendererSync)
         {
             rendererToDispose = _renderer;

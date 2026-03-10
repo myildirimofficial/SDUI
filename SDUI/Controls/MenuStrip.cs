@@ -10,17 +10,17 @@ namespace SDUI.Controls;
 
 public class MenuStrip : ElementBase
 {
-    private const int MaxIconCacheEntries = 256;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
 
     // backing fields
+    private const double DefaultSubmenuCloseDelayMs = 140d;
     private readonly int _submenuAnimationDuration = 150;
     private readonly float _submenuArrowSize = 8f;
-    private ContextMenuStrip _activeDropDown;
-    private MenuItem _activeDropDownOwner;
+    private ContextMenuStrip? _activeDropDown;
+    private MenuItem? _activeDropDownOwner;
     private float _animationProgress;
-    private Timer _animationTimer;
+    private Timer? _animationTimer;
     private SKPaint? _arrowPaint;
 
     private SKPaint? _bgPaint;
@@ -28,13 +28,12 @@ public class MenuStrip : ElementBase
     private SKPaint? _checkPaint;
     private SKPath? _checkPath;
     private SKPath? _chevronPath;
-    private float _cornerRadius = 6f;
     private SKFont? _defaultSkFont;
     private int _defaultSkFontDpi;
     private Font? _defaultSkFontSource;
     private SKColor _hoverBackColor = SKColor.Empty;
     private SKPaint? _hoverBgPaint;
-    private MenuItem _hoveredItem;
+    private MenuItem? _hoveredItem;
     private SKColor _hoverForeColor = SKColor.Empty;
     private float _iconSize = 16f;
     private SKSize _imageScalingSize = new(20, 20);
@@ -44,21 +43,23 @@ public class MenuStrip : ElementBase
     private float _itemPadding = 6f;
     private SKColor _menuBackColor = SKColor.Empty;
     private SKColor _menuForeColor = SKColor.Empty;
-    private MenuItem _openedItem;
+    private MenuItem? _openedItem;
     private Orientation _orientation = Orientation.Horizontal;
     private bool _roundedCorners = true;
     private SKColor _separatorBackColor = SKColor.Empty;
     private SKColor _separatorColor = SKColor.Empty;
     private SKColor _separatorForeColor = SKColor.Empty;
-    private float _separatorMargin = 2f;
+    private float _separatorMargin = 4f;
     private bool _showCheckMargin = true;
     private bool _showHoverEffect = true;
     private bool _showIcons = true;
     private bool _showImageMargin = false;
+    private bool _showShortcutKeys = true;
     private bool _showSubmenuArrow = true;
     private bool _stretch;
     private SKColor _submenuBackColor = SKColor.Empty;
     private SKColor _submenuBorderColor = SKColor.Empty;
+    private Timer? _submenuCloseTimer;
     private SKPaint? _textPaint;
 
     public MenuStrip()
@@ -68,6 +69,7 @@ public class MenuStrip : ElementBase
         BackColor = ColorScheme.Surface;
         ForeColor = ColorScheme.ForeColor;
         InitializeAnimationTimer();
+        ColorScheme.ThemeChanged += OnThemeChanged;
     }
 
     [Browsable(false)] public List<MenuItem> Items { get; } = new();
@@ -138,6 +140,7 @@ public class MenuStrip : ElementBase
         {
             if (_menuBackColor == value) return;
             _menuBackColor = value;
+            BackColor = value;
             Invalidate();
         }
     }
@@ -186,6 +189,7 @@ public class MenuStrip : ElementBase
         {
             if (_submenuBackColor == value) return;
             _submenuBackColor = value;
+            SyncDropDownAppearance();
             Invalidate();
         }
     }
@@ -210,6 +214,7 @@ public class MenuStrip : ElementBase
         {
             if (_separatorColor == value) return;
             _separatorColor = value;
+            SyncDropDownAppearance();
             Invalidate();
         }
     }
@@ -285,6 +290,20 @@ public class MenuStrip : ElementBase
         {
             if (_showImageMargin == value) return;
             _showImageMargin = value;
+            Invalidate();
+        }
+    }
+
+    [Category("Appearance")]
+    [DefaultValue(true)]
+    public bool ShowShortcutKeys
+    {
+        get => _showShortcutKeys;
+        set
+        {
+            if (_showShortcutKeys == value) return;
+            _showShortcutKeys = value;
+            SyncDropDownAppearance();
             Invalidate();
         }
     }
@@ -373,13 +392,49 @@ public class MenuStrip : ElementBase
         return _defaultSkFont;
     }
 
+    private List<(MenuItem Item, SKRect Rect)> GetItemEntries()
+    {
+        var entries = new List<(MenuItem Item, SKRect Rect)>(Items.Count);
+        var rects = ComputeItemRects();
+        var rectIndex = 0;
+
+        for (var i = 0; i < Items.Count; i++)
+        {
+            var item = Items[i];
+            if (!item.Visible)
+                continue;
+
+            if (rectIndex >= rects.Count)
+                break;
+
+            entries.Add((item, rects[rectIndex++]));
+        }
+
+        return entries;
+    }
+
+    private void RefreshOpenSubmenuAnchor()
+    {
+        if (_activeDropDown == null || !_activeDropDown.IsOpen || _openedItem == null)
+            return;
+
+        var itemBounds = GetItemBounds(_openedItem);
+        if (itemBounds.IsEmpty)
+            return;
+
+        _activeDropDown.UpdateAnchorBounds(this, itemBounds);
+    }
+
     private void InitializeAnimationTimer()
     {
         _animationTimer = new Timer { Interval = 16 };
         _animationTimer.Elapsed += AnimationTimer_Tick;
+
+        _submenuCloseTimer = new Timer { Interval = DefaultSubmenuCloseDelayMs, AutoReset = false };
+        _submenuCloseTimer.Elapsed += SubmenuCloseTimer_Tick;
     }
 
-    private void AnimationTimer_Tick(object sender, EventArgs e)
+    private void AnimationTimer_Tick(object? sender, ElapsedEventArgs e)
     {
         if (!_isAnimating)
             return;
@@ -389,10 +444,81 @@ public class MenuStrip : ElementBase
         if (_animationProgress >= 1f)
         {
             _isAnimating = false;
-            _animationTimer.Stop();
+            _animationTimer?.Stop();
         }
 
         Invalidate();
+    }
+
+    private void SubmenuCloseTimer_Tick(object? sender, ElapsedEventArgs e)
+    {
+        ExecuteOnMenuThread(() =>
+        {
+            if (_openedItem == null || _hoveredItem?.HasDropDown == true)
+                return;
+
+            CloseSubmenu();
+        });
+    }
+
+    protected void CancelPendingSubmenuClose()
+    {
+        _submenuCloseTimer?.Stop();
+    }
+
+    protected void ScheduleSubmenuClose()
+    {
+        if (_openedItem == null)
+            return;
+
+        if (_hoveredItem?.HasDropDown == true)
+            return;
+
+        _submenuCloseTimer?.Stop();
+        _submenuCloseTimer?.Start();
+    }
+
+    private void ExecuteOnMenuThread(Action action)
+    {
+        var window = FindForm() as UIWindowBase;
+        if (window == null)
+        {
+            action();
+            return;
+        }
+
+        try
+        {
+            window.BeginInvoke(action);
+        }
+        catch
+        {
+            action();
+        }
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        if (_menuBackColor.IsEmpty())
+            BackColor = ColorScheme.Surface;
+
+        if (_menuForeColor.IsEmpty())
+            ForeColor = ColorScheme.ForeColor;
+
+        SyncDropDownAppearance();
+        Invalidate();
+    }
+
+    internal override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        RefreshOpenSubmenuAnchor();
+    }
+
+    internal override void OnLocationChanged(EventArgs e)
+    {
+        base.OnLocationChanged(e);
+        RefreshOpenSubmenuAnchor();
     }
 
     public void AddItem(MenuItem item)
@@ -408,7 +534,7 @@ public class MenuStrip : ElementBase
         if (item == null) throw new ArgumentNullException(nameof(item));
         if (Items.Remove(item))
         {
-            item.Parent = null;
+            item.Parent = null!;
             Invalidate();
         }
     }
@@ -432,30 +558,20 @@ public class MenuStrip : ElementBase
         if (Orientation == Orientation.Horizontal)
         {
             // Use ComputeItemRects to respect visibility and spacing logic
-            var rects = ComputeItemRects();
-            var rectIndex = 0;
-
-            for (var i = 0; i < Items.Count; i++)
+            var entries = GetItemEntries();
+            for (var i = 0; i < entries.Count; i++)
             {
-                var item = Items[i];
-                if (!item.Visible) continue;
-
-                if (rectIndex >= rects.Count) break;
-                var rf = rects[rectIndex++];
-                var r = new SkiaSharp.SKRect(rf.Left, rf.Top, rf.Right, rf.Bottom);
-                DrawMenuItem(canvas, item, r);
+                var entry = entries[i];
+                DrawMenuItem(canvas, entry.Item, entry.Rect);
             }
         }
         else
         {
-            var y = contentBounds.Top + ItemPadding;
-            for (var i = 0; i < Items.Count; i++)
+            var entries = GetItemEntries();
+            for (var i = 0; i < entries.Count; i++)
             {
-                var item = Items[i];
-                var w = contentBounds.Width - ItemPadding * 2;
-                var r = new SkiaSharp.SKRect(contentBounds.Left + ItemPadding, y, contentBounds.Left + ItemPadding + w, y + ItemHeight);
-                DrawMenuItem(canvas, item, r);
-                y += ItemHeight + ItemPadding;
+                var entry = entries[i];
+                DrawMenuItem(canvas, entry.Item, entry.Rect);
             }
         }
 
@@ -484,8 +600,7 @@ public class MenuStrip : ElementBase
             _hoverBgPaint ??= new SKPaint
             {
                 IsAntialias = true,
-                Style = SKPaintStyle.Fill,
-                FilterQuality = SKFilterQuality.High
+                Style = SKPaintStyle.Fill
             };
             _hoverBgPaint.Color = blend.WithAlpha(alpha);
             var hoverBounds = GetHoverBounds(bounds, vertical, scale);
@@ -556,8 +671,7 @@ public class MenuStrip : ElementBase
             var iy = bounds.Top + (bounds.Height - scaledIconSize) / 2;
             _imgPaint ??= new SKPaint
             {
-                IsAntialias = true,
-                FilterQuality = SKFilterQuality.High
+                IsAntialias = true
             };
 
             c.DrawBitmap(item.Icon, new SKRect(bounds.Left + 4 * scale, iy, bounds.Left + 4 * scale + scaledIconSize, iy + scaledIconSize),
@@ -572,6 +686,8 @@ public class MenuStrip : ElementBase
                 ? MenuForeColor
                 : HoverBackColor.Determine();
         var textColor = hover ? hoverFore : MenuForeColor;
+        var shortcutText = GetShortcutText(item, vertical);
+        var shouldDrawShortcut = shortcutText.Length > 0;
 
         var font = GetDefaultSkFont();
         _textPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -585,6 +701,24 @@ public class MenuStrip : ElementBase
             bounds.Bottom);
         c.DrawControlText(item.Text, drawBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
 
+        if (shouldDrawShortcut)
+        {
+            var shortcutRight = bounds.Right - Math.Max(6f * scale, item.Padding.Right * scale);
+            if (ShowSubmenuArrow && item.HasDropDown)
+                shortcutRight -= 24f * scale;
+
+            var shortcutWidth = MeasureShortcutTextWidth(font, shortcutText);
+            var shortcutBounds = new SkiaSharp.SKRect(
+                Math.Max(tx, shortcutRight - shortcutWidth),
+                bounds.Top,
+                Math.Max(tx, shortcutRight),
+                bounds.Bottom);
+
+            _textPaint.Color = textColor.WithAlpha(204);
+            c.DrawControlText(shortcutText, shortcutBounds, _textPaint, font, ContentAlignment.MiddleRight, false, true);
+            _textPaint.Color = textColor;
+        }
+
         // Measure text width for arrow positioning
         var textBounds = new SkiaSharp.SKRect();
         font.MeasureText(item.Text.Replace("&", ""), out textBounds);
@@ -595,8 +729,7 @@ public class MenuStrip : ElementBase
             _arrowPaint ??= new SKPaint
             {
                 IsAntialias = true,
-                Style = SKPaintStyle.Fill, // FILL instead of STROKE for better visibility
-                FilterQuality = SKFilterQuality.High
+                Style = SKPaintStyle.Fill
             };
 
             // Opacity logic: 0.4 (approx 102) constant when resting, Full opacity when hovered
@@ -691,7 +824,7 @@ public class MenuStrip : ElementBase
             // Dikey menüler ve ContextMenuStrip için; separator'lar da
             // ContextMenuStrip'teki satır yerleşimi ile aynı mantığı kullanmalı ki
             // hover alanı ile çizim hizalı olsun.
-            var margin = this is ContextMenuStrip ? ContextMenuStrip.ShadowMargin : 0f;
+            const float margin = 0f;
             var y = margin + _itemPadding;
             var w = b.Width - margin * 2 - _itemPadding * 2;
             var x = margin + _itemPadding;
@@ -720,15 +853,12 @@ public class MenuStrip : ElementBase
         return rects;
     }
 
-    private SkiaSharp.SKRect GetItemBounds(MenuItem item)
+    protected virtual SkiaSharp.SKRect GetItemBounds(MenuItem item)
     {
-        var rects = ComputeItemRects();
-        for (var i = 0; i < Items.Count; i++)
-            if (Items[i] == item)
-            {
-                var r = rects[i];
-                return new SkiaSharp.SKRect(r.Left, r.Top, r.Right, r.Bottom);
-            }
+        var entries = GetItemEntries();
+        for (var i = 0; i < entries.Count; i++)
+            if (ReferenceEquals(entries[i].Item, item))
+                return entries[i].Rect;
 
         return SkiaSharp.SKRect.Empty;
     }
@@ -736,12 +866,12 @@ public class MenuStrip : ElementBase
     internal override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var rects = ComputeItemRects();
-        MenuItem hovered = null;
-        for (var i = 0; i < Items.Count; i++)
-            if (rects[i].Contains(e.Location))
+        var entries = GetItemEntries();
+        MenuItem? hovered = null;
+        for (var i = 0; i < entries.Count; i++)
+            if (entries[i].Rect.Contains(e.Location))
             {
-                hovered = Items[i];
+                hovered = entries[i].Item;
                 break;
             }
 
@@ -752,17 +882,22 @@ public class MenuStrip : ElementBase
             // If hovering over a different item with dropdown, switch to it
             if (_hoveredItem?.HasDropDown == true && _openedItem != _hoveredItem)
             {
+                CancelPendingSubmenuClose();
                 OpenSubmenu(_hoveredItem);
             }
             // If hovering over item without dropdown but a submenu is open, close it
             else if (_hoveredItem != null && !_hoveredItem.HasDropDown && _openedItem != null)
             {
-                CloseSubmenu();
+                ScheduleSubmenuClose();
             }
             // If mouse left all items (null) and submenu is open, close it
             else if (_hoveredItem == null && _openedItem != null)
             {
-                CloseSubmenu();
+                ScheduleSubmenuClose();
+            }
+            else if (_hoveredItem?.HasDropDown == true)
+            {
+                CancelPendingSubmenuClose();
             }
             
             Invalidate();
@@ -773,11 +908,12 @@ public class MenuStrip : ElementBase
     {
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
-        var rects = ComputeItemRects();
-        for (var i = 0; i < Items.Count; i++)
-            if (rects[i].Contains(e.Location))
+        CancelPendingSubmenuClose();
+        var entries = GetItemEntries();
+        for (var i = 0; i < entries.Count; i++)
+            if (entries[i].Rect.Contains(e.Location))
             {
-                OnItemClicked(Items[i]);
+                OnItemClicked(entries[i].Item);
                 return;
             }
 
@@ -808,11 +944,14 @@ public class MenuStrip : ElementBase
     {
         base.OnMouseLeave(e);
         _hoveredItem = null;
+        ScheduleSubmenuClose();
         Invalidate();
     }
 
     protected void OpenSubmenu(MenuItem item)
     {
+        CancelPendingSubmenuClose();
+
         if (!item.HasDropDown)
         {
             CloseSubmenu();
@@ -823,116 +962,33 @@ public class MenuStrip : ElementBase
 
         CloseSubmenu();
         EnsureDropDownHost();
-    _activeDropDown.ParentDropDown = this as ContextMenuStrip;
-        _activeDropDown.Items.Clear();
+        var activeDropDown = _activeDropDown!;
+        activeDropDown.ParentDropDown = this as ContextMenuStrip;
+        activeDropDown.Items.Clear();
 
         foreach (var child in item.DropDownItems)
-            _activeDropDown.AddItem(CloneMenuItem(child));
+            activeDropDown.AddItem(CloneMenuItem(child));
 
         SyncDropDownAppearance();
 
         var itemBounds = GetItemBounds(item);
-        SKPoint screenPoint;
         var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
-
-        if (vertical)
-        {
-            // Cascading submenus must align by the *content* edge, not the shadow bounds.
-            // ContextMenuStrip's background starts at ShadowMargin, so compensate here.
-            var shadow = _activeDropDown is ContextMenuStrip ? ContextMenuStrip.ShadowMargin : 0f;
-
-            // Parent content right edge in local coords.
-            var parentContentRight = this is ContextMenuStrip
-                ? Width - ContextMenuStrip.ShadowMargin
-                : itemBounds.Right;
-
-            // Desired child background top-left (local coords), with 1px overlap to avoid seams.
-            var desiredBgLeft = parentContentRight - 1f;
-            
-            // Measure submenu size to check if it fits and for centering
-            var submenuSize = _activeDropDown.MeasurePreferredSize();
-            
-            // Center submenu vertically on the parent menu item
-            var desiredBgTop = itemBounds.Top + (itemBounds.Height - submenuSize.Height) / 2f;
-            var screenTarget = PointToScreen(new SKPoint((int)desiredBgLeft, (int)desiredBgTop));
-            var screenTargetRight = screenTarget.X + submenuSize.Width;
-            var screenTargetBottom = screenTarget.Y + submenuSize.Height;
-            
-            // Use Screen class to get proper working area for the current monitor
-            var currentScreen = ParentWindow != null
-                ? Screen.FromHandle(ParentWindow.Handle)
-                : Screen.FromPoint(screenTarget);
-            var screenBounds = currentScreen.WorkingArea;
-
-            // Adjust vertical position if submenu goes off-screen vertically
-            if (screenTargetBottom > screenBounds.Bottom)
-            {
-                var overflow = screenTargetBottom - screenBounds.Bottom;
-                desiredBgTop -= overflow;
-            }
-            if (screenTarget.Y < screenBounds.Top)
-            {
-                desiredBgTop += (screenBounds.Top - screenTarget.Y);
-            }
-
-            // If it goes off-screen to the right, flip to the left side
-            if (screenTargetRight > screenBounds.Right)
-            {
-                var parentContentLeft = this is ContextMenuStrip
-                    ? ContextMenuStrip.ShadowMargin
-                    : itemBounds.Left;
-                // Flip to left side: submenu's background right edge should align with parent's left edge + 1px overlap
-                // submenuSize.Width includes shadow on both sides, so actual background width = submenuSize.Width - 2*shadow
-                // We want: desiredBgLeft + (submenuSize.Width - 2*shadow) = parentContentLeft - 1
-                desiredBgLeft = parentContentLeft - submenuSize.Width + 2f * shadow - 1f;
-                // If still off-screen to the left, clamp within bounds
-                var screenTargetLeft = PointToScreen(new SKPoint((int)desiredBgLeft, (int)desiredBgTop)).X;
-                if (screenTargetLeft < screenBounds.Left)
-                {
-                    desiredBgLeft += (screenBounds.Left - screenTargetLeft);
-                }
-            }
-            
-            // Convert desired background origin to dropdown's control origin (includes shadow space).
-            var targetX = (int)Math.Round(desiredBgLeft - shadow);
-            var targetY = (int)Math.Round(desiredBgTop - shadow);
-            screenPoint = PointToScreen(new SKPoint(targetX, targetY));
-        }
-        else
-        {
-            // Below, left aligned - check if docked at bottom
-            var shadow = _activeDropDown is ContextMenuStrip ? ContextMenuStrip.ShadowMargin : 0f;
-
-            var targetX = (int)Math.Round(itemBounds.Left - shadow);
-            int targetY;
-
-            // If MenuStrip is docked at bottom, open upwards
-            if (Dock == DockStyle.Bottom)
-            {
-                var popupSize = _activeDropDown.MeasurePreferredSize();
-                // Keep background aligned even though popup includes shadow space.
-                targetY = (int)Math.Round(itemBounds.Top - popupSize.Height - 4 + shadow);
-            }
-            else
-            {
-                targetY = (int)Math.Round(itemBounds.Bottom + 4 - shadow);
-            }
-
-            screenPoint = PointToScreen(new SKPoint(targetX, targetY));
-        }
 
         _activeDropDownOwner = item;
         _openedItem = item;
 
         // Initialize dropdown DPI from parent before showing
-        if (_activeDropDown != null) _activeDropDown.InitializeDpi(DeviceDpi);
+        activeDropDown.InitializeDpi(DeviceDpi);
 
-        _activeDropDown.Show(this, screenPoint);
+        if (vertical)
+            activeDropDown.ShowAnchoredBeside(this, itemBounds);
+        else
+            activeDropDown.ShowAnchoredBelow(this, itemBounds);
 
         // İlk açılışta da her zaman en üst z-index'te olsun.
         if (FindForm() is UIWindowBase uiw)
         {
-            uiw.BringToFront(_activeDropDown);
+            uiw.BringToFront(activeDropDown);
 
             // Re-assert top z-order after current message loop to avoid
             // first-show draw races where popup may appear behind other elements.
@@ -943,7 +999,8 @@ public class MenuStrip : ElementBase
                     try
                     {
                         _activeDropDown?.BringToFront();
-                        uiw.BringToFront(_activeDropDown);
+                        if (_activeDropDown != null)
+                            uiw.BringToFront(_activeDropDown);
                         uiw.Invalidate();
                     }
                     catch
@@ -961,6 +1018,7 @@ public class MenuStrip : ElementBase
 
     protected void CloseSubmenu()
     {
+        CancelPendingSubmenuClose();
         if (_activeDropDown != null && _activeDropDown.IsOpen) _activeDropDown.Hide();
         _openedItem = null;
         _activeDropDownOwner = null;
@@ -985,12 +1043,17 @@ public class MenuStrip : ElementBase
     {
         if (_activeDropDown == null) return;
         _activeDropDown.MenuBackColor = SubmenuBackColor;
+        _activeDropDown.BackColor = SubmenuBackColor;
         _activeDropDown.MenuForeColor = MenuForeColor;
         _activeDropDown.HoverBackColor = HoverBackColor;
         _activeDropDown.HoverForeColor = HoverForeColor;
         _activeDropDown.SubmenuBackColor = SubmenuBackColor;
         _activeDropDown.SeparatorColor = SeparatorColor;
+        _activeDropDown.SeparatorMargin = Math.Max(SeparatorMargin, _activeDropDown.ItemPadding * 0.5f);
         _activeDropDown.RoundedCorners = RoundedCorners;
+        _activeDropDown.Radius = RoundedCorners
+            ? new Radius((int)Math.Round(10f * _activeDropDown.ScaleFactor))
+            : new Radius(0);
         _activeDropDown.ItemPadding = Math.Max(ItemPadding, 6f);
         _activeDropDown.Orientation = Orientation.Vertical;
         _activeDropDown.ImageScalingSize = ImageScalingSize;
@@ -998,6 +1061,9 @@ public class MenuStrip : ElementBase
         _activeDropDown.ShowIcons = ShowIcons;
         _activeDropDown.ShowCheckMargin = ShowCheckMargin;
         _activeDropDown.ShowImageMargin = ShowImageMargin;
+        _activeDropDown.ShowShortcutKeys = ShowShortcutKeys;
+        _activeDropDown.Border = new Thickness(1);
+        _activeDropDown.Invalidate();
     }
 
     protected internal virtual MenuItem CloneMenuItem(MenuItem source)
@@ -1048,8 +1114,41 @@ public class MenuStrip : ElementBase
 
         if (vertical && ShowIcons && item.Icon != null)
             w += (_iconSize + 6) * ScaleFactor;
+
+        if (vertical)
+            w += GetShortcutTextReserve(item, vertical, font);
         
         return w;
+    }
+
+    protected string GetShortcutText(MenuItem item, bool vertical)
+    {
+        if (!vertical || !ShowShortcutKeys || item.ShortcutKeys == Keys.None)
+            return string.Empty;
+
+        return item.ShortcutKeys
+            .ToString()
+            .Replace(", ", "+", StringComparison.Ordinal)
+            .Replace(",", "+", StringComparison.Ordinal);
+    }
+
+    protected float MeasureShortcutTextWidth(SKFont font, string shortcutText)
+    {
+        if (string.IsNullOrWhiteSpace(shortcutText))
+            return 0f;
+
+        var bounds = new SKRect();
+        font.MeasureText(shortcutText, out bounds);
+        return bounds.Width;
+    }
+
+    protected float GetShortcutTextReserve(MenuItem item, bool vertical, SKFont font)
+    {
+        var shortcutText = GetShortcutText(item, vertical);
+        if (shortcutText.Length == 0)
+            return 0f;
+
+        return MeasureShortcutTextWidth(font, shortcutText) + 14f * ScaleFactor;
     }
 
     private float GetHorizontalMenuInset()
@@ -1128,6 +1227,7 @@ public class MenuStrip : ElementBase
         if (vertical)
         {
             var reserve = Math.Max(6f * ScaleFactor, item.Padding.Right * ScaleFactor);
+            reserve += GetShortcutTextReserve(item, vertical, GetDefaultSkFont());
             if (ShowSubmenuArrow && item.HasDropDown)
                 reserve += 24f * ScaleFactor;
             return reserve;
@@ -1148,7 +1248,18 @@ public class MenuStrip : ElementBase
                 _animationTimer.Stop();
                 _animationTimer.Elapsed -= AnimationTimer_Tick;
                 _animationTimer.Dispose();
+                _animationTimer = null;
             }
+
+            if (_submenuCloseTimer != null)
+            {
+                _submenuCloseTimer.Stop();
+                _submenuCloseTimer.Elapsed -= SubmenuCloseTimer_Tick;
+                _submenuCloseTimer.Dispose();
+                _submenuCloseTimer = null;
+            }
+
+            ColorScheme.ThemeChanged -= OnThemeChanged;
 
             foreach (var anim in _itemHoverAnims.Values)
                 anim?.Dispose();
@@ -1165,6 +1276,7 @@ public class MenuStrip : ElementBase
             _arrowPaint?.Dispose();
             _chevronPath?.Dispose();
             _defaultSkFont?.Dispose();
+            _defaultSkFont = null;
         }
 
         base.Dispose(disposing);

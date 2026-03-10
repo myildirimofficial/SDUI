@@ -131,10 +131,10 @@ internal partial class MainWindow
         // --- ExtendMenu: drop-down that appears when the extend button (⋯) in
         // the title bar is clicked. ExtendBox must be true to show the button.
         this.extendMenu = new ContextMenuStrip();
-        this.extendMenu.AddMenuItem("Settings", (s, e) => Debug.WriteLine("Settings clicked"));
+        this.extendMenu.AddMenuItem("Settings", (s, e) => Debug.WriteLine("Settings clicked"), Keys.Control | Keys.O);
         this.extendMenu.AddMenuItem("Check for Updates", (s, e) => Debug.WriteLine("Update check"));
         this.extendMenu.AddSeparator();
-        var themeItem = this.extendMenu.AddMenuItem("Dark Mode");
+        var themeItem = this.extendMenu.AddMenuItem("Dark Mode", null, Keys.Control | Keys.L);
         themeItem.CheckOnClick = true;
         themeItem.Checked = ColorScheme.IsDarkMode;
         themeItem.CheckedChanged += (s, e) => ColorScheme.IsDarkMode = !ColorScheme.IsDarkMode;
@@ -159,6 +159,9 @@ internal partial class MainWindow
         windowPageControl.Controls.Add(panel);
         windowPageControl.Controls.Add(panel2);
         windowPageControl.Controls.Add(panel3);
+
+        extendMenu.ShowShortcutKeys = true;
+        menuStrip.ShowShortcutKeys = true;
 
         // 
         // MainWindow
