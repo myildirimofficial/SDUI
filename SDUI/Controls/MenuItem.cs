@@ -441,7 +441,10 @@ public static class MenuStripExtensions
     public static MenuItem AddMenuItem(this MenuStrip menu, string text, EventHandler onClick = null,
         Keys shortcut = Keys.None)
     {
-        var item = new MenuItem(text);
+        var item = new MenuItem(text)
+        {
+            ShortcutKeys = shortcut
+        };
         if (onClick != null)
             item.Click += onClick;
         menu.AddItem(item);
@@ -451,7 +454,10 @@ public static class MenuStripExtensions
     public static MenuItem AddMenuItem(this MenuItem parent, string text, EventHandler onClick = null,
         Keys shortcut = Keys.None)
     {
-        var item = new MenuItem(text);
+        var item = new MenuItem(text)
+        {
+            ShortcutKeys = shortcut
+        };
         if (onClick != null)
             item.Click += onClick;
         parent.AddDropDownItem(item);

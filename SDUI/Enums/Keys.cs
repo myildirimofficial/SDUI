@@ -4,15 +4,16 @@ namespace SDUI;
 
 /// <summary>
 /// Simple, cross-platform SDUI Keys enum used for input abstractions.
-/// It is deliberately small and flags-based for modifier checking.
+/// Modifier keys live in a separate high-bit range so they can be OR'ed with
+/// physical key codes without corrupting the base key value.
 /// </summary>
 [Flags]
 public enum Keys
 {
     None = 0,
-    Shift = 1 << 0,
-    Control = 1 << 1,
-    Alt = 1 << 2,
+    Shift = 1 << 16,
+    Control = 1 << 17,
+    Alt = 1 << 18,
     Enter = 0x0D,
     Escape = 0x1B,
     Space = 0x20,

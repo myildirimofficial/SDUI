@@ -10,6 +10,7 @@ namespace SDUI.Controls;
 
 public class MenuStrip : ElementBase
 {
+    private const Keys ShortcutModifierMask = Keys.Shift | Keys.Control | Keys.Alt;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
 
@@ -31,6 +32,9 @@ public class MenuStrip : ElementBase
     private SKFont? _defaultSkFont;
     private int _defaultSkFontDpi;
     private Font? _defaultSkFontSource;
+    private SKFont? _shortcutSkFont;
+    private int _shortcutSkFontDpi;
+    private Font? _shortcutSkFontSource;
     private SKColor _hoverBackColor = SKColor.Empty;
     private SKPaint? _hoverBgPaint;
     private MenuItem? _hoveredItem;
@@ -363,6 +367,10 @@ public class MenuStrip : ElementBase
         _defaultSkFont = null;
         _defaultSkFontSource = null;
         _defaultSkFontDpi = 0;
+        _shortcutSkFont?.Dispose();
+        _shortcutSkFont = null;
+        _shortcutSkFontSource = null;
+        _shortcutSkFontDpi = 0;
     }
 
     internal override void OnPaddingChanged(EventArgs e)
@@ -390,6 +398,33 @@ public class MenuStrip : ElementBase
         }
 
         return _defaultSkFont;
+    }
+
+    protected SKFont GetShortcutSkFont()
+    {
+        var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
+        var font = Font;
+        if (_shortcutSkFont == null || !ReferenceEquals(_shortcutSkFontSource, font) || _shortcutSkFontDpi != dpi)
+        {
+            _shortcutSkFont?.Dispose();
+
+            var shortcutWeight = font.Bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.SemiBold;
+            using var shortcutTypeface = SKTypeface.FromFamilyName(
+                font.Name,
+                new SKFontStyle(shortcutWeight, SKFontStyleWidth.Normal, font.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright));
+
+            _shortcutSkFont = new SKFont
+            {
+                Size = 8.Topx(this),
+                Typeface = shortcutTypeface,
+                Subpixel = true,
+                Edging = SKFontEdging.SubpixelAntialias
+            };
+            _shortcutSkFontSource = font;
+            _shortcutSkFontDpi = dpi;
+        }
+
+        return _shortcutSkFont;
     }
 
     private List<(MenuItem Item, SKRect Rect)> GetItemEntries()
@@ -690,6 +725,7 @@ public class MenuStrip : ElementBase
         var shouldDrawShortcut = shortcutText.Length > 0;
 
         var font = GetDefaultSkFont();
+        var shortcutFont = shouldDrawShortcut ? GetShortcutSkFont() : font;
         _textPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
         _textPaint.Color = textColor;
         
@@ -703,19 +739,19 @@ public class MenuStrip : ElementBase
 
         if (shouldDrawShortcut)
         {
-            var shortcutRight = bounds.Right - Math.Max(6f * scale, item.Padding.Right * scale);
+            var shortcutRight = bounds.Right - Math.Max(8f * scale, item.Padding.Right * scale + 2f * scale);
             if (ShowSubmenuArrow && item.HasDropDown)
-                shortcutRight -= 24f * scale;
+                shortcutRight -= 30f * scale;
 
-            var shortcutWidth = MeasureShortcutTextWidth(font, shortcutText);
+            var shortcutWidth = MeasureShortcutTextWidth(shortcutFont, shortcutText);
             var shortcutBounds = new SkiaSharp.SKRect(
                 Math.Max(tx, shortcutRight - shortcutWidth),
                 bounds.Top,
                 Math.Max(tx, shortcutRight),
                 bounds.Bottom);
 
-            _textPaint.Color = textColor.WithAlpha(204);
-            c.DrawControlText(shortcutText, shortcutBounds, _textPaint, font, ContentAlignment.MiddleRight, false, true);
+            _textPaint.Color = textColor.WithAlpha(148);
+            c.DrawControlText(shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
             _textPaint.Color = textColor;
         }
 
@@ -1126,10 +1162,54 @@ public class MenuStrip : ElementBase
         if (!vertical || !ShowShortcutKeys || item.ShortcutKeys == Keys.None)
             return string.Empty;
 
-        return item.ShortcutKeys
-            .ToString()
-            .Replace(", ", "+", StringComparison.Ordinal)
-            .Replace(",", "+", StringComparison.Ordinal);
+        var parts = new List<string>(4);
+        var shortcut = item.ShortcutKeys;
+
+        if ((shortcut & Keys.Control) == Keys.Control)
+            parts.Add("Ctrl");
+
+        if ((shortcut & Keys.Shift) == Keys.Shift)
+            parts.Add("Shift");
+
+        if ((shortcut & Keys.Alt) == Keys.Alt)
+            parts.Add("Alt");
+
+        var keyCode = shortcut & ~ShortcutModifierMask;
+        var keyName = GetShortcutKeyName(keyCode);
+        if (keyName.Length > 0)
+            parts.Add(keyName);
+
+        return string.Join("+", parts);
+    }
+
+    private static string GetShortcutKeyName(Keys keyCode)
+    {
+        return keyCode switch
+        {
+            Keys.None => string.Empty,
+            Keys.Enter => "Enter",
+            Keys.Escape => "Esc",
+            Keys.Space => "Space",
+            Keys.Left => "Left",
+            Keys.Up => "Up",
+            Keys.Right => "Right",
+            Keys.Down => "Down",
+            Keys.Back => "Backspace",
+            Keys.Tab => "Tab",
+            Keys.Home => "Home",
+            Keys.End => "End",
+            Keys.D0 => "0",
+            Keys.D1 => "1",
+            Keys.D2 => "2",
+            Keys.D3 => "3",
+            Keys.D4 => "4",
+            Keys.D5 => "5",
+            Keys.D6 => "6",
+            Keys.D7 => "7",
+            Keys.D8 => "8",
+            Keys.D9 => "9",
+            _ => keyCode.ToString()
+        };
     }
 
     protected float MeasureShortcutTextWidth(SKFont font, string shortcutText)
@@ -1148,7 +1228,7 @@ public class MenuStrip : ElementBase
         if (shortcutText.Length == 0)
             return 0f;
 
-        return MeasureShortcutTextWidth(font, shortcutText) + 14f * ScaleFactor;
+        return MeasureShortcutTextWidth(GetShortcutSkFont(), shortcutText) + 22f * ScaleFactor;
     }
 
     private float GetHorizontalMenuInset()
@@ -1277,6 +1357,8 @@ public class MenuStrip : ElementBase
             _chevronPath?.Dispose();
             _defaultSkFont?.Dispose();
             _defaultSkFont = null;
+            _shortcutSkFont?.Dispose();
+            _shortcutSkFont = null;
         }
 
         base.Dispose(disposing);

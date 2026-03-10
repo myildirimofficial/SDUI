@@ -1096,15 +1096,16 @@ public class ContextMenuStrip : MenuStrip
                     : HoverBackColor.Determine();
             var textColor = isHovered ? hoverFore : MenuForeColor;
             var font = GetDefaultSkFont();
+            var shortcutFont = GetShortcutSkFont();
             var shortcutText = GetShortcutText(item, vertical: true);
-            var shortcutWidth = MeasureShortcutTextWidth(font, shortcutText);
+            var shortcutWidth = MeasureShortcutTextWidth(shortcutFont, shortcutText);
 
             _textPaint!.Color = textColor.WithAlpha(fadeAlpha);
 
             // Reserve space for chevron if item has dropdown
             var textWidth = itemRect.Right - textX;
             if (shortcutText.Length > 0)
-                textWidth -= shortcutWidth + 14f * scale;
+                textWidth -= shortcutWidth + 22f * scale;
             if (ShowSubmenuArrow && item.HasDropDown)
             {
                 // Chevron is right anchored. 
@@ -1121,9 +1122,9 @@ public class ContextMenuStrip : MenuStrip
 
             if (shortcutText.Length > 0)
             {
-                var shortcutRight = itemRect.Right - 10f * scale;
+                var shortcutRight = itemRect.Right - 12f * scale;
                 if (ShowSubmenuArrow && item.HasDropDown)
-                    shortcutRight -= 28f * scale;
+                    shortcutRight -= 34f * scale;
 
                 var shortcutBounds = SkiaSharp.SKRect.Create(
                     Math.Max(textX, shortcutRight - shortcutWidth),
@@ -1131,8 +1132,8 @@ public class ContextMenuStrip : MenuStrip
                     Math.Max(1f, shortcutWidth),
                     itemRect.Height);
 
-                _textPaint.Color = textColor.WithAlpha((byte)(fadeAlpha * 204 / 255f));
-                canvas.DrawControlText(shortcutText, shortcutBounds, _textPaint, font, ContentAlignment.MiddleRight, false, true);
+                _textPaint.Color = textColor.WithAlpha((byte)(fadeAlpha * 120 / 255f));
+                canvas.DrawControlText(shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
                 _textPaint.Color = textColor.WithAlpha(fadeAlpha);
             }
 
