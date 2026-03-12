@@ -372,7 +372,6 @@ public partial class UIWindowBase : ElementBase
 
         _hInstance = Methods.GetModuleHandle(null);
         _wndProcDelegate = new WndProc(WndProc);
-        CreateHandle();
     }
 
     /// <summary>
@@ -527,9 +526,6 @@ public partial class UIWindowBase : ElementBase
         foreach (var c in Controls)
             if (c is ElementBase child)
                 child.EnsureLoadedRecursively();
-
-        if (BackColor != ColorScheme.Surface)
-            BackColor = ColorScheme.Surface;
     }
 
     /// <summary>
@@ -539,12 +535,15 @@ public partial class UIWindowBase : ElementBase
     /// already visible window has no additional effect.</remarks>
     public override void Show()
     {
-        if (_hWnd != IntPtr.Zero)
-        {
-            Application.RegisterForm(this);
-            ShowWindow(_hWnd, 5);
-            Application.SetActiveForm(this);
-        }
+        if (!IsHandleCreated)
+            CreateHandle();
+
+        if (_hWnd == IntPtr.Zero)
+            return;
+
+        Application.RegisterForm(this);
+        ShowWindow(_hWnd, 5);
+        Application.SetActiveForm(this);
     }
 
     /// <summary>
@@ -555,6 +554,9 @@ public partial class UIWindowBase : ElementBase
     /// method should be called from a thread that can safely run a message loop, such as the main UI thread.</remarks>
     public void ShowDialog()
     {
+        if (!IsHandleCreated)
+            CreateHandle();
+
         if (_hWnd == IntPtr.Zero)
             return;
 
@@ -1156,7 +1158,7 @@ public partial class UIWindowBase : ElementBase
         SDUI.Native.Windows.Helpers.ApplyRoundCorner(Handle);
         UpdateNativeWindowText();
 
-        if (_aeroEnabled && DwmMargin >= 0)
+        if (_aeroEnabled)
         {
             uint v = 2;
 

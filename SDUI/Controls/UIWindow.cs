@@ -576,7 +576,7 @@ public partial class UIWindow : UIWindowBase
                 pageAreaAnimationManager.SetProgress(0);
                 pageAreaAnimationManager.StartNewAnimation(AnimationDirection.In);
             };
-            _windowPageControl.ControlAdded += delegate { Invalidate(); };
+_windowPageControl.ControlAdded += delegate { Invalidate(); };
             _windowPageControl.ControlRemoved += delegate { Invalidate(); };
         }
     }
@@ -2125,17 +2125,7 @@ public partial class UIWindow : UIWindowBase
             currentX += finalWidth;
         }
     }
-
-    private void InvalidateElement(ElementBase element)
-    {
-        if (LayoutSuspendCount > 0) return;
-
-        element.InvalidateRenderTree();
-
-        if (!NeedsFullChildRedraw)
-            Invalidate();
-    }
-
+    
     // optimization helpers --------------------------------------------------
 
     /// <summary>
@@ -2150,7 +2140,11 @@ public partial class UIWindow : UIWindowBase
             Singular = true,
             InterruptAnimation = true
         };
-        m.OnAnimationProgress += _ => Invalidate();
+        m.OnAnimationProgress += _ =>
+        {
+            if (IsHandleCreated && Visible && WindowState != FormWindowState.Minimized)
+                Invalidate();
+        };
         return m;
     }
 
@@ -2185,10 +2179,20 @@ public partial class UIWindow : UIWindowBase
         if (disposing)
         {
             ColorScheme.ThemeChanged -= OnThemeChanged;
+            
+            for (var i = 0; i < _hoverAnimationManagers.Count; i++)
+                _hoverAnimationManagers[i]?.Dispose();
+            _hoverAnimationManagers.Clear();
 
             foreach (var paint in _paintCache.Values)
                 paint.Dispose();
             _paintCache.Clear();
+
+            foreach (var font in _fontCache.Values)
+                font.Dispose();
+            _fontCache.Clear();
+
+            _tempPath.Dispose();
         }
 
         base.Dispose(disposing);

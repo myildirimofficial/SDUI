@@ -50,9 +50,6 @@ public static class ColorScheme
     public static SKColor SurfaceContainer => SurfaceAdjust(Surface, .08);
     public static SKColor SurfaceContainerHigh => SurfaceAdjust(Surface, .12);
 
-    private static readonly SKColor White = new(255, 255, 255);
-    private static readonly SKColor Black = new(28, 28, 28);
-
     private static SKColor _primary = new(33,150,243);
 
     public static SKColor Primary => _primary;
@@ -153,7 +150,7 @@ public static class ColorScheme
     private static SKColor SurfaceAdjust(SKColor baseColor, double amount)
     {
         return _isDark
-            ? Blend(baseColor, White, amount)
+            ? Blend(baseColor, SKColors.White, amount)
             : Blend(baseColor, SKColors.Black, amount);
     }
 

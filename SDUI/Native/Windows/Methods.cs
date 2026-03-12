@@ -102,6 +102,9 @@ public partial class Methods
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool SetWindowText(IntPtr hWnd, string lpString);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(IntPtr hWnd, out Rect lpRect);
