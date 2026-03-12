@@ -48,7 +48,6 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         Controls = new ElementCollection(this);
         Properties = new();
 
-        _font = new Font("Segoe UI", 9f);
         _cursor = Cursors.Default;
         _currentDpi = Screen.GetSystemDpi();
 
@@ -676,7 +675,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
     }
 
-    private SKColor _foreColor = SKColors.Black;
+    private SKColor _foreColor = SKColors.Transparent;
+
+    [Browsable(false)]
+    internal SKColor ResolvedForeColor => _foreColor == SKColors.Transparent
+        ? _parent?.ResolvedForeColor ?? ColorScheme.ForeColor
+        : _foreColor;
 
     public virtual SKColor ForeColor
     {
@@ -694,22 +698,42 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
     }
 
-    private Font _font;
+    private SKFont? _font;
 
-    public virtual Font Font
+    [Browsable(false)]
+    internal bool HasCustomFont => _font != null;
+
+    [Browsable(false)]
+    internal SKFont ResolvedFont => _font ?? Application.SharedDefaultFont;
+
+    public virtual SKFont Font
     {
-        get => _font;
+        get => ResolvedFont.CloneFont();
         set
         {
-            if (_font == value)
+            if (_font.FontEquals(value))
                 return;
 
-            _font = value;
+            var replacement = value.CloneFont();
+            _font?.Dispose();
+            _font = replacement;
 
             OnFontChanged(EventArgs.Empty);
             InvalidateMeasure();
             Invalidate();
         }
+    }
+
+    public virtual void ResetFont()
+    {
+        if (_font == null)
+            return;
+
+        _font.Dispose();
+        _font = null;
+        OnFontChanged(EventArgs.Empty);
+        InvalidateMeasure();
+        Invalidate();
     }
 
     private string _text = string.Empty;
@@ -1902,43 +1926,31 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 }
             }
 
-
-
-            // Render default text if control has text and is visible
-            if (!string.IsNullOrEmpty(Text) && ForeColor != SKColor.Empty)
+            // Render default text for leaf-like controls. Containers are expected to manage their own content.
+            if (this is not Container && !string.IsNullOrEmpty(Text))
             {
-                try
+                var textColor = ResolvedForeColor;
+                using var paint = new SKPaint
                 {
-                    using var paint = new SKPaint
-                    {
-                        Color = ForeColor,
-                        IsAntialias = true
-                    };
+                    Color = textColor,
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Fill
+                };
 
-                    using var font = new SKFont(SKTypeface.Default)
-                    {
-                        Size = _font.Size.Topx(this),
-                        Subpixel = true,
-                        Edging = SKFontEdging.SubpixelAntialias
-                    };
-
-                    var textWidth = font.MeasureText(Text);
-                    var padding = Padding;
-
-                    // Simple center alignment for now
-                    float x = (Width - textWidth) / 2;
-                    float y = Height / 2 + (font.Metrics.Descent - font.Metrics.Ascent) / 2;
-
-                    if (x < padding.Left) x = padding.Left;
-                    if (y < padding.Top) y = padding.Top;
-
-                    TextRenderer.DrawText(targetCanvas, Text, x, y, ForeColor);
-                    //targetCanvas.DrawText(Text, x, y, SKTextAlign.Left, font, paint);
-                }
-                catch
+                var controlFont = ResolvedFont;
+                using var font = new SKFont(controlFont.Typeface ?? SKTypeface.Default)
                 {
-                    // Silently fail if text rendering fails (e.g., invalid font)
-                }
+                    Size = controlFont.Size.Topx(this),
+                    Subpixel = controlFont.Subpixel,
+                    Edging = controlFont.Edging,
+                    Hinting = controlFont.Hinting,
+                    Embolden = controlFont.Embolden,
+                    ScaleX = controlFont.ScaleX,
+                    SkewX = controlFont.SkewX,
+                    LinearMetrics = controlFont.LinearMetrics
+                };
+
+                DrawControlText(targetCanvas, ProcessedText, DisplayRectangle, paint, font, TextAlign, AutoEllipsis, UseMnemonic);
             }
 
             // ── Children ──
@@ -1952,6 +1964,77 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (DebugSettings.EnableRenderLogging)
                 DebugSettings.Log(
                     $"UIElementBase: Render failed for element {GetType().Name} ({Width}x{Height}): {ex.GetType().Name} - {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Helper to draw control text inside a bounding rect with ContentAlignment, ellipsis and mnemonic handling.
+    /// Uses centralized <see cref="SDUI.Helpers.TextRenderer"/> for proper fallback-font handling.
+    /// </summary>
+    public void DrawControlText(SKCanvas canvas, string text, SKRect bounds, SKPaint paint, SKFont font,
+        ContentAlignment alignment, bool autoEllipsis = false, bool useMnemonic = false)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+
+        var skAlignment = alignment switch
+        {
+            ContentAlignment.TopLeft or ContentAlignment.MiddleLeft or ContentAlignment.BottomLeft => SKTextAlign.Left,
+            ContentAlignment.TopRight or ContentAlignment.MiddleRight or ContentAlignment.BottomRight => SKTextAlign.Right,
+            _ => SKTextAlign.Center
+        };
+
+        // Calculate X
+        var x = skAlignment switch
+        {
+            SKTextAlign.Center => bounds.MidX,
+            SKTextAlign.Right => bounds.Right,
+            _ => bounds.Left
+        };
+
+        // Calculate Y (Vertical Center)
+        var y = bounds.MidY - (font.Metrics.Ascent + font.Metrics.Descent) / 2f;
+
+        // Adjust for Top/Bottom
+        if (alignment == ContentAlignment.TopLeft || alignment == ContentAlignment.TopCenter ||
+            alignment == ContentAlignment.TopRight)
+            y = bounds.Top - font.Metrics.Ascent + 4;
+        else if (alignment == ContentAlignment.BottomLeft || alignment == ContentAlignment.BottomCenter ||
+                 alignment == ContentAlignment.BottomRight)
+            y = bounds.Bottom - font.Metrics.Descent - 4;
+
+        var options = new SDUI.Helpers.TextRenderOptions
+        {
+            UseMnemonic = useMnemonic,
+            Trimming = autoEllipsis ? TextTrimming.CharacterEllipsis : TextTrimming.None,
+            MaxWidth = bounds.Width,
+            Subpixel = font.Subpixel,
+            Edging = font.Edging,
+            Hinting = font.Hinting
+        };
+
+        TextRenderer.DrawText(canvas, text, x, y, skAlignment, font, paint, options);
+    }
+
+    internal void HandleDefaultFontChanged()
+    {
+        HandleDefaultFontChangedRecursive();
+        PerformLayout();
+        Invalidate();
+    }
+
+    private void HandleDefaultFontChangedRecursive()
+    {
+        if (_font == null)
+        {
+            InvalidateFontCache();
+            InvalidateMeasure();
+            Invalidate();
+        }
+
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is ElementBase child)
+                child.HandleDefaultFontChangedRecursive();
         }
     }
 

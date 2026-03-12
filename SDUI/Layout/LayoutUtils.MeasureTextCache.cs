@@ -28,7 +28,7 @@ internal static partial class LayoutUtils
         /// employs an MRU of the last several constraints passed in via a ring-buffer of size MaxCacheSize.
         /// Assumes Text and TextRenderOptions are the same, if either were to change, a call to
         /// InvalidateCache should be made
-        public SKSize GetTextSize(string? text, Font? font, SKSize proposedConstraints, TextRenderOptions options)
+        public SKSize GetTextSize(string? text, SKFont? font, SKSize proposedConstraints, TextRenderOptions options)
         {
             if (!TextRequiresWordBreak(text, font, proposedConstraints, options))
             {
@@ -98,7 +98,7 @@ internal static partial class LayoutUtils
         /// for it to break on a word. So we find out what the unconstrained size is (Int32.MaxValue, Int32.MaxValue)
         /// for a string - eg. 35, 13. If the size passed in has a larger width than 35, then we know that
         /// the word wrapping is not necessary.
-        public bool TextRequiresWordBreak(string? text, Font? font, SKSize size, TextRenderOptions options)
+        public bool TextRequiresWordBreak(string? text, SKFont? font, SKSize size, TextRenderOptions options)
         {
             // if the unconstrained size of the string is larger than the proposed width
             // we need word wrapping, otherwise we don't, its a perf hit to use it.
@@ -107,7 +107,7 @@ internal static partial class LayoutUtils
 
         /// GetUnconstrainedSize
         /// Gets the unconstrained (Int32.MaxValue, Int32.MaxValue) size for a piece of text
-        private SKSize GetUnconstrainedSize(string? text, Font? font, TextRenderOptions options)
+        private SKSize GetUnconstrainedSize(string? text, SKFont? font, TextRenderOptions options)
         {
             if (_unconstrainedPreferredSize == s_invalidSize)
             {

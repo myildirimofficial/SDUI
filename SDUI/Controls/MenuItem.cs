@@ -17,7 +17,7 @@ public class MenuItem
 
     private CheckState _checkState = CheckState.Unchecked;
     private bool _enabled = true;
-    private Font _font;
+    private SKFont? _font;
     private SKColor _foreColor = SKColor.Empty;
     private SKBitmap _icon;
     private SKImage _image;
@@ -249,16 +249,36 @@ public class MenuItem
     }
 
     [Category("Appearance")]
-    public Font Font
+    [Browsable(false)]
+    internal bool HasCustomFont => _font != null;
+
+    [Category("Appearance")]
+    [Browsable(false)]
+    internal SKFont ResolvedFont => _font ?? Parent?.ResolvedFont ?? Application.SharedDefaultFont;
+
+    [Category("Appearance")]
+    public SKFont Font
     {
-        get => _font ?? Parent?.Font;
+        get => ResolvedFont.CloneFont();
         set
         {
-            if (_font == value) return;
-            _font = value;
+            if (_font.FontEquals(value)) return;
+            _font?.Dispose();
+            _font = value?.CloneFont();
             if (_autoSize) UpdateSize();
             Parent?.Invalidate();
         }
+    }
+
+    public void ResetFont()
+    {
+        if (_font == null)
+            return;
+
+        _font.Dispose();
+        _font = null;
+        if (_autoSize) UpdateSize();
+        Parent?.Invalidate();
     }
 
     [Category("Appearance")]
@@ -310,15 +330,17 @@ public class MenuItem
     {
         if (Parent == null) return;
 
-        var font = Font ?? Parent.Font;
-        using var paint = new SKPaint
+        var font = ResolvedFont;
+        using var scaledFont = new SKFont(font.Typeface ?? SKTypeface.Default)
         {
-            TextSize = font.Size.Topx(Parent),
-            Typeface = font.SKTypeface
+            Size = font.Size.Topx(Parent),
+            Subpixel = true,
+            Edging = SKFontEdging.SubpixelAntialias,
+            Hinting = SKFontHinting.Full
         };
 
         var textBounds = new SkiaSharp.SKRect();
-        paint.MeasureText(Text, ref textBounds);
+        scaledFont.MeasureText(Text, out textBounds);
 
         var width = (int)textBounds.Width + Padding.Horizontal;
         var height = (int)textBounds.Height + Padding.Vertical;
@@ -337,7 +359,7 @@ public class MenuItem
         {
             var shortcutText = ShortcutKeys.ToString();
             var shortcutBounds = new SkiaSharp.SKRect();
-            paint.MeasureText(shortcutText, ref shortcutBounds);
+            scaledFont.MeasureText(shortcutText, out shortcutBounds);
             width += (int)shortcutBounds.Width + 20; // Kısayol tuşu için ekstra genişlik
         }
 

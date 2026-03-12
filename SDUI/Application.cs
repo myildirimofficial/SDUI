@@ -1,5 +1,7 @@
 ﻿using SDUI.Controls;
+using SDUI.Extensions;
 using SDUI.Native.Windows;
+using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,6 +14,7 @@ namespace SDUI;
 public class Application
 {
     private static readonly List<UIWindowBase> _openForms = new();
+    private static SKFont? _defaultFont;
     private static UIWindowBase _activeForm;
     private static bool _dpiAwarenessSet;
 
@@ -23,6 +26,28 @@ public class Application
     static Application()
     {
         EnableDpiAwareness();
+        _defaultFont = CreateDefaultFont();
+    }
+
+    internal static SKFont SharedDefaultFont => _defaultFont ??= CreateDefaultFont();
+
+    public static SKFont DefaultFont
+    {
+        get => SharedDefaultFont.CloneFont();
+        set
+        {
+            var replacement = (value ?? CreateDefaultFont()).CloneFont();
+
+            if (_defaultFont.FontEquals(replacement))
+            {
+                replacement.Dispose();
+                return;
+            }
+
+            _defaultFont?.Dispose();
+            _defaultFont = replacement;
+            NotifyDefaultFontChanged();
+        }
     }
 
     public static IReadOnlyList<UIWindowBase> OpenForms => _openForms.AsReadOnly();
@@ -124,5 +149,23 @@ public class Application
             DefWindowProc(IntPtr.Zero, 0, IntPtr.Zero, IntPtr.Zero);
             Debug.WriteLine("Exception in Application.Run: " + ex.ToString());
 		}
+    }
+
+    private static SKFont CreateDefaultFont()
+    {
+        return new SKFont(SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default, 9f)
+        {
+            Subpixel = true,
+            Edging = SKFontEdging.SubpixelAntialias,
+            Hinting = SKFontHinting.Full
+        };
+    }
+
+    private static void NotifyDefaultFontChanged()
+    {
+        for (var i = 0; i < _openForms.Count; i++)
+        {
+            _openForms[i].HandleDefaultFontChanged();
+        }
     }
 }

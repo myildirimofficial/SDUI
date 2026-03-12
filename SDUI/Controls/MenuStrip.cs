@@ -31,10 +31,10 @@ public class MenuStrip : ElementBase
     private SKPath? _chevronPath;
     private SKFont? _defaultSkFont;
     private int _defaultSkFontDpi;
-    private Font? _defaultSkFontSource;
+    private SKFont? _defaultSkFontSource;
     private SKFont? _shortcutSkFont;
     private int _shortcutSkFontDpi;
-    private Font? _shortcutSkFontSource;
+    private SKFont? _shortcutSkFontSource;
     private SKColor _hoverBackColor = SKColor.Empty;
     private SKPaint? _hoverBgPaint;
     private MenuItem? _hoveredItem;
@@ -382,16 +382,16 @@ public class MenuStrip : ElementBase
     private SKFont GetDefaultSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        var font = Font;
+        var font = ResolvedFont;
         if (_defaultSkFont == null || !ReferenceEquals(_defaultSkFontSource, font) || _defaultSkFontDpi != dpi)
         {
             _defaultSkFont?.Dispose();
-            _defaultSkFont = new SKFont
+            _defaultSkFont = new SKFont(font.Typeface ?? SKTypeface.Default)
             {
                 Size = font.Size.Topx(this),
-                Typeface = font.SKTypeface,
                 Subpixel = true,
-                Edging = SKFontEdging.SubpixelAntialias
+                Edging = SKFontEdging.SubpixelAntialias,
+                Hinting = SKFontHinting.Full
             };
             _defaultSkFontSource = font;
             _defaultSkFontDpi = dpi;
@@ -403,22 +403,22 @@ public class MenuStrip : ElementBase
     protected SKFont GetShortcutSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        var font = Font;
+        var font = ResolvedFont;
         if (_shortcutSkFont == null || !ReferenceEquals(_shortcutSkFontSource, font) || _shortcutSkFontDpi != dpi)
         {
             _shortcutSkFont?.Dispose();
 
-            var shortcutWeight = font.Bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.SemiBold;
+            var shortcutWeight = font.IsBold() ? SKFontStyleWeight.Bold : SKFontStyleWeight.SemiBold;
             using var shortcutTypeface = SKTypeface.FromFamilyName(
-                font.Name,
-                new SKFontStyle(shortcutWeight, SKFontStyleWidth.Normal, font.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright));
+                font.GetFamilyName(),
+                new SKFontStyle(shortcutWeight, SKFontStyleWidth.Normal, font.IsItalic() ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright));
 
-            _shortcutSkFont = new SKFont
+            _shortcutSkFont = new SKFont(shortcutTypeface ?? SKTypeface.Default)
             {
                 Size = 8.Topx(this),
-                Typeface = shortcutTypeface,
                 Subpixel = true,
-                Edging = SKFontEdging.SubpixelAntialias
+                Edging = SKFontEdging.SubpixelAntialias,
+                Hinting = SKFontHinting.Full
             };
             _shortcutSkFontSource = font;
             _shortcutSkFontDpi = dpi;
@@ -735,7 +735,7 @@ public class MenuStrip : ElementBase
             bounds.Top,
             Math.Max(tx, bounds.Right - contentRightInset),
             bounds.Bottom);
-        c.DrawControlText(item.Text, drawBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
+        DrawControlText(c, item.Text, drawBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
 
         if (shouldDrawShortcut)
         {
@@ -751,7 +751,7 @@ public class MenuStrip : ElementBase
                 bounds.Bottom);
 
             _textPaint.Color = textColor.WithAlpha(148);
-            c.DrawControlText(shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
+            DrawControlText(c, shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
             _textPaint.Color = textColor;
         }
 
@@ -1118,9 +1118,11 @@ public class MenuStrip : ElementBase
         {
             Text = source.Text, Icon = source.Icon, Image = source.Image, ShortcutKeys = source.ShortcutKeys,
             ShowSubmenuArrow = source.ShowSubmenuArrow, ForeColor = source.ForeColor, BackColor = source.BackColor,
-            Enabled = source.Enabled, Visible = source.Visible, Font = source.Font, AutoSize = source.AutoSize,
+            Enabled = source.Enabled, Visible = source.Visible, AutoSize = source.AutoSize,
             Padding = source.Padding, Tag = source.Tag, Checked = source.Checked
         };
+        if (source.HasCustomFont)
+            clone.Font = source.ResolvedFont;
         foreach (var child in source.DropDownItems) clone.AddDropDownItem(CloneMenuItem(child));
         clone.Click += (_, _) =>
         {

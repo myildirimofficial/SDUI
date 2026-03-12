@@ -1,6 +1,7 @@
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
+using SDUI;
 
 namespace SDUI.Helpers;
 
@@ -65,9 +66,22 @@ public static class TextRenderer
 
         using var disposableFont = font is null ? CreateFontFromPaint(paint) : null;
         var effectiveFont = font ?? disposableFont!;
+        using var configuredFont = CreateConfiguredFontCopy(effectiveFont, options);
+        effectiveFont = configuredFont ?? effectiveFont;
 
         // Use text as-is - escape processing should be done at property level, not render level
         var processedText = text!;
+
+        if (options.UseMnemonic && options.Wrap == TextWrap.None && options.Trimming == TextTrimming.None)
+        {
+            DrawTextWithMnemonicFallback(canvas, processedText, x, y, alignment, effectiveFont, paint);
+            if (options.Decoration != TextDecoration.None)
+            {
+                TextDecorator.DrawDecorations(canvas, processedText.Replace("&", ""), x, y, effectiveFont, paint,
+                    options.Decoration, options.DecorationThickness, options.DecorationColor);
+            }
+            return;
+        }
 
         if (options.Wrap != TextWrap.None)
         {
@@ -93,6 +107,165 @@ public static class TextRenderer
                 TextDecorator.DrawDecorations(canvas, processedText, x, y, effectiveFont, paint, 
                     options.Decoration, options.DecorationThickness, options.DecorationColor);
             }
+        }
+    }
+
+    private static void DrawTextWithMnemonicFallback(
+        SKCanvas canvas,
+        string text,
+        float x,
+        float y,
+        SKTextAlign alignment,
+        SKFont font,
+        SKPaint paint)
+    {
+        if (!text.Contains('&'))
+        {
+            DrawTextWithFallback(canvas, text, x, y, alignment, font, paint);
+            return;
+        }
+
+        // Build cleaned text and locate mnemonic index in cleaned text
+        var cleanBuilder = new System.Text.StringBuilder(text.Length);
+        int mnemonicIndex = -1;
+        int cleanIndex = 0;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '&')
+            {
+                // Escaped && -> produce single &
+                if (i + 1 < text.Length && text[i + 1] == '&')
+                {
+                    cleanBuilder.Append('&');
+                    i++; // skip next &
+                    cleanIndex++;
+                    continue;
+                }
+
+                // Single & marks mnemonic for next character
+                if (i + 1 < text.Length)
+                {
+                    mnemonicIndex = cleanIndex;
+                    continue; // do not append &
+                }
+
+                // Trailing &, just append
+                cleanBuilder.Append('&');
+                cleanIndex++;
+                continue;
+            }
+
+            cleanBuilder.Append(c);
+            cleanIndex++;
+        }
+
+        var cleanText = cleanBuilder.ToString();
+
+        // Build runs with fallback detection (same approach as DrawTextWithFallback)
+        var runs = new List<(string text, SKTypeface typeface)>();
+        var primaryTypeface = font.Typeface ?? SKTypeface.Default;
+
+        var currentRun = string.Empty;
+        var currentTypeface = primaryTypeface;
+
+        foreach (var c in cleanText)
+        {
+            var glyphId = primaryTypeface.GetGlyph(c);
+            SKTypeface? requiredTypeface = null;
+
+            if (glyphId == 0)
+            {
+                requiredTypeface = GetFallbackTypeface(c);
+            }
+
+            var charTypeface = requiredTypeface ?? primaryTypeface;
+
+            if (charTypeface != currentTypeface)
+            {
+                if (currentRun.Length > 0)
+                {
+                    runs.Add((currentRun, currentTypeface));
+                }
+                currentRun = c.ToString();
+                currentTypeface = charTypeface;
+            }
+            else
+            {
+                currentRun += c;
+            }
+        }
+
+        if (currentRun.Length > 0)
+        {
+            runs.Add((currentRun, currentTypeface));
+        }
+
+        var currentX = x;
+
+        if (alignment == SKTextAlign.Center || alignment == SKTextAlign.Right)
+        {
+            var totalWidth = 0f;
+            foreach (var run in runs)
+            {
+                using var runFont = CreateRunFont(run.typeface, font);
+                totalWidth += runFont.MeasureText(run.text);
+            }
+
+            if (alignment == SKTextAlign.Center)
+                currentX -= totalWidth / 2;
+            else if (alignment == SKTextAlign.Right)
+                currentX -= totalWidth;
+        }
+
+        // Draw runs and underline mnemonic
+        float cumulative = 0f;
+        int remainingMnemonic = mnemonicIndex;
+        float underlineStart = -1f;
+        float underlineEnd = -1f;
+
+        foreach (var run in runs)
+        {
+            using var runFont = CreateRunFont(run.typeface, font);
+            var runText = run.text;
+
+            if (remainingMnemonic >= 0 && remainingMnemonic < runText.Length)
+            {
+                // mnemonic is inside this run
+                var before = runText.Substring(0, remainingMnemonic);
+                var mnemonicChar = runText[remainingMnemonic].ToString();
+                var beforeWidth = runFont.MeasureText(before);
+                var charWidth = runFont.MeasureText(mnemonicChar);
+
+                underlineStart = currentX + beforeWidth;
+                underlineEnd = underlineStart + charWidth;
+            }
+
+            canvas.DrawText(runText, currentX, y, runFont, paint);
+            var w = runFont.MeasureText(runText);
+            currentX += w;
+            cumulative += w;
+
+            if (remainingMnemonic >= 0)
+            {
+                remainingMnemonic -= runText.Length;
+                if (remainingMnemonic < 0)
+                    remainingMnemonic = -999999; // mark handled
+            }
+        }
+
+        if (underlineStart >= 0 && underlineEnd > underlineStart)
+        {
+            using var underlinePaint = new SKPaint
+            {
+                Color = paint.Color,
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 1
+            };
+            // small offset for underline relative to baseline
+            canvas.DrawLine(underlineStart, y + 2, underlineEnd, y + 2, underlinePaint);
         }
     }
 
@@ -271,7 +444,7 @@ public static class TextRenderer
     /// <param name="font">The font to use for measurement</param>
     /// <param name="proposedSize">The proposed size constraints</param>
     /// <returns>The measured size of the text</returns>
-    public static SKSize MeasureText(string? text, Font? font, SKSize proposedSize)
+    public static SKSize MeasureText(string? text, SKFont? font, SKSize proposedSize)
     {
         return MeasureText(text, font, proposedSize, new TextRenderOptions());
     }
@@ -284,21 +457,46 @@ public static class TextRenderer
     /// <param name="proposedSize">The proposed size constraints</param>
     /// <param name="options">Text rendering options</param>
     /// <returns>The measured size of the text</returns>
-    public static SKSize MeasureText(string? text, Font? font, SKSize proposedSize, TextRenderOptions options)
+    public static SKSize MeasureText(string? text, SKFont? font, SKSize proposedSize, TextRenderOptions options)
     {
-        if (string.IsNullOrEmpty(text) || font == null)
+        if (string.IsNullOrEmpty(text))
             return SKSize.Empty;
 
-        using var typeface = font.SKTypeface;
-        using var skFont = new SKFont
-        {
-            Size = font.Size,
-            Typeface = typeface,
-            Subpixel = true,
-            Edging = SKFontEdging.SubpixelAntialias
-        };
+        font ??= Application.DefaultFont;
 
-        return MeasureTextWithOptions(text, skFont, proposedSize, options);
+        using var configuredFont = CreateConfiguredFontCopy(font, options);
+        var effectiveFont = configuredFont ?? font;
+
+        return MeasureTextWithOptions(text, effectiveFont, proposedSize, options);
+    }
+
+    private static SKFont? CreateConfiguredFontCopy(SKFont font, TextRenderOptions options)
+    {
+        if (!RequiresFontConfiguration(font, options))
+            return null;
+
+        var configuredFont = font.CloneFont();
+        ApplyFontOptions(configuredFont, options);
+        return configuredFont;
+    }
+
+    private static bool RequiresFontConfiguration(SKFont font, TextRenderOptions options)
+    {
+        return (options.Subpixel.HasValue && options.Subpixel.Value != font.Subpixel)
+               || (options.Edging.HasValue && options.Edging.Value != font.Edging)
+               || (options.Hinting.HasValue && options.Hinting.Value != font.Hinting);
+    }
+
+    private static void ApplyFontOptions(SKFont font, TextRenderOptions options)
+    {
+        if (options.Subpixel.HasValue)
+            font.Subpixel = options.Subpixel.Value;
+
+        if (options.Edging.HasValue)
+            font.Edging = options.Edging.Value;
+
+        if (options.Hinting.HasValue)
+            font.Hinting = options.Hinting.Value;
     }
 
     /// <summary>

@@ -16,7 +16,7 @@ public interface IElement
     ElementBase Parent { get; set; }
     SKColor BackColor { get; set; }
     SKColor ForeColor { get; set; }
-    Font Font { get; set; }
+    SKFont Font { get; set; }
 
     ElementBase FocusedElement { get; set; }
 

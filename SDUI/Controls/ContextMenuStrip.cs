@@ -41,7 +41,7 @@ public class ContextMenuStrip : MenuStrip
 
     private SKFont? _defaultSkFont;
     private int _defaultSkFontDpi;
-    private Font? _defaultSkFontSource;
+    private SKFont? _defaultSkFontSource;
     private MenuItem? _hoveredItem;
     private SKPaint? _hoverPaint;
     private SKPaint? _iconPaint;
@@ -1118,7 +1118,7 @@ public class ContextMenuStrip : MenuStrip
             }
 
             var textBounds = SkiaSharp.SKRect.Create(textX, itemRect.Top, textWidth, itemRect.Height);
-            canvas.DrawControlText(item.Text, textBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
+            DrawControlText(canvas, item.Text, textBounds, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
 
             if (shortcutText.Length > 0)
             {
@@ -1133,7 +1133,7 @@ public class ContextMenuStrip : MenuStrip
                     itemRect.Height);
 
                 _textPaint.Color = textColor.WithAlpha((byte)(fadeAlpha * 120 / 255f));
-                canvas.DrawControlText(shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
+                DrawControlText(canvas, shortcutText, shortcutBounds, _textPaint, shortcutFont, ContentAlignment.MiddleRight, false, true);
                 _textPaint.Color = textColor.WithAlpha(fadeAlpha);
             }
 
@@ -1212,17 +1212,18 @@ public class ContextMenuStrip : MenuStrip
     private SKFont GetDefaultSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        if (_defaultSkFont == null || !ReferenceEquals(_defaultSkFontSource, Font) || _defaultSkFontDpi != dpi)
+        var font = ResolvedFont;
+        if (_defaultSkFont == null || !ReferenceEquals(_defaultSkFontSource, font) || _defaultSkFontDpi != dpi)
         {
             _defaultSkFont?.Dispose();
-            _defaultSkFont = new SKFont
+            _defaultSkFont = new SKFont(font.Typeface ?? SKTypeface.Default)
             {
-                Size = Font.Size.Topx(this),
-                Typeface = Font.SKTypeface,
+                Size = font.Size.Topx(this),
                 Subpixel = true,
-                Edging = SKFontEdging.SubpixelAntialias
+                Edging = SKFontEdging.SubpixelAntialias,
+                Hinting = SKFontHinting.Full
             };
-            _defaultSkFontSource = Font;
+            _defaultSkFontSource = font;
             _defaultSkFontDpi = dpi;
         }
 

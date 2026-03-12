@@ -136,7 +136,7 @@ public partial class UIWindow : UIWindowBase
 
     private HatchStyle _hatch = HatchStyle.Percent80;
 
-    private float _iconWidth = 42;
+    private float _iconWidth = 47;
 
     private bool _inCloseBox, _inMaxBox, _inMinBox, _inExtendBox, _inTabCloseBox, _inNewTabBox, _inFormMenuBox;
 
@@ -197,7 +197,7 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     The title height
     /// </summary>
-    private float _titleHeight = 32;
+    private float _titleHeight = 37;
 
     private WindowPageControl _windowPageControl;
     private SKPoint animationSource;
@@ -1710,13 +1710,14 @@ public partial class UIWindow : UIWindowBase
 
         if (_windowPageControl == null || _windowPageControl.Count == 0)
         {
-            var font = GetOrCreateFont("title", () => new SKFont
+            var baseFont = ResolvedFont;
+            var font = GetOrCreateFont("title", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
             {
-                Typeface = Font.SKTypeface,
                 Subpixel = true,
-                Edging = SKFontEdging.SubpixelAntialias
+                Edging = SKFontEdging.SubpixelAntialias,
+                Hinting = SKFontHinting.Full
             });
-            font.Size = Font.Size.Topx(this);
+            font.Size = baseFont.Size.Topx(this);
 
             var textPaint = GetOrCreatePaint("titleText", () => new SKPaint { IsAntialias = true });
             textPaint.Color = foreColor;
@@ -1837,11 +1838,12 @@ public partial class UIWindow : UIWindowBase
 
                 if (_drawTabIcons)
                 {
-                    var font = GetOrCreateFont("tabIcon", () => new SKFont
+                    var baseFont = ResolvedFont;
+                    var font = GetOrCreateFont("tabIcon", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
                     {
-                        Typeface = Font.SKTypeface,
                         Subpixel = true,
-                        Edging = SKFontEdging.SubpixelAntialias
+                        Edging = SKFontEdging.SubpixelAntialias,
+                        Hinting = SKFontHinting.Full
                     });
                     font.Size = 12f.Topx(this);
 
@@ -1869,11 +1871,12 @@ public partial class UIWindow : UIWindowBase
                 }
                 else
                 {
-                    var font = GetOrCreateFont("tab", () => new SKFont
+                    var baseFont = ResolvedFont;
+                    var font = GetOrCreateFont("tab", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
                     {
-                        Typeface = Font.SKTypeface,
                         Subpixel = true,
-                        Edging = SKFontEdging.SubpixelAntialias
+                        Edging = SKFontEdging.SubpixelAntialias,
+                        Hinting = SKFontHinting.Full
                     });
                     font.Size = 9f.Topx(this);
 
@@ -2061,11 +2064,12 @@ public partial class UIWindow : UIWindowBase
         var availableWidth = Width - occupiedWidth;
         var maxSize = 250f * ScaleFactor;
 
-        var font = GetOrCreateFont("tabMeasure", () => new SKFont
+        var baseFont = ResolvedFont;
+        var font = GetOrCreateFont("tabMeasure", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
         {
-            Typeface = Font.SKTypeface,
             Subpixel = true,
-            Edging = SKFontEdging.SubpixelAntialias
+            Edging = SKFontEdging.SubpixelAntialias,
+            Hinting = SKFontHinting.Full
         });
         font.Size = (_drawTabIcons ? 12f : 9f).Topx(this);
 

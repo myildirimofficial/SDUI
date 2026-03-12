@@ -43,7 +43,7 @@ internal partial class LayoutUtils
 
     // Returns the size of the largest string in the given collection. Non-string objects are converted
     // with ToString(). Uses OldMeasureString, not GDI+. Does not support multiline.
-    public static SKSize OldGetLargestStringSizeInCollection(Font? font, ICollection? objects)
+    public static SKSize OldGetLargestStringSizeInCollection(SKFont? font, ICollection? objects)
     {
         SKSize largestSize = SKSize.Empty;
         if (objects is not null)

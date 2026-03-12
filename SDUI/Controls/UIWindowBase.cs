@@ -88,6 +88,19 @@ public partial class UIWindowBase : ElementBase
         }
     }
 
+    public override string Text
+    {
+        get => base.Text;
+        set
+        {
+            if (base.Text == value)
+                return;
+
+            base.Text = value;
+            UpdateNativeWindowText();
+        }
+    }
+
     /// <summary>
     /// Represents the color used for the border.
     /// </summary>
@@ -1141,6 +1154,7 @@ public partial class UIWindowBase : ElementBase
         ApplyRenderStyles();
         RecreateRenderer();
         SDUI.Native.Windows.Helpers.ApplyRoundCorner(Handle);
+        UpdateNativeWindowText();
 
         if (_aeroEnabled && DwmMargin >= 0)
         {
@@ -1192,6 +1206,12 @@ public partial class UIWindowBase : ElementBase
         ApplyThemeToNativeWindow();
     }
 
+    internal override void OnTextChanged(EventArgs e)
+    {
+        base.OnTextChanged(e);
+        UpdateNativeWindowText();
+    }
+
     /// <summary>
     /// Applies current theme-derived native window attributes (immersive dark mode + backdrop type).
     /// </summary>
@@ -1227,6 +1247,14 @@ public partial class UIWindowBase : ElementBase
 
         IntPtr lParam = IntPtr.Zero;
         PostMessage(Handle, (int)WM_APP_THEMECHANGED, 0, ref lParam);
+    }
+
+    private void UpdateNativeWindowText()
+    {
+        if (!IsHandleCreated)
+            return;
+
+        _ = SetWindowText(Handle, Text ?? string.Empty);
     }
 
     /// <summary>

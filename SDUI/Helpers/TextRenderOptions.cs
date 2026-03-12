@@ -14,6 +14,10 @@ public readonly struct TextRenderOptions
         LineSpacing = 1.2f;
         DecorationThickness = 1f;
         DecorationColor = SKColors.Transparent;
+        UseMnemonic = false;
+        Subpixel = null;
+        Edging = null;
+        Hinting = null;
     }
 
     public TextWrap Wrap { get; init; }
@@ -24,4 +28,8 @@ public readonly struct TextRenderOptions
     public float LineSpacing { get; init; }
     public float DecorationThickness { get; init; }
     public SKColor DecorationColor { get; init; }
+    public bool UseMnemonic { get; init; }
+    public bool? Subpixel { get; init; }
+    public SKFontEdging? Edging { get; init; }
+    public SKFontHinting? Hinting { get; init; }
 }
