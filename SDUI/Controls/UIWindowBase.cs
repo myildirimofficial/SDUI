@@ -1153,7 +1153,7 @@ public partial class UIWindowBase : ElementBase
 
     protected virtual void OnHandleCreated(EventArgs e)
     {
-        ApplyRenderStyles();
+        ApplyNativeWindowStyles();
         RecreateRenderer();
         SDUI.Native.Windows.Helpers.ApplyRoundCorner(Handle);
         UpdateNativeWindowText();
@@ -1417,11 +1417,9 @@ public partial class UIWindowBase : ElementBase
             if (_hWnd != IntPtr.Zero)
             {
                 _hWnd = IntPtr.Zero;
-                // Pencereyi yok etme işlemleri burada yapılabilir
                 // DestroyWindow(_hWnd) - genellikle WM_CLOSE tetikler
             }
 
-            // Class'ı sistemden düşür
             UnregisterClass(CreateParams.ClassName, _hInstance);
             _disposed = true;
         }

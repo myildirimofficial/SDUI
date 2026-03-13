@@ -34,6 +34,7 @@ public partial class UIWindowBase
     private GRContext? _cachedGrContext;
     private bool _cachedGrContextIsValid;
     private int _grContextValidationFrame;
+    private bool _paintInvalidatedPending;
 
     /// <summary>
     ///     Maximum retained bytes for the software backbuffer (SKBitmap + SKSurface + GDI Bitmap wrapper).
@@ -91,7 +92,7 @@ public partial class UIWindowBase
             _backendSwitchPaintTraceFrames = 4;
             ReleaseRetainedRenderResources();
             RecreateRenderer();
-            ApplyRenderStyles();
+            ApplyNativeWindowStyles();
             InvalidateWindow();
             ForceBackendSwitchRedraw();
         }
@@ -180,7 +181,7 @@ public partial class UIWindowBase
             _idleMaintenanceTimer.Interval = IdleMaintenanceDelayMs;
             _idleMaintenanceTimer.Elapsed += IdleMaintenanceTimer_Tick;
         }
-        
+
         if (_idleMaintenanceTimer != null)
         {
             _idleMaintenanceTimer.Stop();
@@ -269,10 +270,10 @@ public partial class UIWindowBase
                 SDUI.Rendering.RenderBackend.OpenGL => new SDUI.Rendering.OpenGlWindowRenderer(),
                 _ => null
             };
-            
+
             if (newRenderer != null)
                 newRenderer.Initialize(Handle);
-            
+
             lock (_rendererSync)
             {
                 _renderer = newRenderer;
@@ -304,17 +305,11 @@ public partial class UIWindowBase
             }
 
             Debug.WriteLine("[UIWindowBase] RecreateRenderer fallback completed. Active=Software");
-            ApplyRenderStyles();
+            ApplyNativeWindowStyles();
         }
     }
 
-    private void ApplyRenderStyles()
-    {
-        var gpu = _renderBackend != SDUI.Rendering.RenderBackend.Software;
-        ApplyNativeWindowStyles(gpu);
-    }
-
-    private void ApplyNativeWindowStyles(bool gpu)
+    private void ApplyNativeWindowStyles()
     {
         if (!IsHandleCreated)
             return;
@@ -323,13 +318,13 @@ public partial class UIWindowBase
         var stylePtr = GetWindowLong(hwnd, SDUI.Native.Windows.WindowLongIndexFlags.GWL_STYLE);
         var style = stylePtr;
         var clipFlags = (nint)(uint)(SDUI.Native.Windows.SetWindowLongFlags.WS_CLIPCHILDREN | SDUI.Native.Windows.SetWindowLongFlags.WS_CLIPSIBLINGS);
-        style = gpu ? style | clipFlags : style & ~clipFlags;
+        style = _renderer.IsSkiaGpuActive ? style | clipFlags : style & ~clipFlags;
 
         var exStylePtr = GetWindowLong(hwnd, SDUI.Native.Windows.WindowLongIndexFlags.GWL_EXSTYLE);
         var exStyle = exStylePtr;
         var noRedirect = (nint)(uint)SDUI.Native.Windows.SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
         var composited = (nint)(uint)SDUI.Native.Windows.SetWindowLongFlags.WS_EX_COMPOSITED;
-        if (gpu)
+        if (_renderer.IsSkiaGpuActive)
         {
             if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL)
                 exStyle |= noRedirect;
@@ -380,6 +375,8 @@ public partial class UIWindowBase
 
         try
         {
+            _paintInvalidatedPending = false;
+
             var clientRect = new Rect();
             GetClientRect(hWnd, ref clientRect);
 
@@ -492,24 +489,27 @@ public partial class UIWindowBase
 
     protected virtual void OnPaintCanvas(SKCanvas canvas, SKImageInfo info)
     {
-        if (TryRenderWithHardware((int)info.Width, (int)info.Height))
-            return;
-
+        // When we're already in the software paint path this method is invoked
+        // after the hardware check in HandlePaint.  The previous implementation
+        // re‑checked TryRenderWithHardware here which meant that any earlier
+        // failure would cause us to bail out again and never call RenderScene,
+        // leaving the DIB blank.  Simply draw the scene directly.
         RenderScene(canvas, info);
         ArmIdleMaintenance();
     }
 
     private bool TryRenderWithHardware(int width, int height)
     {
+        if (_renderBackend == RenderBackend.Software || _renderer == null)
+            return false;
+
+        var attempted = _renderBackend;
         IWindowRenderer? rendererToDispose = null;
         string? fallbackReason = null;
         string? fallbackType = null;
 
         lock (_rendererSync)
         {
-            if (_renderBackend == RenderBackend.Software || _renderer == null)
-                return false;
-
             try
             {
                 if (!_renderer.Render(width, height, RenderScene))
@@ -540,11 +540,20 @@ public partial class UIWindowBase
         }
 
         Debug.WriteLine($"[UIWindowBase] Hardware rendering failed ({fallbackType}). Falling back to Software. Error: {fallbackReason}");
-        DisposeRendererSafely(rendererToDispose);
-        ApplyRenderStyles();
+        if (!string.IsNullOrEmpty(fallbackReason))
+        {
+            // update the window title so the user can see an error without a debugger
+            try
+            {
+                Text = $"{Text} - {attempted} failed: {fallbackReason}";
+            }
+            catch
+            {
+            }
+        }
+
         return false;
     }
-
     private static void DisposeRendererSafely(IWindowRenderer? renderer)
     {
         if (renderer == null)
@@ -572,12 +581,8 @@ public partial class UIWindowBase
             gr = null;
             lock (_rendererSync)
             {
-                if (_renderer is DirectX11WindowRenderer dx && dx.IsSkiaGpuActive)
-                    gr = dx.GrContext;
-                else if (_renderer is OpenGlWindowRenderer gl && gl.IsSkiaGpuActive)
-                    gr = gl.GrContext;
-                else if (_renderer is IGpuWindowRenderer gpuRenderer)
-                    gr = gpuRenderer.GrContext;
+                if (_renderer is IWindowRenderer renderer && renderer.IsSkiaGpuActive)
+                    gr = renderer.GrContext;
             }
 
             _cachedGrContext = gr;
@@ -631,11 +636,7 @@ public partial class UIWindowBase
         paint.TextSize = 12;
 
 
-        var backendLabel = RenderBackend.ToString();
-        if (RenderBackend == RenderBackend.DirectX11 && _renderer is DirectX11WindowRenderer dx)
-            backendLabel = dx.IsSkiaGpuActive ? "DX:GPU" : "DX:CPU";
-        else if (RenderBackend == RenderBackend.OpenGL && _renderer is OpenGlWindowRenderer gl)
-            backendLabel = gl.IsSkiaGpuActive ? "GL:GPU" : "GL";
+        var backendLabel = RenderBackend + (_renderer.IsSkiaGpuActive ? "GPU" : "CPU");
 
         var text = $"{backendLabel}  {fps:0} FPS  {_perfSmoothedFrameMs:0.0} ms";
         canvas.DrawText(text, 8, 16, paint);
@@ -650,6 +651,11 @@ public partial class UIWindowBase
     {
         if (!IsHandleCreated || IsDisposed || Disposing)
             return;
+
+        if (_paintInvalidatedPending)
+            return;
+
+        _paintInvalidatedPending = true;
 
         InvalidateRect(Handle, IntPtr.Zero, false);
     }
@@ -704,7 +710,7 @@ public partial class UIWindowBase
 
         Rect rect;
         Methods.GetWindowRect(Handle, out rect);
-        
+
         return SKRectI.Create(
             rect.Left,
             rect.Top,

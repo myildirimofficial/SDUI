@@ -5,7 +5,9 @@ namespace SDUI.Rendering;
 
 internal interface IWindowRenderer : IDisposable
 {
+    bool IsSkiaGpuActive { get; }
     RenderBackend Backend { get; }
+    GRContext? GrContext { get; }
 
     void Initialize(nint hwnd);
 
