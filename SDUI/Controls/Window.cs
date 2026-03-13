@@ -6,6 +6,7 @@ using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using static SDUI.Native.Windows.Methods;
@@ -136,7 +137,7 @@ public partial class Window : WindowBase
 
     private HatchStyle _hatch = HatchStyle.Percent80;
 
-    private float _iconWidth = 47;
+    private float _iconWidth = 42;
 
     private bool _inCloseBox, _inMaxBox, _inMinBox, _inExtendBox, _inTabCloseBox, _inNewTabBox, _inFormMenuBox;
 
@@ -165,7 +166,6 @@ public partial class Window : WindowBase
     ///     The rectangle of minimize box
     /// </summary>
     private SkiaSharp.SKRect _minimizeBoxRect;
-
 
     /// <summary>
     ///     The position of the mouse when the left mouse button is pressed
@@ -197,7 +197,7 @@ public partial class Window : WindowBase
     /// <summary>
     ///     The title height
     /// </summary>
-    private float _titleHeight = 37;
+    private float _titleHeight = 32;
 
     private WindowPageControl _windowPageControl;
     private SKPoint animationSource;
@@ -312,7 +312,8 @@ public partial class Window : WindowBase
     [Description("Gets or sets form can movable")]
     public bool Movable { get; set; } = true;
 
-    [DefaultValue(false)] public bool AllowAddControlOnTitle { get; set; }
+    [DefaultValue(false)] 
+    public bool AllowAddControlOnTitle { get; set; }
 
     [DefaultValue(false)]
     public bool ExtendBox
@@ -576,7 +577,7 @@ public partial class Window : WindowBase
                 pageAreaAnimationManager.SetProgress(0);
                 pageAreaAnimationManager.StartNewAnimation(AnimationDirection.In);
             };
-_windowPageControl.ControlAdded += delegate { Invalidate(); };
+            _windowPageControl.ControlAdded += delegate { Invalidate(); };
             _windowPageControl.ControlRemoved += delegate { Invalidate(); };
         }
     }
@@ -753,22 +754,22 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
         // ignore control button areas
         if (_controlBoxRect.Contains(clientPt))
             return false;
-        
+
         if (_maximizeBoxRect.Contains(clientPt))
             return false;
-        
+
         if (_minimizeBoxRect.Contains(clientPt))
             return false;
-        
+
         if (_extendBoxRect.Contains(clientPt))
             return false;
-        
+
         if (_tabCloseButton && _closeTabBoxRect.Contains(clientPt))
             return false;
-        
+
         if (_newTabButton && _newTabBoxRect.Contains(clientPt))
             return false;
-        
+
         // if the menu glyph is visible we must exclude its bounds from the
         // caption area, otherwise the user should be able to drag from there.
         if (showMenuInsteadOfIcon && _formMenuRect.Contains(clientPt))
@@ -1402,12 +1403,15 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
     protected override void OnActivated(EventArgs e)
     {
         base.OnActivated(e);
+
+        Debug.WriteLine("OnActivated");
         Invalidate();
     }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
+        Debug.WriteLine("OnDeactivate");
         Invalidate();
     }
 
@@ -1467,25 +1471,29 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
 
         if (controlBox)
         {
-            var closeHoverColor = new SkiaSharp.SKColor(232, 17, 35);
+            var strokeWidth = 1.1f * ScaleFactor;
+
+            var closeHoverColor = new SKColor(232, 17, 35);
+            using SKPaint strokePaint = new SKPaint
+            {
+                Style = SKPaintStyle.Stroke,
+                Color = foreColor,
+                StrokeWidth = strokeWidth,
+                IsAntialias = true
+            };
+
+            using var paint = new SKPaint
+            {
+                IsAntialias = true
+            };
 
             if (_inCloseBox)
             {
-                using var paint = new SKPaint
-                {
-                    Color = closeHoverColor.WithAlpha((byte)(closeBoxHoverAnimationManager.GetProgress() * 120)),
-                    IsAntialias = true
-                };
+                paint.Color = closeHoverColor.WithAlpha((byte)(closeBoxHoverAnimationManager.GetProgress() * 120));
                 canvas.DrawRect(_controlBoxRect, paint);
             }
 
-            using var closePaint = new SKPaint
-            {
-                Color = _inCloseBox ? SKColors.White : foreColor,
-                StrokeWidth = 1.1f * ScaleFactor,
-                IsAntialias = true,
-                StrokeCap = SKStrokeCap.Round
-            };
+            strokePaint.Color = _inCloseBox ? SKColors.White : foreColor;
 
             var centerX = _controlBoxRect.Left + _controlBoxRect.Width / 2;
             var centerY = _controlBoxRect.Top + _controlBoxRect.Height / 2;
@@ -1496,117 +1504,88 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
                 centerY - size,
                 centerX + size,
                 centerY + size,
-                closePaint);
+                strokePaint);
 
             canvas.DrawLine(
                 centerX - size,
                 centerY + size,
                 centerX + size,
                 centerY - size,
-                closePaint);
-        }
+                strokePaint);
 
-        if (MaximizeBox)
-        {
-            if (_inMaxBox)
+            if (MaximizeBox)
             {
-                using var paint = new SKPaint
+                if (_inMaxBox)
                 {
-                    Color = hoverColor.WithAlpha((byte)(maxBoxHoverAnimationManager.GetProgress() * 80)),
-                    IsAntialias = true
-                };
-                canvas.DrawRect(_maximizeBoxRect, paint);
-            }
+                    paint.Color = hoverColor.WithAlpha((byte)(maxBoxHoverAnimationManager.GetProgress() * 80));
+                    canvas.DrawRect(_maximizeBoxRect, paint);
+                }
 
-            using var maxPaint = new SKPaint
-            {
-                Color = foreColor,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.2f * ScaleFactor,
-                IsAntialias = true,
-                StrokeCap = SKStrokeCap.Butt,
-                StrokeJoin = SKStrokeJoin.Round
-            };
+                // Maximize simgesi
+                centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
+                centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
+                size = (WindowState == FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
 
-            // Maximize simgesi
-            var centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
-            var centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
-            var size = (WindowState == FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
+                float offset = size * 0.5f;
+                float cornerRadius = 2.0f * ScaleFactor;
 
-            float offset = size * 0.5f;
-            float cornerRadius = 2.0f * ScaleFactor;
-            float strokeWidth = 1.2f * ScaleFactor;
-
-            using SKPaint strokePaint = new SKPaint
-            {
-                Style = SKPaintStyle.Stroke,
-                Color = foreColor,
-                StrokeWidth = strokeWidth,
-                IsAntialias = true,
-                StrokeJoin = SKStrokeJoin.Round,
-                StrokeCap = SKStrokeCap.Round
-            };
-
-            var frontRect = new SKRect(
-                centerX - size,
-                centerY - size,
-                centerX + size,
-                centerY + size
-            );
-
-            if (WindowState == FormWindowState.Maximized)
-            {
-                var backRect = new SKRect(
-                    frontRect.Left + offset,
-                    frontRect.Top - offset,
-                    frontRect.Right + offset,
-                    frontRect.Bottom - offset
+                var frontRect = new SKRect(
+                    centerX - size,
+                    centerY - size,
+                    centerX + size,
+                    centerY + size
                 );
 
-                canvas.Save();
-
-                SKRect clipRect = frontRect;
-                clipRect.Inflate(strokeWidth / 2f, strokeWidth / 2f);
-                SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (strokeWidth / 2f));
-
-                canvas.ClipRoundRect(clipRoundRect, SKClipOperation.Difference, true);
-                canvas.DrawRoundRect(backRect, cornerRadius, cornerRadius, strokePaint);
-                canvas.Restore();
-            }
-
-            canvas.DrawRoundRect(frontRect, cornerRadius, cornerRadius, strokePaint);
-        }
-
-        if (MinimizeBox)
-        {
-            if (_inMinBox)
-            {
-                using var paint = new SKPaint
+                if (WindowState == FormWindowState.Maximized)
                 {
-                    Color = hoverColor.WithAlpha((byte)(minBoxHoverAnimationManager.GetProgress() * 80)),
-                    IsAntialias = true
-                };
-                canvas.DrawRect(_minimizeBoxRect, paint);
+                    var backRect = new SKRect(
+                        frontRect.Left + offset,
+                        frontRect.Top - offset,
+                        frontRect.Right + offset,
+                        frontRect.Bottom - offset
+                    );
+
+                    canvas.Save();
+
+                    SKRect clipRect = frontRect;
+                    clipRect.Inflate(strokeWidth / 2f, strokeWidth / 2f);
+                    SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (strokeWidth / 2f));
+
+                    canvas.ClipRoundRect(clipRoundRect, SKClipOperation.Difference, true);
+                    canvas.DrawRoundRect(backRect, cornerRadius, cornerRadius, strokePaint);
+                    canvas.Restore();
+                }
+
+                canvas.DrawRoundRect(frontRect, cornerRadius, cornerRadius, strokePaint);
             }
 
-            using var minPaint = new SKPaint
+            if (MinimizeBox)
             {
-                Color = foreColor,
-                StrokeWidth = 1.1f * ScaleFactor,
-                IsAntialias = true,
-                StrokeCap = SKStrokeCap.Round
-            };
+                if (_inMinBox)
+                {
+                    paint.Color = hoverColor.WithAlpha((byte)(minBoxHoverAnimationManager.GetProgress() * 80));
+                    canvas.DrawRect(_minimizeBoxRect, paint);
+                }
 
-            var centerX = _minimizeBoxRect.Left + _minimizeBoxRect.Width / 2;
-            var centerY = _minimizeBoxRect.Top + _minimizeBoxRect.Height / 2;
-            var size = 5 * ScaleFactor;
+                using var minPaint = new SKPaint
+                {
+                    Color = foreColor,
+                    StrokeWidth = 1.1f * ScaleFactor,
+                    IsAntialias = true,
+                    StrokeCap = SKStrokeCap.Round
+                };
 
-            canvas.DrawLine(
-                centerX - size,
-                centerY,
-                centerX + size,
-                centerY,
-                minPaint);
+                centerX = _minimizeBoxRect.Left + _minimizeBoxRect.Width / 2;
+                centerY = _minimizeBoxRect.Top + _minimizeBoxRect.Height / 2;
+                size = 5 * ScaleFactor;
+
+                canvas.DrawLine(
+                    centerX - size,
+                    centerY,
+                    centerX + size,
+                    centerY,
+                    minPaint);
+            }
         }
 
         // Extend Box �izimi
@@ -1726,7 +1705,7 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
                 ? _formMenuRect.Left + _formMenuRect.Width + 8 * ScaleFactor
-                : _titleBarLeftInsetDPI + ((ShowIcon && Icon != null) ? faviconSize  + 14 * ScaleFactor : 0);
+                : _titleBarLeftInsetDPI + ((ShowIcon && Icon != null) ? faviconSize + 14 * ScaleFactor : 0);
             var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
             TextRenderer.DrawText(canvas, Text, textX, textY, SKTextAlign.Left, font, textPaint);
@@ -2125,7 +2104,7 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
             currentX += finalWidth;
         }
     }
-    
+
     // optimization helpers --------------------------------------------------
 
     /// <summary>
@@ -2179,7 +2158,7 @@ _windowPageControl.ControlAdded += delegate { Invalidate(); };
         if (disposing)
         {
             ColorScheme.ThemeChanged -= OnThemeChanged;
-            
+
             for (var i = 0; i < _hoverAnimationManagers.Count; i++)
                 _hoverAnimationManagers[i]?.Dispose();
             _hoverAnimationManagers.Clear();

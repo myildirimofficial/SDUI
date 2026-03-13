@@ -455,7 +455,7 @@ public partial class WindowBase : ElementBase
             cp.Parent, IntPtr.Zero, wc.hInstance, IntPtr.Zero);
 
         if (_hWnd == IntPtr.Zero)
-            throw new Exception("Pencere oluşturulamadı.");
+            throw new Exception("Failed to create window.");
 
         IsHandleCreated = true;
 
@@ -1151,8 +1151,9 @@ public partial class WindowBase : ElementBase
 
     protected virtual void OnHandleCreated(EventArgs e)
     {
-        ApplyNativeWindowStyles();
         RecreateRenderer();
+
+        ApplyNativeWindowStyles();
         SDUI.Native.Windows.Helpers.ApplyRoundCorner(Handle);
         UpdateNativeWindowText();
 
@@ -1415,7 +1416,7 @@ public partial class WindowBase : ElementBase
             if (_hWnd != IntPtr.Zero)
             {
                 _hWnd = IntPtr.Zero;
-                // DestroyWindow(_hWnd) - genellikle WM_CLOSE tetikler
+                // DestroyWindow(_hWnd) - typically triggered by WM_CLOSE
             }
 
             UnregisterClass(CreateParams.ClassName, _hInstance);

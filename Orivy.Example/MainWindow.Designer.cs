@@ -176,7 +176,7 @@ internal partial class MainWindow
         this.ContextMenuStrip = this.extendMenu;
         this.WindowPageControl = windowPageControl;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
-        this.RenderBackend = SDUI.Rendering.RenderBackend.OpenGL;
+        this.RenderBackend = SDUI.Rendering.RenderBackend.Software;
         this.Controls.Add(this.windowPageControl);
         this.Controls.Add(this.menuStrip);
         this.menuStrip.BringToFront();

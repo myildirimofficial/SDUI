@@ -2544,7 +2544,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     }
 
     /// <summary>
-    ///     Gets the parent UIWindowBase for this element
+    ///     Gets the parent WindowBase for this element
     /// </summary>
     public WindowBase GetParentWindow()
     {

@@ -1,8 +1,6 @@
 ﻿using Microsoft.Win32;
-using SDUI.Native.Windows;
 using SkiaSharp;
 using System;
-using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using static SDUI.Native.Windows.Methods;
 

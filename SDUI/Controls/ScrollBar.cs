@@ -1,24 +1,23 @@
+using SDUI.Animation;
+using SkiaSharp;
 using System;
 using System.ComponentModel;
 using System.Timers;
-using System.Windows.Forms;
-using SDUI.Animation;
-using SkiaSharp;
 
 namespace SDUI.Controls;
 
 public class ScrollBar : ElementBase
 {
     private readonly Timer _hideTimer;
-    private readonly AnimationManager _scrollAnim; // scroll animasyonu
+    private readonly AnimationManager _scrollAnim;
     private readonly AnimationManager _visibilityAnim;
-    private double _animatedValue; // animasyonlu değer
+    private double _animatedValue;
     private bool _autoHide = true;
     private SKPoint _dragStartPoint;
     private float _dragStartValue;
     private int _hideDelay = 1200; // ms
 
-    private bool _hostHovered; // container hover durumu
+    private bool _hostHovered;
     private bool _isDragging;
     private bool _isHovered; // track hover
     private bool _isThumbHovered;
@@ -30,23 +29,22 @@ public class ScrollBar : ElementBase
 
     // Corner radius for rounded corners (int pixels)
     private int _cornerRadius = 6; // default larger radius
-    private double _scrollAnimIncrement = 0.45; // kaydırma için hızlı varsayılan
+    private double _scrollAnimIncrement = 0.45;
     private AnimationType _scrollAnimType = AnimationType.EaseOut;
     private float _smallChange = 1;
-    private float _targetValue; // animasyon hedefi
-    private int _thickness = 2; // ince varsayılan
+    private float _targetValue;
+    private int _thickness = 2;
     private SkiaSharp.SKRect _thumbRect;
     private SkiaSharp.SKRect _trackRect;
     private bool _useThumbShadow = true;
     private float _value;
 
-    // Yeni: animasyon ayarları
-    private double _visibilityAnimIncrement = 0.20; // daha hızlı varsayılan
+    private double _visibilityAnimIncrement = 0.20;
     private AnimationType _visibilityAnimType = AnimationType.EaseInOut;
 
     public ScrollBar()
     {
-        BackColor = SKColors.Transparent; // ColorScheme ile uyumlu
+        BackColor = SKColors.Transparent;
         Cursor = Cursors.Default;
         ApplyOrientationSize();
 
@@ -56,6 +54,7 @@ public class ScrollBar : ElementBase
             AnimationType = _visibilityAnimType,
             InterruptAnimation = true
         };
+
         _visibilityAnim.OnAnimationProgress += s => Invalidate();
 
         _scrollAnim = new AnimationManager(true)
@@ -64,6 +63,7 @@ public class ScrollBar : ElementBase
             AnimationType = _scrollAnimType,
             InterruptAnimation = true
         };
+
         _scrollAnim.OnAnimationProgress += s =>
         {
             _animatedValue = _value + (_targetValue - _value) * _scrollAnim.GetProgress();
@@ -80,7 +80,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(4)]
-    [Description("Scrollbar kalınlığı (dikeyde genişlik, yatayda yükseklik)")]
+    [Description("Scrollbar thickness (width vertically, height horizontally)")]
     public int Thickness
     {
         get => _thickness;
@@ -96,7 +96,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(6)]
-    [Description("Köşe yuvarlaklık yarıçapı")]
+    [Description("The corner radius")]
     public int CornerRadius
     {
         get => _cornerRadius;
@@ -110,7 +110,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(true)]
-    [Description("Otomatik gizleme")]
+    [Description("Auto hide")]
     public bool AutoHide
     {
         get => _autoHide;
@@ -131,7 +131,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(1200)]
-    [Description("Gizleme gecikmesi (ms)")]
+    [Description("Auto hidden (ms)")]
     public int HideDelay
     {
         get => _hideDelay;
@@ -143,7 +143,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(true)]
-    [Description("Thumb gölge efekti")]
+    [Description("Thumb shadow effect")]
     public bool UseThumbShadow
     {
         get => _useThumbShadow;
@@ -168,10 +168,10 @@ public class ScrollBar : ElementBase
         }
     }
 
-    // Yeni: animasyon ayarlarını dışarı aç
+    // New: expose animation settings
     [Category("Animation")]
     [DefaultValue(0.20)]
-    [Description("Görünürlük animasyonu hız (Increment). Daha yüksek değer daha hızlıdır.")]
+    [Description("Visibility animation speed (Increment). Higher values are faster.")]
     public double VisibilityAnimationIncrement
     {
         get => _visibilityAnimIncrement;
@@ -184,7 +184,7 @@ public class ScrollBar : ElementBase
 
     [Category("Animation")]
     [DefaultValue(typeof(AnimationType), "EaseInOut")]
-    [Description("Görünürlük animasyonu tipi (Easing)")]
+    [Description("Visibility animation easing type")]
     public AnimationType VisibilityAnimationType
     {
         get => _visibilityAnimType;
@@ -197,7 +197,7 @@ public class ScrollBar : ElementBase
 
     [Category("Animation")]
     [DefaultValue(0.45)]
-    [Description("Scroll animasyonu hız (Increment). Daha yüksek değer daha hızlıdır.")]
+    [Description("Scroll animation speed (Increment). Higher values are faster.")]
     public double ScrollAnimationIncrement
     {
         get => _scrollAnimIncrement;
@@ -210,7 +210,7 @@ public class ScrollBar : ElementBase
 
     [Category("Animation")]
     [DefaultValue(typeof(AnimationType), "EaseOut")]
-    [Description("Scroll animasyonu tipi (Easing)")]
+    [Description("Scroll animation easing type")]
     public AnimationType ScrollAnimationType
     {
         get => _scrollAnimType;
@@ -303,11 +303,11 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(typeof(SKColor), "Transparent")]
-    [Description("Track rengi override; Transparent ise ColorScheme kullanılır")]
+    [Description("Track color override; if Transparent, ColorScheme is used")]
     public SKColor TrackColor { get; set; } = SKColors.Transparent;
 
     [DefaultValue(typeof(SKColor), "Transparent")]
-    [Description("Thumb rengi override; Transparent ise ColorScheme kullanılır")]
+    [Description("Thumb color override; if Transparent, ColorScheme is used")]
     public SKColor ThumbColor { get; set; } = SKColors.Transparent;
 
     public event EventHandler ValueChanged;

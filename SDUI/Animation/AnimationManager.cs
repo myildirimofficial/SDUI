@@ -6,7 +6,7 @@ using System.Timers;
 namespace SDUI.Animation;
 
 /// <summary>
-///     Modern, optimize edilmis animation manager - ValueProvider tabanli
+///     Modern, optimized animation manager - based on ValueProvider
 /// </summary>
 public class AnimationManager : IDisposable
 {
@@ -15,7 +15,7 @@ public class AnimationManager : IDisposable
     private SKPoint _animationSource;
     private AnimationDirection _currentDirection;
     private bool _disposed;
-    private Timer _timer; // Lazy initialization icin readonly kaldirildi
+    private Timer _timer; // Removed readonly for lazy initialization
 
     public AnimationManager(bool singular = true)
     {
@@ -27,9 +27,9 @@ public class AnimationManager : IDisposable
 
         _valueProvider = new ValueProvider<double>(0, ValueFactories.DoubleFactory, EasingMethods.DefaultEase);
 
-        // Timer'i lazy initialization ile olustur - handle sorununu cozer
-        // _timer = new Timer { Interval = 16 }; // BU SATIR KALDIRILDI
-        // _timer.Tick += OnTick; // BU SATIR KALDIRILDI
+        // Create timer with lazy initialization to solve handle issues
+        // _timer = new Timer { Interval = 16 }; // THIS LINE WAS REMOVED
+        // _timer.Tick += OnTick; // THIS LINE WAS REMOVED
     }
 
     public bool Singular { get; set; }
@@ -47,7 +47,7 @@ public class AnimationManager : IDisposable
         if (_timer != null)
         {
             _timer.Stop();
-            _timer.Elapsed -= OnTick; // Event handler'i kaldir
+            _timer.Elapsed -= OnTick; // Remove event handler
             _timer.Dispose();
             _timer = null;
         }
@@ -58,7 +58,7 @@ public class AnimationManager : IDisposable
     public event Action<object> OnAnimationProgress;
     public event Action<object> OnAnimationFinished;
 
-    // Lazy initialization - Timer sadece gerektiginde olusturulur
+    // Lazy initialization - Timer is created only when needed
     private void EnsureTimer()
     {
         if (_timer != null) return;
@@ -70,8 +70,8 @@ public class AnimationManager : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"AnimationManager: Timer olusturulamadi - {ex.Message}");
-            // Timer olusturulamazsa animasyon devre disi birakilir
+            Debug.WriteLine($"AnimationManager: Timer could not be created - {ex.Message}");
+            // If timer creation fails, animation is disabled
             _timer = null;
         }
     }
@@ -113,7 +113,7 @@ public class AnimationManager : IDisposable
 
         Running = true;
 
-        // Timer'i lazy initialization ile olustur
+        // Create timer with lazy initialization
         EnsureTimer();
 
         if (_timer != null && !_timer.Enabled)
@@ -193,7 +193,10 @@ public class AnimationManager : IDisposable
             Running = false;
             if (_timer != null)
                 _timer.Stop();
+
             OnAnimationFinished?.Invoke(this);
+
+            return;
         }
 
         OnAnimationProgress?.Invoke(this);

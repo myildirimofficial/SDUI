@@ -21,7 +21,7 @@ public class Application
     /// <summary>
     /// Static constructor ensures DPI awareness is set before ANY window is created.
     /// This runs the first time any Application member is accessed, including
-    /// when UIWindowBase constructor references Application indirectly.
+    /// when WindowBase constructor references Application indirectly.
     /// </summary>
     static Application()
     {
