@@ -179,13 +179,13 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     protected bool IsPerformingLayout { get; private set; }
 
-    public UIWindowBase? ParentWindow
+    public WindowBase? ParentWindow
     {
         get
         {
             return _parent switch
             {
-                UIWindowBase window => window,
+                WindowBase window => window,
                 ElementBase element => element.ParentWindow,
                 _ => null
             };
@@ -350,7 +350,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     private void UpdateCurrentDpiFromParent()
     {
-        if (_parent is UIWindowBase window && window.IsHandleCreated)
+        if (_parent is WindowBase window && window.IsHandleCreated)
             _currentDpi = Screen.GetDpiForWindowHandle(window.Handle);
         else if (_parent is ElementBase element)
             _currentDpi = element.ScaleFactor * 96f;
@@ -389,7 +389,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             Scale(padding.Bottom, scaleFactor));
     }
 
-    protected bool IsChildOf(UIWindowBase window)
+    protected bool IsChildOf(WindowBase window)
     {
         return ParentWindow == window;
     }
@@ -616,7 +616,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             _autoScrollMinSize = value;
 
             // Trigger layout so containers can re-evaluate scrollbar visibility
-            if (Parent is UIWindowBase parentWindow)
+            if (Parent is WindowBase parentWindow)
                 parentWindow.PerformLayout();
             else if (Parent is ElementBase parentElement)
                 parentElement.PerformLayout();
@@ -1135,7 +1135,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _focusedElement;
         set
         {
-            if (_focusedElement == value || value is UIWindowBase) return;
+            if (_focusedElement == value || value is WindowBase) return;
 
             var oldFocus = _focusedElement;
             _focusedElement = value;
@@ -1161,12 +1161,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _lastHoveredElement;
         internal set
         {
-            if (value is UIWindowBase)
+            if (value is WindowBase)
                 return;
 
             if (_lastHoveredElement != value) _lastHoveredElement = value;
 
-            if (_parent is UIWindowBase windowBase)
+            if (_parent is WindowBase windowBase)
                 windowBase.UpdateCursor(this);
         }
     }
@@ -1427,7 +1427,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         // Only propagate to window if this isn't already the window
         // This prevents cascade invalidations that kill FPS
-        if (!(this is UIWindowBase))
+        if (!(this is WindowBase))
         {
             var window = GetParentWindow();
             window?.Invalidate();
@@ -1588,7 +1588,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (element.Parent == null)
             return SKRect.Create(element.Location, element.Size);
 
-        if (element.Parent is UIWindowBase window && !window.IsDisposed)
+        if (element.Parent is WindowBase window && !window.IsDisposed)
         {
             var screenLoc = element.PointToScreen(SKPoint.Empty);
             var clientLoc = window.PointToClient(screenLoc);
@@ -1598,12 +1598,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (element.Parent is ElementBase parentElement)
         {
             var screenLoc = element.PointToScreen(SKPoint.Empty);
-            UIWindowBase? parentWindow = null;
+            WindowBase? parentWindow = null;
             var current = parentElement;
 
             while (current != null && parentWindow == null)
             {
-                if (current.Parent is UIWindowBase windowParent)
+                if (current.Parent is WindowBase windowParent)
                 {
                     parentWindow = windowParent;
                     break;
@@ -2283,7 +2283,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (AutoSize)
         {
             // Trigger parent layout to re-measure and re-arrange this element
-            if (Parent is UIWindowBase parentWindow)
+            if (Parent is WindowBase parentWindow)
                 parentWindow.PerformLayout();
             else if (Parent is ElementBase parentElement) parentElement.PerformLayout();
         }
@@ -2484,7 +2484,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         {
             var window = GetParentWindow();
             ElementBase? prevWindowFocus = null;
-            if (window is UIWindowBase uiWindow)
+            if (window is WindowBase uiWindow)
                 prevWindowFocus = uiWindow.FocusedElement;
 
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
@@ -2493,7 +2493,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 e.Delta);
             control.OnMouseDown(childEventArgs);
 
-            if (window is UIWindowBase uiWindowAfter)
+            if (window is WindowBase uiWindowAfter)
             {
                 if (uiWindowAfter.FocusedElement == prevWindowFocus)
                     uiWindowAfter.FocusedElement = control;
@@ -2546,12 +2546,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// <summary>
     ///     Gets the parent UIWindowBase for this element
     /// </summary>
-    public UIWindowBase GetParentWindow()
+    public WindowBase GetParentWindow()
     {
         IElement current = this;
         while (current != null)
         {
-            if (current is UIWindowBase window)
+            if (current is WindowBase window)
                 return window;
             current = current.Parent;
         }
@@ -2678,7 +2678,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     {
         VisibleChanged?.Invoke(this, e);
         Invalidate();
-        if (Parent is UIWindowBase parentWindow) parentWindow.PerformLayout();
+        if (Parent is WindowBase parentWindow) parentWindow.PerformLayout();
         else if (Parent is ElementBase parentElement) parentElement.PerformLayout();
     }
 
@@ -2846,7 +2846,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnCursorChanged(EventArgs e)
     {
         CursorChanged?.Invoke(this, e);
-        if (Parent is UIWindowBase parentWindow)
+        if (Parent is WindowBase parentWindow)
             parentWindow.UpdateCursor(this);
     }
 
@@ -2989,9 +2989,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     #region Methods
 
-    public UIWindowBase? FindForm()
+    public WindowBase? FindForm()
     {
-        if (Parent is UIWindowBase form)
+        if (Parent is WindowBase form)
             return form;
         if (Parent is ElementBase parentElement)
             return parentElement.FindForm();
@@ -3055,7 +3055,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (Parent == null)
             return p;
 
-        if (Parent is UIWindowBase parentWindow && !parentWindow.IsDisposed)
+        if (Parent is WindowBase parentWindow && !parentWindow.IsDisposed)
             return parentWindow.PointToScreen(new SKPoint(p.X + Location.X, p.Y + Location.Y));
         if (Parent is ElementBase parentElement)
             return parentElement.PointToScreen(new SKPoint(p.X + Location.X, p.Y + Location.Y));
@@ -3069,7 +3069,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             return p;
 
         SKPoint clientPoint;
-        if (Parent is UIWindowBase parentWindow)
+        if (Parent is WindowBase parentWindow)
             clientPoint = parentWindow.PointToClient(p);
         else if (Parent is ElementBase parentElement)
             clientPoint = parentElement.PointToClient(p);

@@ -4,7 +4,7 @@ using System;
 
 namespace Orivy.Example
 {
-    internal partial class MainWindow : UIWindow
+    internal partial class MainWindow : Window
     {
         internal MainWindow()
         {

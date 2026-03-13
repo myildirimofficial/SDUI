@@ -34,7 +34,7 @@ public interface IElement
     void Refresh();
     void UpdateZOrder();
     void BringToFront();
-    UIWindowBase GetParentWindow();
+    WindowBase GetParentWindow();
     void EnsureLoadedRecursively();
     void EnsureUnloadedRecursively();
 }

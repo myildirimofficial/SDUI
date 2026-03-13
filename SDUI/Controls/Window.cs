@@ -13,7 +13,7 @@ using static SDUI.Native.Windows.Methods;
 namespace SDUI.Controls;
 
 
-public partial class UIWindow : UIWindowBase
+public partial class Window : WindowBase
 {
     private const float TAB_DRAG_THRESHOLD = 4f;
 
@@ -234,7 +234,7 @@ public partial class UIWindow : UIWindowBase
     /// <summary>
     ///     The contructor
     /// </summary>
-    public UIWindow()
+    public Window()
     {
         AutoScaleMode = AutoScaleMode.None;
         enableFullDraggable = false;

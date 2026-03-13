@@ -13,9 +13,9 @@ namespace SDUI;
 
 public class Application
 {
-    private static readonly List<UIWindowBase> _openForms = new();
+    private static readonly List<WindowBase> _openForms = new();
     private static SKFont? _defaultFont;
-    private static UIWindowBase _activeForm;
+    private static WindowBase _activeForm;
     private static bool _dpiAwarenessSet;
 
     /// <summary>
@@ -50,9 +50,9 @@ public class Application
         }
     }
 
-    public static IReadOnlyList<UIWindowBase> OpenForms => _openForms.AsReadOnly();
+    public static IReadOnlyList<WindowBase> OpenForms => _openForms.AsReadOnly();
 
-    public static UIWindowBase ActiveForm
+    public static WindowBase ActiveForm
     {
         get => _activeForm;
         internal set
@@ -91,7 +91,7 @@ public class Application
         catch (EntryPointNotFoundException) { }
     }
 
-    internal static void RegisterForm(UIWindowBase form)
+    internal static void RegisterForm(WindowBase form)
     {
         if (form == null || _openForms.Contains(form))
             return;
@@ -100,7 +100,7 @@ public class Application
         _activeForm = form;
     }
 
-    internal static void UnregisterForm(UIWindowBase form)
+    internal static void UnregisterForm(WindowBase form)
     {
         if (form == null)
             return;
@@ -111,7 +111,7 @@ public class Application
             _activeForm = _openForms.LastOrDefault();
     }
 
-    internal static void SetActiveForm(UIWindowBase form)
+    internal static void SetActiveForm(WindowBase form)
     {
         if (form == null || !_openForms.Contains(form))
             return;
@@ -119,7 +119,7 @@ public class Application
         _activeForm = form;
     }
 
-    public static void Run(UIWindowBase window)
+    public static void Run(WindowBase window)
     {
 		try
 		{

@@ -515,7 +515,7 @@ public class MenuStrip : ElementBase
 
     private void ExecuteOnMenuThread(Action action)
     {
-        var window = FindForm() as UIWindowBase;
+        var window = FindForm() as WindowBase;
         if (window == null)
         {
             action();
@@ -1022,7 +1022,7 @@ public class MenuStrip : ElementBase
             activeDropDown.ShowAnchoredBelow(this, itemBounds);
 
         // İlk açılışta da her zaman en üst z-index'te olsun.
-        if (FindForm() is UIWindowBase uiw)
+        if (FindForm() is WindowBase uiw)
         {
             uiw.BringToFront(activeDropDown);
 

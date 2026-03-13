@@ -1,16 +1,14 @@
-﻿using SDUI.Collections;
-using SDUI.Helpers;
+﻿using SDUI.Helpers;
 using SDUI.Native.Windows;
 using SkiaSharp;
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
 
-public partial class UIWindowBase : ElementBase
+public partial class WindowBase : ElementBase
 {
     private const uint WM_APP_THEMECHANGED = 0x8000 + 0x250;
     private const uint WM_APP_IDLEMAINTENANCE = 0x8000 + 0x251;
@@ -360,12 +358,12 @@ public partial class UIWindowBase : ElementBase
     public event EventHandler Activated;
     public event EventHandler Deactivated;
 
-    static UIWindowBase()
+    static WindowBase()
     {
         Application.EnableDpiAwareness();
     }
 
-    public UIWindowBase()
+    public WindowBase()
     {
         // Set default window size (ElementBase default is 100x23 which is too small for a window)
         Size = new SKSize(800, 600);
@@ -1001,7 +999,7 @@ public partial class UIWindowBase : ElementBase
             case WindowMessage.WM_MOVE:
                 {
                     // Skip WM_MOVE during manual drag to prevent race condition with OnMouseMove
-                    if (this is UIWindow uiWin && uiWin.IsOnMoving)
+                    if (this is Window uiWin && uiWin.IsOnMoving)
                         return IntPtr.Zero;
 
                     int x = (short)(lParam.ToInt64() & 0xFFFF);

@@ -51,7 +51,7 @@ public class ContextMenuStrip : MenuStrip
     private MouseEventHandler? _ownerMouseDownHandler;
     private bool _ownerPreviousKeyPreview;
     private EventHandler? _ownerSizeChangedHandler;
-    private UIWindowBase? _ownerWindow;
+    private WindowBase? _ownerWindow;
     private SKPaint? _separatorPaint;
     private SKPaint? _textPaint;
     private SKPaint? _layerPaint;
@@ -199,7 +199,7 @@ public class ContextMenuStrip : MenuStrip
 
         // WinForms z-order + SDUI'nin kendi ZOrder sistemini güncelle.
         BringToFront();
-        if (_ownerWindow is UIWindowBase uiw)
+        if (_ownerWindow is WindowBase uiw)
         {
             uiw.BringToFront(this);
 
@@ -680,7 +680,7 @@ public class ContextMenuStrip : MenuStrip
         target.OnMouseDown(childEventArgs);
 
         var window = GetParentWindow();
-        if (window is UIWindowBase uiWindow)
+        if (window is WindowBase uiWindow)
         {
             uiWindow.FocusedElement = target;
         }
@@ -696,17 +696,17 @@ public class ContextMenuStrip : MenuStrip
         return true;
     }
 
-    private UIWindowBase? ResolveOwner(ElementBase? element)
+    private WindowBase? ResolveOwner(ElementBase? element)
     {
-        if (Parent is UIWindowBase w) return w;
+        if (Parent is WindowBase w) return w;
         if (element != null)
         {
-            if (element.ParentWindow is UIWindowBase pw) return pw;
-            if (element.FindForm() is UIWindowBase fw) return fw;
+            if (element.ParentWindow is WindowBase pw) return pw;
+            if (element.FindForm() is WindowBase fw) return fw;
         }
 
-        if (Application.ActiveForm is UIWindowBase aw) return aw;
-        return Application.OpenForms.OfType<UIWindowBase>().FirstOrDefault();
+        if (Application.ActiveForm is WindowBase aw) return aw;
+        return Application.OpenForms.OfType<WindowBase>().FirstOrDefault();
     }
 
     private void AttachHandlers()

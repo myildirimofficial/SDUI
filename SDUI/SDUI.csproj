@@ -15,4 +15,10 @@
     <PackageReference Include="Vortice.DXGI" Version="3.8.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Windowing\Desktop\Linux\" />
+    <Folder Include="Windowing\Desktop\Mac\" />
+    <Folder Include="Windowing\Desktop\Windows\" />
+  </ItemGroup>
+
 </Project>

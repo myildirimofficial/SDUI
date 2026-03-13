@@ -4,14 +4,13 @@ using SkiaSharp;
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Timers;
 using static SDUI.Native.Windows.Methods;
 
 namespace SDUI.Controls;
 
-public partial class UIWindowBase
+public partial class WindowBase
 {
     private readonly object _rendererSync = new();
     private bool _showPerfOverlay = true;

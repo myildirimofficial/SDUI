@@ -14,11 +14,11 @@ namespace SDUI.Helpers;
 public class FocusManager
 {
     private readonly List<ElementBase> _focusableElements = new();
-    private readonly UIWindowBase _window;
+    private readonly WindowBase _window;
     private ElementBase? _currentFocus;
     private bool _isNavigating;
 
-    public FocusManager(UIWindowBase window)
+    public FocusManager(WindowBase window)
     {
         _window = window;
     }
@@ -95,7 +95,7 @@ public class FocusManager
 
         // Delegate real focus behavior to the existing focus pipeline so
         // OnGotFocus/OnLostFocus and related events fire correctly.
-        if (_window is UIWindowBase uiWindow)
+        if (_window is WindowBase uiWindow)
         {
             uiWindow.FocusedElement = element;
         }
