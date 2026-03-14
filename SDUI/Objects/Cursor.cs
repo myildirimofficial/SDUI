@@ -6,7 +6,6 @@ namespace SDUI;
 
 /// <summary>
 /// Lightweight wrapper around a platform cursor handle. We avoid WinForms types so SDUI can be used
-/// outside of System.Windows.Forms contexts. System cursors are not disposed by SDUI (we don't own them).
 /// </summary>
 public sealed class Cursor : IDisposable
 {

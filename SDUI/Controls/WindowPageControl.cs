@@ -2,8 +2,6 @@
 using System;
 using System.Diagnostics;
 
-using System.Windows.Forms;
-
 namespace SDUI.Controls;
 
 public class WindowPageControl : ElementBase
