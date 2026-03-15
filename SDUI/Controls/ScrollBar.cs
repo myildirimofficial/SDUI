@@ -33,8 +33,8 @@ public class ScrollBar : ElementBase
 
     // Corner radius for rounded corners (int pixels)
     private int _cornerRadius = 6; // default larger radius
-    private double _scrollAnimIncrement = 0.45;
-    private AnimationType _scrollAnimType = AnimationType.EaseOut;
+    private double _scrollAnimIncrement = 0.32;
+    private AnimationType _scrollAnimType = AnimationType.CubicEaseOut;
     private float _rubberBandAnimationStartValue;
     private float _scrollAnimationStartValue;
     private float _smallChange = 1;
@@ -48,8 +48,8 @@ public class ScrollBar : ElementBase
     private float _value;
     private const double InputSettleDelay = 72;
     private const double SpringTickInterval = 16;
-    private const float SpringStiffness = 260f;
-    private const float SpringDamping = 24f;
+    private const float SpringStiffness = 150f;
+    private const float SpringDamping = 30f;
     private const float SpringStopDistance = 0.2f;
     private const float SpringStopVelocity = 4f;
 
@@ -225,7 +225,7 @@ public class ScrollBar : ElementBase
     }
 
     [Category("Animation")]
-    [DefaultValue(0.45)]
+    [DefaultValue(0.32)]
     [Description("Scroll animation speed (Increment). Higher values are faster.")]
     public double ScrollAnimationIncrement
     {
@@ -238,7 +238,7 @@ public class ScrollBar : ElementBase
     }
 
     [Category("Animation")]
-    [DefaultValue(typeof(AnimationType), "EaseOut")]
+    [DefaultValue(typeof(AnimationType), "CubicEaseOut")]
     [Description("Scroll animation easing type")]
     public AnimationType ScrollAnimationType
     {
@@ -435,8 +435,8 @@ public class ScrollBar : ElementBase
             var valuePerPixel = range / MathF.Max(1f, trackTravel);
             var overflowPixels = valuePerPixel <= 0f
                 ? 0f
-                : MathF.Min(trackLength * 0.45f, MathF.Abs(overflow) / valuePerPixel * 0.45f);
-            var minThumbLength = MathF.Min(thumbLength, MathF.Max(12f, thumbLength * 0.45f));
+                : MathF.Min(trackLength * 0.22f, MathF.Abs(overflow) / valuePerPixel * 0.22f);
+            var minThumbLength = MathF.Min(thumbLength, MathF.Max(16f, thumbLength * 0.62f));
             thumbLength = MathF.Max(minThumbLength, thumbLength - overflowPixels);
             thumbPos = overflow < 0f ? 0f : trackLength - thumbLength;
         }
@@ -580,7 +580,7 @@ public class ScrollBar : ElementBase
 
         _rubberBandAnimationStartValue = _visualOverflowValue;
         _isRubberBandAnimating = true;
-        _springVelocity = -_rubberBandAnimationStartValue * 1.8f;
+        _springVelocity = -_rubberBandAnimationStartValue * 0.35f;
         _rubberBandAnim.Stop();
         _rubberBandAnim.Start();
     }
@@ -591,25 +591,25 @@ public class ScrollBar : ElementBase
             return 0f;
 
         var viewportLength = MathF.Max(1f, IsVertical ? Height : Width);
-        var maxOverflow = MathF.Max(56f, viewportLength * 0.42f);
-        var resistance = MathF.Max(1f, viewportLength * 0.08f);
+        var maxOverflow = MathF.Max(18f, viewportLength * 0.12f);
+        var resistance = MathF.Max(1f, viewportLength * 0.24f);
         var normalized = MathF.Abs(overflow) / resistance;
-        var magnitude = maxOverflow * (normalized / (normalized + 0.22f));
+        var magnitude = maxOverflow * (1f - MathF.Exp(-normalized * 0.75f));
         return MathF.CopySign(magnitude, overflow);
     }
 
     private float GetMaximumVisualOverflow()
     {
         var viewportLength = MathF.Max(1f, IsVertical ? Height : Width);
-        return MathF.Max(56f, viewportLength * 0.42f);
+        return MathF.Max(18f, viewportLength * 0.12f);
     }
 
     private float GetWheelStretchDelta(float delta)
     {
         var maxOverflow = GetMaximumVisualOverflow();
         var currentRatio = MathF.Min(1f, MathF.Abs(_visualOverflowValue) / maxOverflow);
-        var resistance = MathF.Max(0.18f, 1f - currentRatio * 0.82f);
-        var stretch = MathF.Max(1.5f, MathF.Abs(delta) * 0.75f * resistance);
+        var resistance = MathF.Max(0.08f, 1f - currentRatio * 0.92f);
+        var stretch = MathF.Max(0.35f, MathF.Abs(delta) * 0.18f * resistance);
         return MathF.CopySign(stretch, delta);
     }
 
