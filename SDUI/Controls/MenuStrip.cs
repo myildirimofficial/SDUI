@@ -1000,6 +1000,7 @@ public class MenuStrip : ElementBase
         EnsureDropDownHost();
         var activeDropDown = _activeDropDown!;
         activeDropDown.ParentDropDown = this as ContextMenuStrip;
+        activeDropDown.ResetStableAccordionPopupSize();
         activeDropDown.Items.Clear();
 
         foreach (var child in item.DropDownItems)
@@ -1078,6 +1079,7 @@ public class MenuStrip : ElementBase
     private void SyncDropDownAppearance()
     {
         if (_activeDropDown == null) return;
+        _activeDropDown.UseAccordionSubmenus = this is ContextMenuStrip contextMenu && contextMenu.UseAccordionSubmenus;
         _activeDropDown.MenuBackColor = SubmenuBackColor;
         _activeDropDown.BackColor = SubmenuBackColor;
         _activeDropDown.MenuForeColor = MenuForeColor;

@@ -30,11 +30,16 @@ public class ContextMenuStrip : MenuStrip
     private const float BaseMinimumContentWidth = 180f;
     private const float BaseScrollBarThickness = 8f;
     private const float BaseSeparatorMargin = 4f;
+    private const float BaseAccordionIndent = 18f;
+    private const float BaseAccordionMaxHeight = 250f;
+    private const float BasePopupTopAnchorOffset = 6f;
+    private const double AccordionAnimationIncrement = 0.18;
     private const float PopupMargin = 8f;
     private const float ScrollBarGap = 4f;
     private readonly AnimationManager _fadeInAnimation;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
+    private readonly Dictionary<MenuItem, AnimationManager> _accordionAnims = new();
     private SKPaint? _arrowPaint;
 
     private SKPath? _chevronPath;
@@ -69,6 +74,12 @@ public class ContextMenuStrip : MenuStrip
     private bool _openingLeftwards;
     private bool _openingUpwards;
     private bool _ownerBoundsRefreshQueued;
+    private bool _useAccordionSubmenus;
+    private readonly HashSet<MenuItem> _expandedItems = new();
+    private MenuItem? _accordionCenterTarget;
+    private SKSize _stableAccordionPopupSize;
+
+    private readonly record struct VisibleItemEntry(MenuItem Item, SKRect Rect, int Depth);
 
     protected override bool HandlesMouseWheelScroll => _vScrollBar != null && _vScrollBar.Visible;
     protected override float MouseWheelScrollLines => 1f;
@@ -128,6 +139,28 @@ public class ContextMenuStrip : MenuStrip
     [Category("Behavior")]
     [DefaultValue(true)]
     public bool AutoClose { get; set; } = true;
+
+    [Category("Behavior")]
+    [DefaultValue(false)]
+    public bool UseAccordionSubmenus
+    {
+        get => _useAccordionSubmenus;
+        set
+        {
+            if (_useAccordionSubmenus == value)
+                return;
+
+            _useAccordionSubmenus = value;
+            _accordionCenterTarget = null;
+            _stableAccordionPopupSize = SKSize.Empty;
+            _expandedItems.Clear();
+            foreach (var anim in _accordionAnims.Values)
+                anim.SetProgress(0);
+            CloseSubmenu();
+            UpdateScrollState();
+            Invalidate();
+        }
+    }
 
     [Category("Appearance")]
     [DefaultValue(OpeningEffectType.Fade)]
@@ -194,6 +227,7 @@ public class ContextMenuStrip : MenuStrip
 
         SourceElement = element;
         _ownerWindow = owner;
+        _accordionCenterTarget = null;
         ApplyDpiMetrics(_ownerWindow.DeviceDpi > 0 ? _ownerWindow.DeviceDpi : DeviceDpi);
 
         if (!_ownerWindow.Controls.Contains(this))
@@ -267,6 +301,7 @@ public class ContextMenuStrip : MenuStrip
         SourceElement = null;
         ParentDropDown = null;
         ResetElementAnchor();
+        _accordionCenterTarget = null;
         IsOpen = false;
     }
 
@@ -343,6 +378,12 @@ public class ContextMenuStrip : MenuStrip
 
     protected override void OnItemClicked(MenuItem item)
     {
+        if (UseAccordionSubmenus && item.HasDropDown)
+        {
+            ToggleAccordionItem(item);
+            return;
+        }
+
         if (item.HasDropDown)
         {
             base.OnItemClicked(item);
@@ -378,6 +419,9 @@ public class ContextMenuStrip : MenuStrip
             return;
 
         var size = GetPrefSize();
+        if (UseAccordionSubmenus && _stableAccordionPopupSize != SKSize.Empty)
+            size = _stableAccordionPopupSize;
+
         var client = _ownerWindow.ClientRectangle;
 
         var marginX = Math.Min(PopupMargin, Math.Max(0f, (client.Width - 1f) * 0.5f));
@@ -413,8 +457,13 @@ public class ContextMenuStrip : MenuStrip
 
         if (hasAnchorBounds && _anchorPlacement == PopupAnchorPlacement.Beside)
         {
-            var contentHeight = Math.Max(1f, desiredHeight);
-            targetY = anchorBounds.Top + (anchorBounds.Height - contentHeight) * 0.5f;
+            if (TryGetPopupTopInOwner(out var popupTop))
+                targetY = popupTop;
+            else
+            {
+                var contentHeight = Math.Max(1f, desiredHeight);
+                targetY = anchorBounds.Top + (anchorBounds.Height - contentHeight) * 0.5f;
+            }
         }
         else if (hasAnchorBounds && _anchorPlacement == PopupAnchorPlacement.Below)
         {
@@ -473,7 +522,27 @@ public class ContextMenuStrip : MenuStrip
 
         Location = new SKPoint(targetX, targetY);
         Size = size;
+        if (UseAccordionSubmenus && _stableAccordionPopupSize == SKSize.Empty)
+            _stableAccordionPopupSize = size;
         UpdateScrollState();
+    }
+
+    internal void ResetStableAccordionPopupSize()
+    {
+        _stableAccordionPopupSize = SKSize.Empty;
+    }
+
+    private bool TryGetPopupTopInOwner(out float popupTop)
+    {
+        popupTop = 0f;
+
+        if (_ownerWindow == null || _anchorElement is not ContextMenuStrip popup)
+            return false;
+
+        var popupOriginScreen = popup.PointToScreen(SKPoint.Empty);
+        var popupOriginClient = _ownerWindow.PointToClient(popupOriginScreen);
+        popupTop = popupOriginClient.Y + BasePopupTopAnchorOffset * ScaleFactor;
+        return true;
     }
 
     private void RepositionToOwnerBounds()
@@ -546,6 +615,9 @@ public class ContextMenuStrip : MenuStrip
 
     private float GetContentHeight()
     {
+        if (UseAccordionSubmenus)
+            return GetAccordionContentHeight(Items);
+
         var verticalGap = GetVerticalItemGap();
         var contentHeight = ItemPadding * 2f;
         var firstItem = true;
@@ -569,6 +641,78 @@ public class ContextMenuStrip : MenuStrip
         return contentHeight;
     }
 
+    private float GetAccordionIndent()
+    {
+        return MathF.Max(14f, BaseAccordionIndent * ScaleFactor);
+    }
+
+    private float GetAccordionMaxHeight()
+    {
+        return MathF.Max(ItemHeight * 3f, BaseAccordionMaxHeight * ScaleFactor);
+    }
+
+    private float GetAccordionContentHeight(IReadOnlyList<MenuItem> items)
+    {
+        var verticalGap = GetVerticalItemGap();
+        var contentHeight = ItemPadding * 2f;
+        AppendAccordionContentHeight(items, ref contentHeight, verticalGap, 1f);
+        return contentHeight;
+    }
+
+    private void AppendAccordionContentHeight(IReadOnlyList<MenuItem> items, ref float height, float verticalGap, float revealScale)
+    {
+        if (revealScale <= 0.001f)
+            return;
+
+        var firstItem = true;
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (!item.Visible)
+                continue;
+
+            if (!firstItem)
+                height += verticalGap * revealScale;
+
+            height += item.IsSeparator
+                ? (SeparatorMargin * 2f + 1f) * revealScale
+                : ItemHeight * revealScale;
+
+            firstItem = false;
+
+            var childReveal = revealScale * GetAccordionProgress(item);
+            if (!item.HasDropDown || childReveal <= 0.001f)
+                continue;
+
+            AppendAccordionContentHeight(item.DropDownItems, ref height, verticalGap, childReveal);
+        }
+    }
+
+    private float GetAccordionContentWidth(IReadOnlyList<MenuItem> items, int depth)
+    {
+        var maxWidth = ItemPadding * 2f;
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (!item.Visible)
+                continue;
+
+            var entryWidth = item.IsSeparator
+                ? ItemPadding * 2f
+                : MeasureItemWidth(item);
+            maxWidth = Math.Max(maxWidth, entryWidth);
+
+            if (!item.HasDropDown)
+                continue;
+
+            maxWidth = Math.Max(maxWidth, GetAccordionContentWidth(item.DropDownItems, depth + 1));
+        }
+
+        return maxWidth;
+    }
+
     private void UpdateScrollState()
     {
         _contentHeight = GetContentHeight();
@@ -590,7 +734,8 @@ public class ContextMenuStrip : MenuStrip
         if (needsVScroll)
         {
             var scrollBarWidth = GetScrollBarWidth();
-            var edgeInset = Math.Max(1f, Border.Right);
+            var overlayInset = MathF.Max(2f, 4f * ScaleFactor);
+            var edgeInset = Math.Max(1f, Border.Right) + overlayInset;
             var scrollBarHeight = Math.Max(1f, (float)Math.Round(Height - edgeInset * 2f));
             var scrollBarLeft = (float)Math.Round(Width - edgeInset - scrollBarWidth);
             var scrollBarTop = (float)Math.Round(edgeInset);
@@ -612,41 +757,61 @@ public class ContextMenuStrip : MenuStrip
         }
 
         _viewportWidth = Math.Max(1f,
-            (float)Math.Floor(Width - ItemPadding * 2 - (needsVScroll ? GetScrollBarWidth() + ScrollBarGap + Math.Max(1f, Border.Right) : 0f)));
+            (float)Math.Floor(Width - ItemPadding * 2));
     }
 
-    private List<(MenuItem Item, SKRect Rect)> GetVisibleItemRects()
+    private List<VisibleItemEntry> GetVisibleItemEntries()
     {
-        var rects = new List<(MenuItem Item, SKRect Rect)>(Items.Count);
+        return GetVisibleItemEntries(_scrollOffset);
+    }
+
+    private List<VisibleItemEntry> GetVisibleItemEntries(float scrollOffset)
+    {
+        var entries = new List<VisibleItemEntry>(Items.Count);
         var verticalGap = GetVerticalItemGap();
-        var y = ItemPadding - _scrollOffset;
+        var y = ItemPadding - scrollOffset;
         var x = (float)Math.Round(ItemPadding);
         var width = Math.Max(1f, (float)Math.Round(_viewportWidth));
+        AppendVisibleItemEntries(Items, 0, entries, ref y, x, width, verticalGap, 1f);
+        return entries;
+    }
+
+    private void AppendVisibleItemEntries(IReadOnlyList<MenuItem> items, int depth, List<VisibleItemEntry> entries, ref float y, float x, float width, float verticalGap, float revealScale)
+    {
+        if (revealScale <= 0.001f)
+            return;
+
         var firstItem = true;
 
-        foreach (var item in Items)
+        for (var i = 0; i < items.Count; i++)
         {
+            var item = items[i];
             if (!item.Visible)
                 continue;
 
             if (!firstItem)
-                y += verticalGap;
+                y += verticalGap * revealScale;
 
             if (item.IsSeparator)
             {
-                var sepHeight = (float)Math.Round(SeparatorMargin * 2 + 1);
-                rects.Add((item, SKRect.Create(x, y, width, sepHeight)));
+                var sepHeight = (float)Math.Round((SeparatorMargin * 2 + 1) * revealScale);
+                entries.Add(new VisibleItemEntry(item, SKRect.Create(x, y, width, sepHeight), depth));
                 y += sepHeight;
                 firstItem = false;
                 continue;
             }
 
-            rects.Add((item, SKRect.Create(x, y, width, (float)Math.Round(ItemHeight))));
-            y += ItemHeight;
+            var itemHeight = (float)Math.Round(ItemHeight * revealScale);
+            entries.Add(new VisibleItemEntry(item, SKRect.Create(x, y, width, itemHeight), depth));
+            y += itemHeight;
             firstItem = false;
-        }
 
-        return rects;
+            var childReveal = revealScale * GetAccordionProgress(item);
+            if (!UseAccordionSubmenus || !item.HasDropDown || childReveal <= 0.001f)
+                continue;
+
+            AppendVisibleItemEntries(item.DropDownItems, depth + 1, entries, ref y, x, width, verticalGap, childReveal);
+        }
     }
 
     internal override void OnSizeChanged(EventArgs e)
@@ -805,29 +970,38 @@ public class ContextMenuStrip : MenuStrip
         // İçerik genişlik/yükseklik hesabı (shadow hariç)
         var verticalGap = GetVerticalItemGap();
         var contentWidth = ItemPadding * 2;
-        var contentHeight = ItemPadding * 2f;
-        var firstItem = true;
+        float contentHeight;
 
-        foreach (var item in Items)
+        if (UseAccordionSubmenus)
         {
-            // Respect MenuItem.Visible — skip hidden items from size calculations
-            if (!item.Visible)
-                continue;
+            contentWidth = Math.Max(contentWidth, GetAccordionContentWidth(Items, 0) + ItemPadding * 2);
+            contentHeight = Math.Min(GetAccordionContentHeight(Items), GetAccordionMaxHeight());
+        }
+        else
+        {
+            contentHeight = ItemPadding * 2f;
+            var firstItem = true;
 
-            if (!firstItem)
-                contentHeight += verticalGap;
-
-            if (item.IsSeparator)
+            foreach (var item in Items)
             {
-                contentHeight += SeparatorMargin * 2 + 1;
-            }
-            else
-            {
-                contentWidth = Math.Max(contentWidth, MeasureItemWidth(item) + ItemPadding * 2);
-                contentHeight += ItemHeight;
-            }
+                if (!item.Visible)
+                    continue;
 
-            firstItem = false;
+                if (!firstItem)
+                    contentHeight += verticalGap;
+
+                if (item.IsSeparator)
+                {
+                    contentHeight += SeparatorMargin * 2 + 1;
+                }
+                else
+                {
+                    contentWidth = Math.Max(contentWidth, MeasureItemWidth(item) + ItemPadding * 2);
+                    contentHeight += ItemHeight;
+                }
+
+                firstItem = false;
+            }
         }
 
         // Minimum genişlik garantisi
@@ -845,6 +1019,7 @@ public class ContextMenuStrip : MenuStrip
     internal override void OnDpiChanged(float newDpi, float oldDpi)
     {
         ApplyDpiMetrics(newDpi);
+        _stableAccordionPopupSize = SKSize.Empty;
         base.OnDpiChanged(newDpi, oldDpi);
         UpdateScrollState();
     }
@@ -861,7 +1036,7 @@ public class ContextMenuStrip : MenuStrip
         var previousHoveredItem = _hoveredItem;
         _hoveredItem = null;
         var viewportBottom = _viewportHeight;
-        var rects = GetVisibleItemRects();
+        var rects = GetVisibleItemEntries();
         for (var i = 0; i < rects.Count; i++)
         {
             var entry = rects[i];
@@ -877,9 +1052,9 @@ public class ContextMenuStrip : MenuStrip
 
         if (previousHoveredItem != _hoveredItem)
         {
-            if (_hoveredItem?.HasDropDown == true)
+            if (!UseAccordionSubmenus && _hoveredItem?.HasDropDown == true)
                 OpenSubmenu(_hoveredItem);
-            else
+            else if (!UseAccordionSubmenus)
                 CloseSubmenu();
         }
 
@@ -897,7 +1072,7 @@ public class ContextMenuStrip : MenuStrip
         if (e.Button != MouseButtons.Left)
             return;
 
-        var rects = GetVisibleItemRects();
+        var rects = GetVisibleItemEntries();
         var viewportBottom = _viewportHeight;
         for (var i = 0; i < rects.Count; i++)
         {
@@ -924,7 +1099,7 @@ public class ContextMenuStrip : MenuStrip
 
     protected override SKRect GetItemBounds(MenuItem item)
     {
-        var rects = GetVisibleItemRects();
+        var rects = GetVisibleItemEntries();
         for (var i = 0; i < rects.Count; i++)
         {
             if (ReferenceEquals(rects[i].Item, item))
@@ -976,13 +1151,14 @@ public class ContextMenuStrip : MenuStrip
         var itemClipSave = canvas.Save();
         canvas.ClipRoundRect(_radius.ToRoundRect(viewportRect), antialias: true);
 
-        var rects = GetVisibleItemRects();
+        var rects = GetVisibleItemEntries();
         var viewportBottom = _viewportHeight;
 
         for (var itemIndex = 0; itemIndex < rects.Count; itemIndex++)
         {
             var item = rects[itemIndex].Item;
             var itemRect = rects[itemIndex].Rect;
+            var itemDepth = rects[itemIndex].Depth;
 
             // Skip hidden items — visibility should control drawing and layout
             if (!item.Visible)
@@ -1019,7 +1195,7 @@ public class ContextMenuStrip : MenuStrip
                 canvas.DrawRoundRect(itemRect, 7 * scale, 7 * scale, _hoverPaint);
             }
 
-            var textX = itemRect.Left + 10 * scale; // Increased left padding for text
+            var textX = itemRect.Left + 10 * scale + (UseAccordionSubmenus ? itemDepth * GetAccordionIndent() : 0f);
 
             // Reserve space for check mark if enabled
             if (ShowCheckMargin)
@@ -1144,10 +1320,27 @@ public class ContextMenuStrip : MenuStrip
 
                 _chevronPath!.Reset();
 
-                // Right arrow > (filled triangle)
+                if (UseAccordionSubmenus)
+                {
+                    var accordionProgress = GetAccordionProgress(item);
+                    var chevronRotation = GetSpringChevronRotation(accordionProgress);
+                    _chevronPath.MoveTo(-chevronSize, -chevronSize);
+                    _chevronPath.LineTo(2 * scale, 0f);
+                    _chevronPath.LineTo(-chevronSize, chevronSize);
+                    _chevronPath.Close();
+
+                    var chevronSave = canvas.Save();
+                    canvas.Translate(chevronX, chevronY);
+                    canvas.RotateDegrees(chevronRotation);
+                    canvas.DrawPath(_chevronPath, _arrowPaint);
+                    canvas.RestoreToCount(chevronSave);
+                    continue;
+                }
+
                 _chevronPath.MoveTo(chevronX - chevronSize, chevronY - chevronSize);
                 _chevronPath.LineTo(chevronX + 2 * scale, chevronY);
                 _chevronPath.LineTo(chevronX - chevronSize, chevronY + chevronSize);
+
                 _chevronPath.Close();
 
                 canvas.DrawPath(_chevronPath, _arrowPaint);
@@ -1161,6 +1354,166 @@ public class ContextMenuStrip : MenuStrip
         {
             canvas.RestoreToCount(animationSaveCount);
         }
+    }
+
+    private float GetAccordionProgress(MenuItem item)
+    {
+        if (_accordionAnims.TryGetValue(item, out var anim))
+            return (float)anim.GetProgress();
+
+        return _expandedItems.Contains(item) ? 1f : 0f;
+    }
+
+    private static float GetSpringChevronRotation(float progress)
+    {
+        progress = Math.Clamp(progress, 0f, 1f);
+        const float overshoot = 2.45f;
+        var t = progress - 1f;
+        var eased = 1f + (t * t * ((overshoot + 1f) * t + overshoot));
+        return eased * 90f;
+    }
+
+    private AnimationManager EnsureAccordionAnim(MenuItem item)
+    {
+        if (_accordionAnims.TryGetValue(item, out var anim))
+            return anim;
+
+        anim = new AnimationManager(true)
+        {
+            Increment = AccordionAnimationIncrement,
+            AnimationType = AnimationType.CubicEaseOut,
+            InterruptAnimation = true
+        };
+        anim.OnAnimationProgress += _ =>
+        {
+            UpdateScrollState();
+            Invalidate();
+        };
+        anim.OnAnimationFinished += _ =>
+        {
+            UpdateScrollState();
+
+            if (anim.GetProgress() <= 0.001f)
+                CollapseAccordionBranch(item, animate: false);
+
+            if (ReferenceEquals(_accordionCenterTarget, item) && anim.GetProgress() >= 0.999f)
+            {
+                CenterAccordionBranch(item);
+                _accordionCenterTarget = null;
+            }
+
+            Invalidate();
+        };
+        _accordionAnims[item] = anim;
+        return anim;
+    }
+
+    private void ToggleAccordionItem(MenuItem item)
+    {
+        if (!item.HasDropDown)
+            return;
+
+        var expanding = GetAccordionProgress(item) <= 0.001f;
+        if (TryGetContainingCollection(Items, item, out var collection) && collection != null)
+        {
+            for (var i = 0; i < collection.Count; i++)
+            {
+                var sibling = collection[i];
+                if (!ReferenceEquals(sibling, item))
+                    CollapseAccordionBranch(sibling, animate: true);
+            }
+        }
+
+        if (expanding)
+        {
+            _expandedItems.Add(item);
+            _accordionCenterTarget = item;
+            EnsureAccordionAnim(item).StartNewAnimation(AnimationDirection.In);
+        }
+        else
+        {
+            if (ReferenceEquals(_accordionCenterTarget, item))
+                _accordionCenterTarget = null;
+
+            CollapseAccordionBranch(item, animate: true);
+        }
+
+        UpdateScrollState();
+        Invalidate();
+    }
+
+    private void CollapseAccordionBranch(MenuItem item, bool animate)
+    {
+        if (animate)
+        {
+            if (_expandedItems.Contains(item) || GetAccordionProgress(item) > 0.001f)
+                EnsureAccordionAnim(item).StartNewAnimation(AnimationDirection.Out);
+        }
+        else
+        {
+            _expandedItems.Remove(item);
+            if (_accordionAnims.TryGetValue(item, out var anim))
+                anim.SetProgress(0);
+        }
+
+        for (var i = 0; i < item.DropDownItems.Count; i++)
+            CollapseAccordionBranch(item.DropDownItems[i], animate);
+    }
+
+    private void CenterAccordionBranch(MenuItem item)
+    {
+        if (_vScrollBar == null || !_vScrollBar.Visible || _contentHeight <= _viewportHeight)
+            return;
+
+        var rects = GetVisibleItemEntries(0f);
+        var itemIndex = -1;
+        for (var i = 0; i < rects.Count; i++)
+        {
+            if (ReferenceEquals(rects[i].Item, item))
+            {
+                itemIndex = i;
+                break;
+            }
+        }
+
+        if (itemIndex < 0)
+            return;
+
+        var itemDepth = rects[itemIndex].Depth;
+        var branchBounds = rects[itemIndex].Rect;
+        for (var i = itemIndex + 1; i < rects.Count; i++)
+        {
+            if (rects[i].Depth <= itemDepth)
+                break;
+
+            branchBounds = new SKRect(
+                Math.Min(branchBounds.Left, rects[i].Rect.Left),
+                Math.Min(branchBounds.Top, rects[i].Rect.Top),
+                Math.Max(branchBounds.Right, rects[i].Rect.Right),
+                Math.Max(branchBounds.Bottom, rects[i].Rect.Bottom));
+        }
+
+        var targetOffset = Math.Clamp(branchBounds.MidY - (_viewportHeight / 2f), 0f, Math.Max(0f, _contentHeight - _viewportHeight));
+        _vScrollBar.Value = targetOffset;
+    }
+
+    private static bool TryGetContainingCollection(IReadOnlyList<MenuItem> items, MenuItem target, out IReadOnlyList<MenuItem>? collection)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (ReferenceEquals(item, target))
+            {
+                collection = items;
+                return true;
+            }
+
+            if (item.HasDropDown && TryGetContainingCollection(item.DropDownItems, target, out collection))
+                return true;
+        }
+
+        collection = null;
+        return false;
     }
 
     private void EnsureSkiaCaches()
@@ -1228,6 +1581,10 @@ public class ContextMenuStrip : MenuStrip
     {
         if (disposing)
         {
+            foreach (var anim in _accordionAnims.Values)
+                anim.Dispose();
+            _accordionAnims.Clear();
+
             _defaultSkFont?.Dispose();
             _defaultSkFont = null;
 

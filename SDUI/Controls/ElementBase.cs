@@ -2351,13 +2351,13 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         _vScrollBar = new ScrollBar
         {
-            Dock = DockStyle.Right,
+            Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Vertical,
         };
         _hScrollBar = new ScrollBar
         {
-            Dock = DockStyle.Bottom,
+            Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Horizontal,
         };
@@ -2369,6 +2369,31 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         Controls.Add(_vScrollBar);
         Controls.Add(_hScrollBar);
+    }
+
+    private void PositionOverlayScrollBars(bool showVertical, bool showHorizontal)
+    {
+        if (_vScrollBar == null || _hScrollBar == null)
+            return;
+
+        var overlayInset = MathF.Max(2f, 4f * ScaleFactor);
+        var cornerGap = MathF.Max(2f, overlayInset - ScaleFactor);
+        var verticalThickness = _vScrollBar.Thickness;
+        var horizontalThickness = _hScrollBar.Thickness;
+
+        if (showVertical)
+        {
+            var verticalHeight = Math.Max(1f, Height - overlayInset * 2f - (showHorizontal ? horizontalThickness + cornerGap : 0f));
+            _vScrollBar.Location = new SKPoint(Math.Max(0f, Width - verticalThickness - overlayInset), overlayInset);
+            _vScrollBar.Size = new SKSize(verticalThickness, verticalHeight);
+        }
+
+        if (showHorizontal)
+        {
+            var horizontalWidth = Math.Max(1f, Width - overlayInset * 2f - (showVertical ? verticalThickness + cornerGap : 0f));
+            _hScrollBar.Location = new SKPoint(overlayInset, Math.Max(0f, Height - horizontalThickness - overlayInset));
+            _hScrollBar.Size = new SKSize(horizontalWidth, horizontalThickness);
+        }
     }
 
     protected void UpdateScrollBars()
@@ -2396,6 +2421,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         _vScrollBar.Visible = needsVScroll;
         _hScrollBar.Visible = needsHScroll;
+        PositionOverlayScrollBars(needsVScroll, needsHScroll);
 
         if (needsVScroll)
         {

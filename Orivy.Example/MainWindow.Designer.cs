@@ -122,6 +122,7 @@ internal partial class MainWindow
             ShowSubmenuArrow = false,
         };
 
+        
         // use extension helpers for concise syntax
         var fileMenu = this.menuStrip.AddMenuItem("File");
         fileMenu.AddMenuItem("Open", (s, e) => { /* nop */ }, Keys.Control | Keys.O);
@@ -140,6 +141,7 @@ internal partial class MainWindow
         // --- ExtendMenu: drop-down that appears when the extend button (⋯) in
         // the title bar is clicked. ExtendBox must be true to show the button.
         this.extendMenu = new ContextMenuStrip();
+        
         this.extendMenu.AddMenuItem("Settings", (s, e) => Debug.WriteLine("Settings clicked"), Keys.Control | Keys.O);
         this.extendMenu.AddMenuItem("Check for Updates", (s, e) => Debug.WriteLine("Update check"));
         this.extendMenu.AddSeparator();
@@ -158,6 +160,7 @@ internal partial class MainWindow
 
         // wire up ExtendBox + ExtendMenu
         this.ExtendBox = true;
+        this.extendMenu.UseAccordionSubmenus = true;
         this.ExtendMenu = this.extendMenu;
         this.ShowMenuInsteadOfIcon = true;
         this.FormMenu = this.extendMenu;
@@ -204,4 +207,13 @@ internal partial class MainWindow
     private WindowPageControl windowPageControl;
     private MenuStrip menuStrip;
     private ContextMenuStrip extendMenu;
+    private MenuItem fileMenuItem;
+    private MenuItem openMenuItem;
+    private MenuItem helpMenuItem;
+    private MenuItem transitionsMenuItem;
+    
+    private MenuItem settingsMenuItem;
+    private MenuItem checkForUpdatesMenuItem;
+    private MenuItemSeparator menuItemSeparator;
+
 }
