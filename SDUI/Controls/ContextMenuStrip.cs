@@ -70,6 +70,14 @@ public class ContextMenuStrip : MenuStrip
     private bool _openingUpwards;
     private bool _ownerBoundsRefreshQueued;
 
+    protected override bool HandlesMouseWheelScroll => _vScrollBar != null && _vScrollBar.Visible;
+    protected override float MouseWheelScrollLines => 1f;
+
+    protected override float GetMouseWheelScrollStep(ScrollBar scrollBar)
+    {
+        return Math.Max(1f, (float)Math.Round(scrollBar.SmallChange));
+    }
+
     public ContextMenuStrip()
     {
         Visible = false;
@@ -94,9 +102,9 @@ public class ContextMenuStrip : MenuStrip
             _vScrollBar.ScrollAnimationType = AnimationType.Linear;
             _vScrollBar.SmallChange = ItemHeight;
             _vScrollBar.LargeChange = ItemHeight * 3;
-            _vScrollBar.ValueChanged += (_, _) =>
+            _vScrollBar.DisplayValueChanged += (_, _) =>
             {
-                _scrollOffset = (float)Math.Round(_vScrollBar.Value);
+                _scrollOffset = _vScrollBar.DisplayValue;
                 Invalidate();
             };
         }
@@ -595,7 +603,7 @@ public class ContextMenuStrip : MenuStrip
             _vScrollBar.SmallChange = Math.Max(8f, ItemHeight + GetVerticalItemGap());
             if (_vScrollBar.Value > _vScrollBar.Maximum)
                 _vScrollBar.Value = _vScrollBar.Maximum;
-            _scrollOffset = (float)Math.Round(_vScrollBar.Value);
+            _scrollOffset = _vScrollBar.DisplayValue;
         }
         else
         {
@@ -611,7 +619,7 @@ public class ContextMenuStrip : MenuStrip
     {
         var rects = new List<(MenuItem Item, SKRect Rect)>(Items.Count);
         var verticalGap = GetVerticalItemGap();
-        var y = (float)Math.Round(ItemPadding - _scrollOffset);
+        var y = ItemPadding - _scrollOffset;
         var x = (float)Math.Round(ItemPadding);
         var width = Math.Max(1f, (float)Math.Round(_viewportWidth));
         var firstItem = true;
@@ -905,20 +913,6 @@ public class ContextMenuStrip : MenuStrip
         }
 
         CloseSubmenu();
-    }
-
-    internal override void OnMouseWheel(MouseEventArgs e)
-    {
-        if (_vScrollBar != null && _vScrollBar.Visible)
-        {
-            var step = Math.Max(1f, (float)Math.Round(_vScrollBar.SmallChange));
-            var deltaValue = (e.Delta / 120f) * step;
-            _vScrollBar.Value = Math.Clamp(_vScrollBar.Value - deltaValue, _vScrollBar.Minimum, _vScrollBar.Maximum);
-            Invalidate();
-            return;
-        }
-
-        base.OnMouseWheel(e);
     }
 
     internal override void OnMouseLeave(EventArgs e)

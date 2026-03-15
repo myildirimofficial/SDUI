@@ -1,4 +1,5 @@
 ﻿using SDUI;
+using SDUI.Animation;
 using SDUI.Controls;
 using SkiaSharp;
 using System;
@@ -106,6 +107,11 @@ internal partial class MainWindow
         {
             Name = "windowPageControl",
             Dock = SDUI.DockStyle.Fill,
+            TransitionEffect = WindowPageTransitionEffect.SlideHorizontal,
+            TransitionAnimationType = AnimationType.CubicEaseOut,
+            TransitionIncrement = 0.18,
+            TransitionSecondaryIncrement = 0.18,
+            LockInputDuringTransition = true,
         };
 
         // build example menu strip demonstrating top‑level menus and submenus
@@ -128,6 +134,9 @@ internal partial class MainWindow
             Debug.WriteLine("Orivy Example\nA simple demo of the Orivy UI framework.\n\nhttps://github.com/mahmutyildirim/orivy");
         });
 
+        var transitionsMenu = this.menuStrip.AddMenuItem("Transitions");
+        InitializeTransitionMenu(transitionsMenu);
+
         // --- ExtendMenu: drop-down that appears when the extend button (⋯) in
         // the title bar is clicked. ExtendBox must be true to show the button.
         this.extendMenu = new ContextMenuStrip();
@@ -138,6 +147,8 @@ internal partial class MainWindow
         themeItem.CheckOnClick = true;
         themeItem.Checked = ColorScheme.IsDarkMode;
         themeItem.CheckedChanged += (s, e) => ColorScheme.IsDarkMode = !ColorScheme.IsDarkMode;
+        var extendTransitionsMenu = this.extendMenu.AddMenuItem("Page Transition");
+        InitializeTransitionMenu(extendTransitionsMenu);
 
         // assign a real icon so the title bar shows one; the menu glyph option
         // below can be toggled to switch behaviour

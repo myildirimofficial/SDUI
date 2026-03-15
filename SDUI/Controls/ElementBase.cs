@@ -1453,6 +1453,19 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 child.InvalidateRenderTree();
     }
 
+    protected virtual bool TryRenderChildContent(SKCanvas canvas)
+    {
+        return false;
+    }
+
+    protected virtual bool HandlesMouseWheelScroll => AutoScroll;
+    protected virtual float MouseWheelScrollLines => 3f;
+
+    protected virtual float GetMouseWheelScrollStep(ScrollBar scrollBar)
+    {
+        return Math.Max(1f, scrollBar.SmallChange);
+    }
+
     protected virtual bool UseAutoScrollTranslation => true;
     protected virtual float ChildRenderScale => 1f;
     protected virtual bool UseChildScaleForInput => true;
@@ -1462,8 +1475,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (!AutoScroll || _vScrollBar == null || _hScrollBar == null)
             return SKPoint.Empty;
 
-        var x = _hScrollBar.Visible ? _hScrollBar.Value : 0;
-        var y = _vScrollBar.Visible ? _vScrollBar.Value : 0;
+        var x = _hScrollBar.Visible ? _hScrollBar.DisplayValue : 0;
+        var y = _vScrollBar.Visible ? _vScrollBar.DisplayValue : 0;
         return new SKPoint(x, y);
     }
 
@@ -1955,9 +1968,17 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
             // ── Children ──
             targetCanvas.ClipRect(elementRect);
-            RenderChildren(targetCanvas);
+            if (!TryRenderChildContent(targetCanvas))
+                RenderChildren(targetCanvas);
 
             targetCanvas.RestoreToCount(saved);
+
+            if (ColorScheme.DrawDebugBorders)
+            {
+                using var dbg = new SKPaint
+                { Color = SKColors.Red, Style = SKPaintStyle.Stroke, StrokeWidth = 1, IsAntialias = true };
+                targetCanvas.DrawRect(0, 0, Width - 1, Height - 1, dbg);
+            }
         }
         catch (Exception ex)
         {
@@ -2343,6 +2364,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         _vScrollBar.ValueChanged += (s, e) => Invalidate();
         _hScrollBar.ValueChanged += (s, e) => Invalidate();
+        _vScrollBar.DisplayValueChanged += (s, e) => Invalidate();
+        _hScrollBar.DisplayValueChanged += (s, e) => Invalidate();
 
         Controls.Add(_vScrollBar);
         Controls.Add(_hScrollBar);
@@ -2855,13 +2878,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (!Enabled || !Visible)
             return;
 
-        if (AutoScroll && _vScrollBar != null && _vScrollBar.Visible)
+        if (HandlesMouseWheelScroll && _vScrollBar != null && _vScrollBar.Visible)
         {
-            const int scrollLines = 3;
-            var step = Math.Max(1, _vScrollBar.SmallChange);
-            var deltaValue = (e.Delta / 120) * scrollLines * step;
-            var newValue = Math.Clamp(_vScrollBar.Value - deltaValue, _vScrollBar.Minimum, _vScrollBar.Maximum);
-            _vScrollBar.Value = newValue;
+            var step = GetMouseWheelScrollStep(_vScrollBar);
+            var deltaValue = (e.Delta / 120f) * MouseWheelScrollLines * step;
+            _vScrollBar.ApplyWheelDelta(-deltaValue);
             return;
         }
 

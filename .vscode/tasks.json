@@ -1,0 +1,60 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build SDUI solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"SDUI.sln"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SDUI solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"SDUI.sln"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SDUI solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"SDUI.sln"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SDUI solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"SDUI.sln"
+			],
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "Build SDUI solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"SDUI.sln"
+			],
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

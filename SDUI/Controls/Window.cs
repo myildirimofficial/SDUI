@@ -1513,6 +1513,7 @@ public partial class Window : WindowBase
                 centerY - size,
                 strokePaint);
 
+            strokePaint.Color = foreColor;
             if (MaximizeBox)
             {
                 if (_inMaxBox)
@@ -1567,14 +1568,6 @@ public partial class Window : WindowBase
                     canvas.DrawRect(_minimizeBoxRect, paint);
                 }
 
-                using var minPaint = new SKPaint
-                {
-                    Color = foreColor,
-                    StrokeWidth = 1.1f * ScaleFactor,
-                    IsAntialias = true,
-                    StrokeCap = SKStrokeCap.Round
-                };
-
                 centerX = _minimizeBoxRect.Left + _minimizeBoxRect.Width / 2;
                 centerY = _minimizeBoxRect.Top + _minimizeBoxRect.Height / 2;
                 size = 5 * ScaleFactor;
@@ -1584,7 +1577,7 @@ public partial class Window : WindowBase
                     centerY,
                     centerX + size,
                     centerY,
-                    minPaint);
+                    strokePaint);
             }
         }
 
