@@ -2486,7 +2486,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Vertical,
-            AutoHide = false,
+            AutoHide = true,
             Thickness = overlayThickness,
         };
         _hScrollBar = new ScrollBar
@@ -2494,7 +2494,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Horizontal,
-            AutoHide = false,
+            AutoHide = true,
             Thickness = overlayThickness,
         };
 
@@ -2579,6 +2579,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (needsVScroll)
         {
             _vScrollBar.Maximum = Math.Max(0, (int)contentHeight - Height);
+            _vScrollBar.SmallChange = Math.Max(8f, (float)Math.Round(14f * ScaleFactor));
             _vScrollBar.LargeChange = Math.Max(1, Height / 2);
             if (_vScrollBar.Value > _vScrollBar.Maximum)
                 _vScrollBar.Value = _vScrollBar.Maximum;
@@ -2587,6 +2588,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (needsHScroll)
         {
             _hScrollBar.Maximum = Math.Max(0, (int)contentWidth - Width);
+            _hScrollBar.SmallChange = Math.Max(8f, (float)Math.Round(14f * ScaleFactor));
             _hScrollBar.LargeChange = Math.Max(1, Width / 2);
             if (_hScrollBar.Value > _hScrollBar.Maximum)
                 _hScrollBar.Value = _hScrollBar.Maximum;

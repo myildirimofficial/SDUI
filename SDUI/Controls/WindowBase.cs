@@ -856,6 +856,7 @@ public partial class WindowBase : ElementBase
             case WindowMessage.WM_MOUSEHWHEEL:
                 {
                     var point = GetMousePosition(lParam);
+                    MousePosition = point;
                     var delta = GetWheelDelta(wParam);
                     var args = new MouseEventArgs(MouseButtons.None, 0, (int)point.X, (int)point.Y, delta);
                     OnMouseWheel(args);

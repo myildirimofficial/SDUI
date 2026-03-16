@@ -1373,10 +1373,8 @@ public partial class Window : WindowBase
 
         base.OnMouseWheel(e);
 
-        // Mouse pozisyonunu window client koordinatlar�na �evir
-        var mousePos = PointToClient(MousePosition);
+        var mousePos = e.Location;
 
-        // Recursive olarak do�ru child'� bul ve wheel olay�n� ilet
         if (PropagateMouseWheel(Controls, mousePos, e))
             return; // Event i�lendi
     }

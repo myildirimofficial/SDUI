@@ -60,6 +60,18 @@ internal partial class MainWindow
             AutoScrollMargin = new(0, 24)
         };
 
+        this.panel5 = new()
+        {
+            Text = "Scroll Lab",
+            Name = "panel5",
+            Padding = new(24),
+            Dock = SDUI.DockStyle.Fill,
+            Radius = new(0),
+            Border = new(0),
+            AutoScroll = true,
+            AutoScrollMargin = new(0, 24)
+        };
+
         this.buttonOpenGL = new()
         {
             Name = "buttonOpenGL",
@@ -447,6 +459,200 @@ internal partial class MainWindow
                     .Background(new SKColor(24, 45, 39)));
         });
 
+        var scrollLabHeader = new Element
+        {
+            Name = "scrollLabHeader",
+            Text = "Scroll Lab\nUse this page to test thumb drag, track click, wheel scroll, nested scroll hosts, and wheel routing while hovering child controls.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 96,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 16),
+            BackColor = ColorScheme.SurfaceVariant,
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(16),
+            Border = new(1),
+            BorderColor = ColorScheme.Outline,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabWheelCards = new Element
+        {
+            Name = "scrollLabWheelCards",
+            Text = "Scenario A\nWheel over these cards. If wheel routing is correct, the page should still move even when the pointer is on child content.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 180,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 16),
+            BackColor = new SKColor(29, 45, 71),
+            ForeColor = SKColors.White,
+            Radius = new(18),
+            Border = new(1),
+            BorderColor = new SKColor(96, 165, 250, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabActionA = new Button
+        {
+            Name = "scrollLabActionA",
+            Text = "Action Button In Scroll Flow",
+            Dock = SDUI.DockStyle.Top,
+            Height = 46,
+            Margin = new(0, 0, 0, 12),
+            AccentMotionEnabled = true
+        };
+
+        var scrollLabActionB = new Button
+        {
+            Name = "scrollLabActionB",
+            Text = "Second Button - Hover Then Wheel",
+            Dock = SDUI.DockStyle.Top,
+            Height = 46,
+            Margin = new(0, 0, 0, 16),
+            AccentMotionEnabled = false
+        };
+
+        var scrollLabNestedShell = new Element
+        {
+            Name = "scrollLabNestedShell",
+            Text = "Scenario B\nNested scroll host. Test outer wheel on shell, then move over inner cards and wheel again.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 336,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 16),
+            BackColor = ColorScheme.Surface,
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(18),
+            Border = new(1),
+            BorderColor = ColorScheme.Outline,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabNestedHost = new Element
+        {
+            Name = "scrollLabNestedHost",
+            Dock = SDUI.DockStyle.Fill,
+            Padding = new(12),
+            Margin = new(0),
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = new SKColor(148, 163, 184, 110),
+            BackColor = new SKColor(15, 23, 42, 28),
+            AutoScroll = true,
+            AutoScrollMargin = new(0, 16)
+        };
+
+        var scrollLabNestedTopGap = new Element
+        {
+            Name = "scrollLabNestedTopGap",
+            Dock = SDUI.DockStyle.Top,
+            Height = 44,
+            Margin = new(0, 0, 0, 10),
+            BackColor = new SKColor(241, 245, 249, 20),
+            Radius = new(10),
+            Border = new(0),
+            Text = "Nested Host Start",
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = ColorScheme.ForeColor
+        };
+
+        var scrollLabNestedCard1 = new Element
+        {
+            Name = "scrollLabNestedCard1",
+            Text = "Nested Card 1\nWheel here and verify the inner host moves.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 104,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 12),
+            BackColor = new SKColor(245, 158, 11, 46),
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = new SKColor(245, 158, 11, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabNestedCard2 = new Element
+        {
+            Name = "scrollLabNestedCard2",
+            Text = "Nested Card 2\nDrag the inner scrollbar thumb here.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 104,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 12),
+            BackColor = new SKColor(16, 185, 129, 38),
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = new SKColor(16, 185, 129, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabNestedButton = new Button
+        {
+            Name = "scrollLabNestedButton",
+            Text = "Nested Button - Hover Then Wheel",
+            Dock = SDUI.DockStyle.Top,
+            Height = 44,
+            Margin = new(0, 0, 0, 12),
+            AccentMotionEnabled = true
+        };
+
+        var scrollLabNestedCard3 = new Element
+        {
+            Name = "scrollLabNestedCard3",
+            Text = "Nested Card 3\nTrack click should jump inside the inner host.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 104,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 12),
+            BackColor = new SKColor(59, 130, 246, 34),
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = new SKColor(59, 130, 246, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabNestedCard4 = new Element
+        {
+            Name = "scrollLabNestedCard4",
+            Text = "Nested Card 4\nBottom probe for inner scrolling.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 132,
+            Padding = new(16),
+            Margin = new(0, 0, 0, 12),
+            BackColor = new SKColor(168, 85, 247, 34),
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = new SKColor(168, 85, 247, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var scrollLabLongTail = new Element
+        {
+            Name = "scrollLabLongTail",
+            Text = "Scenario C\nLong tail content. Use outer wheel, outer thumb drag, and track click while hovering this large block and the two buttons above.",
+            Dock = SDUI.DockStyle.Top,
+            Height = 320,
+            Padding = new(18),
+            Margin = new(0, 0, 0, 16),
+            BackColor = new SKColor(28, 25, 23),
+            ForeColor = new SKColor(254, 243, 199),
+            Radius = new(18),
+            Border = new(1),
+            BorderColor = new SKColor(251, 191, 36, 110),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        scrollLabNestedHost.Controls.Add(scrollLabNestedCard4);
+        scrollLabNestedHost.Controls.Add(scrollLabNestedCard3);
+        scrollLabNestedHost.Controls.Add(scrollLabNestedButton);
+        scrollLabNestedHost.Controls.Add(scrollLabNestedCard2);
+        scrollLabNestedHost.Controls.Add(scrollLabNestedCard1);
+        scrollLabNestedHost.Controls.Add(scrollLabNestedTopGap);
+        scrollLabNestedShell.Controls.Add(scrollLabNestedHost);
+
         visualStyleDangerCard.Click += VisualStyleDangerToggle_Click;
         visualStylePrimaryButton.Click += VisualStylePrimaryButton_Click;
         visualStyleFooterAction.Click += VisualStyleEnableDisabled_Click;
@@ -460,6 +666,13 @@ internal partial class MainWindow
         this.panel4.Controls.Add(this.visualStyleInteractiveCard);
         this.panel4.Controls.Add(this.visualStyleMotionHero);
         this.panel4.Controls.Add(this.visualStyleHeader);
+
+        this.panel5.Controls.Add(scrollLabLongTail);
+        this.panel5.Controls.Add(scrollLabNestedShell);
+        this.panel5.Controls.Add(scrollLabActionB);
+        this.panel5.Controls.Add(scrollLabActionA);
+        this.panel5.Controls.Add(scrollLabWheelCards);
+        this.panel5.Controls.Add(scrollLabHeader);
 
         windowPageControl = new()
         {
@@ -532,6 +745,7 @@ internal partial class MainWindow
         windowPageControl.Controls.Add(panel2);
         windowPageControl.Controls.Add(panel3);
         windowPageControl.Controls.Add(panel4);
+        windowPageControl.Controls.Add(panel5);
 
         extendMenu.ShowShortcutKeys = true;
         menuStrip.ShowShortcutKeys = true;
@@ -560,6 +774,7 @@ internal partial class MainWindow
     private Element panel2;
     private Element panel3;
     private Element panel4;
+    private Element panel5;
     private Element buttonOpenGL;
     private Element buttonSoftware;
     private Element buttonDirectX;
