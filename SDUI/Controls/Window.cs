@@ -1471,14 +1471,12 @@ public partial class Window : WindowBase
 
         if (controlBox)
         {
-            var strokeWidth = 1.1f * ScaleFactor;
-
             var closeHoverColor = new SKColor(232, 17, 35);
             using SKPaint strokePaint = new SKPaint
             {
                 Style = SKPaintStyle.Stroke,
                 Color = foreColor,
-                StrokeWidth = strokeWidth,
+                StrokeWidth = ScaleFactor,
                 IsAntialias = true
             };
 
@@ -1549,8 +1547,8 @@ public partial class Window : WindowBase
                     canvas.Save();
 
                     SKRect clipRect = frontRect;
-                    clipRect.Inflate(strokeWidth / 2f, strokeWidth / 2f);
-                    SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (strokeWidth / 2f));
+                    clipRect.Inflate(ScaleFactor / 2f, ScaleFactor / 2f);
+                    SKRoundRect clipRoundRect = new(clipRect, cornerRadius + (ScaleFactor / 2f));
 
                     canvas.ClipRoundRect(clipRoundRect, SKClipOperation.Difference, true);
                     canvas.DrawRoundRect(backRect, cornerRadius, cornerRadius, strokePaint);

@@ -47,11 +47,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         IsDesignMode = LicenseManager.UsageMode == LicenseUsageMode.Designtime;
         Controls = new ElementCollection(this);
         Properties = new();
+        VisualStyles = new Styling.ElementVisualStyleCollection(this);
+        MotionEffects = new Styling.ElementMotionScene(this);
 
         _cursor = Cursors.Default;
         _currentDpi = Screen.GetSystemDpi();
 
         InitializeScrollBars();
+        InitializeVisualStyleSystem();
+        InitializeMotionEffectsSystem();
     }
 
     private SKImage _backgroundImage;
@@ -218,10 +222,36 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _border;
         set
         {
+            if (_border == value)
+                return;
+
             _border = value;
+            SetStyleBaseBorder(value);
+            RefreshVisualStyles(forceImmediate: true);
             Invalidate();
         }
     }
+
+    private SKColor _borderColor = SKColors.Transparent;
+
+    [Category("Appearance")]
+    public SKColor BorderColor
+    {
+        get => _borderColor;
+        set
+        {
+            if (_borderColor == value)
+                return;
+
+            _borderColor = value;
+            SetStyleBaseBorderColor(value);
+            RefreshVisualStyles(forceImmediate: true);
+            Invalidate();
+        }
+    }
+
+    [Browsable(false)]
+    internal SKColor ResolvedBorderColor => _borderColor == SKColors.Transparent ? ColorScheme.BorderColor : _borderColor;
 
     /// <summary>
     /// Represents the thickness of the border. This field is initialized to zero thickness by default.
@@ -232,7 +262,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _radius;
         set
         {
+            if (_radius == value)
+                return;
+
             _radius = value;
+            SetStyleBaseRadius(value);
+            RefreshVisualStyles(forceImmediate: true);
             Invalidate();
         }
     }
@@ -249,7 +284,13 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _shadows;
         set
         {
-            _shadows = value ?? Array.Empty<BoxShadow>();
+            var newShadows = value ?? Array.Empty<BoxShadow>();
+            if (Styling.ElementVisualStyleInterpolator.AreShadowsEqual(_shadows, newShadows))
+                return;
+
+            _shadows = Styling.ElementVisualStyleInterpolator.CloneShadows(newShadows);
+            SetStyleBaseShadows(_shadows);
+            RefreshVisualStyles(forceImmediate: true);
             Invalidate();
         }
     }
@@ -263,7 +304,26 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         get => _shadows.Length > 0 ? _shadows[0] : BoxShadow.None;
         set
         {
-            _shadows = value.IsEmpty ? Array.Empty<BoxShadow>() : [value];
+            Shadows = value.IsEmpty ? Array.Empty<BoxShadow>() : [value];
+        }
+    }
+
+    private float _opacity = 1f;
+
+    [Category("Appearance")]
+    [DefaultValue(1f)]
+    public float Opacity
+    {
+        get => _opacity;
+        set
+        {
+            var clamped = Math.Clamp(value, 0f, 1f);
+            if (Math.Abs(_opacity - clamped) < 0.0001f)
+                return;
+
+            _opacity = clamped;
+            SetStyleBaseOpacity(clamped);
+            RefreshVisualStyles(forceImmediate: true);
             Invalidate();
         }
     }
@@ -545,7 +605,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
             if (_size == newSize) return;
             _size = newSize;
+            SetStyleBaseSize(newSize);
             OnSizeChanged(EventArgs.Empty);
+            RefreshVisualStyles(forceImmediate: true);
         }
     }
 
@@ -668,8 +730,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 return;
 
             _backColor = value;
+            SetStyleBaseBackColor(value);
 
             OnBackColorChanged(EventArgs.Empty);
+            RefreshVisualStyles(forceImmediate: true);
 
             Invalidate();
         }
@@ -691,8 +755,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                 return;
 
             _foreColor = value;
+            SetStyleBaseForeColor(value);
 
             OnForeColorChanged(EventArgs.Empty);
+            RefreshVisualStyles(forceImmediate: true);
 
             Invalidate();
         }
@@ -1490,6 +1556,31 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         return control is ContextMenuStrip contextMenu && contextMenu.Visible && contextMenu.IsOpen;
     }
 
+    private static int GetInputPriority(ElementBase control)
+    {
+        if (IsFloatingPopup(control))
+            return 2;
+
+        if (IsScrollBar(control))
+            return 1;
+
+        return 0;
+    }
+
+    private static bool UsesParentScrollTransform(ElementBase parent, ElementBase child)
+    {
+        return parent.UseAutoScrollTranslation && parent.AutoScroll && !IsScrollBar(child) && !IsFloatingPopup(child);
+    }
+
+    private static SKPoint GetRenderedChildLocation(ElementBase parent, ElementBase child)
+    {
+        if (!UsesParentScrollTransform(parent, child))
+            return child.Location;
+
+        var scrollOffset = parent.GetScrollOffset();
+        return new SKPoint(child.Location.X - scrollOffset.X, child.Location.Y - scrollOffset.Y);
+    }
+
     // Cached buffer for child rendering — avoids per-frame allocations
     private readonly List<ElementBase> _childRenderBuffer = new();
 
@@ -1499,6 +1590,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         ElementBase? target = null;
         var bestZ = int.MinValue;
+        var bestPriority = int.MinValue;
 
         for (var i = 0; i < Controls.Count; i++)
         {
@@ -1522,26 +1614,11 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (!control.Bounds.Contains(candidatePoint))
                 continue;
 
-            if (target != null)
-            {
-                var currentIsPopup = IsFloatingPopup(control);
-                var bestIsPopup = IsFloatingPopup(target);
-                if (currentIsPopup != bestIsPopup)
-                {
-                    if (currentIsPopup)
-                    {
-                        target = control;
-                        bestZ = control.ZOrder;
-                        hitPoint = candidatePoint;
-                    }
-
-                    continue;
-                }
-            }
-
-            if (target == null || control.ZOrder > bestZ)
+            var priority = GetInputPriority(control);
+            if (target == null || priority > bestPriority || (priority == bestPriority && control.ZOrder > bestZ))
             {
                 target = control;
+                bestPriority = priority;
                 bestZ = control.ZOrder;
                 hitPoint = candidatePoint;
             }
@@ -1651,8 +1728,34 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     protected static bool PropagateMouseWheel(ElementCollection elements, SKPoint windowMousePos, MouseEventArgs e)
     {
+        var target = FindDeepestMouseWheelTarget(elements, windowMousePos);
+        while (target != null)
+        {
+            if (target.CanHandleMouseWheel())
+            {
+                var targetBounds = GetWindowRelativeBounds(target);
+                var localEvent = new MouseEventArgs(
+                    e.Button,
+                    e.Clicks,
+                    (int)windowMousePos.X - (int)targetBounds.Left,
+                    (int)windowMousePos.Y - (int)targetBounds.Top,
+                    e.Delta);
+
+                target.OnMouseWheel(localEvent);
+                return true;
+            }
+
+            target = target.Parent as ElementBase;
+        }
+
+        return false;
+    }
+
+    private static ElementBase? FindDeepestMouseWheelTarget(ElementCollection elements, SKPoint windowMousePos)
+    {
         ElementBase? topmostElement = null;
         var topmostZOrder = int.MinValue;
+        var topmostPriority = int.MinValue;
 
         for (var i = 0; i < elements.Count; i++)
         {
@@ -1663,29 +1766,36 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (!elementBounds.Contains(windowMousePos))
                 continue;
 
-            if (topmostElement == null || element.ZOrder > topmostZOrder)
+            var priority = GetInputPriority(element);
+            if (topmostElement == null || priority > topmostPriority || (priority == topmostPriority && element.ZOrder > topmostZOrder))
             {
                 topmostElement = element;
                 topmostZOrder = element.ZOrder;
+                topmostPriority = priority;
             }
         }
 
         if (topmostElement == null)
+            return null;
+
+        if (topmostElement.Controls.Count == 0)
+            return topmostElement;
+
+        return FindDeepestMouseWheelTarget(topmostElement.Controls, windowMousePos) ?? topmostElement;
+    }
+
+    private bool CanHandleMouseWheel()
+    {
+        if (!Enabled || !Visible)
             return false;
 
-        if (topmostElement.Controls.Count > 0 && PropagateMouseWheel(topmostElement.Controls, windowMousePos, e))
-            return true;
+        if (HandlesMouseWheelScroll)
+        {
+            if ((_vScrollBar?.Visible ?? false) || (_hScrollBar?.Visible ?? false))
+                return true;
+        }
 
-        var topmostBounds = GetWindowRelativeBounds(topmostElement);
-        var localEvent = new MouseEventArgs(
-            e.Button,
-            e.Clicks,
-            (int)windowMousePos.X - (int)topmostBounds.Left,
-            (int)windowMousePos.Y - (int)topmostBounds.Top,
-            e.Delta);
-
-        topmostElement.OnMouseWheel(localEvent);
-        return true;
+        return MouseWheel != null;
     }
 
     protected virtual bool ShouldIncludeHitTestElement(ElementBase element, bool requireEnabled)
@@ -1837,6 +1947,18 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var saved = targetCanvas.Save();
             targetCanvas.Translate(Location.X, Location.Y);
 
+            int layerSaveCount = -1;
+            SKPaint? layerPaint = null;
+            if (_opacity < 0.999f)
+            {
+                layerPaint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Color = SKColors.White.WithAlpha((byte)Math.Clamp((int)Math.Round(_opacity * 255f), 0, 255))
+                };
+                layerSaveCount = targetCanvas.SaveLayer(layerPaint);
+            }
+
             var hasRadius = !_radius.IsEmpty;
             var elementRect = new SkiaSharp.SKRect(0, 0, Width, Height);
             var hasShadows = _shadows.Length > 0;
@@ -1878,6 +2000,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                     targetCanvas.DrawRect(elementRect, paint);
             }
 
+            RenderMotionEffects(targetCanvas, elementRect);
+
             OnPaint(targetCanvas);
 
             // ── Border ──
@@ -1885,7 +2009,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             {
                 using var borderPaint = new SKPaint
                 {
-                    Color = ColorScheme.BorderColor,
+                    Color = ResolvedBorderColor,
                     Style = SKPaintStyle.Stroke,
                     IsAntialias = true
                 };
@@ -1970,6 +2094,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             targetCanvas.ClipRect(elementRect);
             if (!TryRenderChildContent(targetCanvas))
                 RenderChildren(targetCanvas);
+
+            if (layerSaveCount >= 0)
+            {
+                targetCanvas.RestoreToCount(layerSaveCount);
+                layerPaint.Dispose();
+            }
 
             targetCanvas.RestoreToCount(saved);
 
@@ -2349,17 +2479,23 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (this is ScrollBar)
             return;
 
+        var overlayThickness = Math.Max(6, (int)Math.Round(8f * ScaleFactor));
+
         _vScrollBar = new ScrollBar
         {
             Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Vertical,
+            AutoHide = false,
+            Thickness = overlayThickness,
         };
         _hScrollBar = new ScrollBar
         {
             Dock = DockStyle.None,
             Visible = false,
             Orientation = Orientation.Horizontal,
+            AutoHide = false,
+            Thickness = overlayThickness,
         };
 
         _vScrollBar.ValueChanged += (s, e) => Invalidate();
@@ -2396,6 +2532,21 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         }
     }
 
+    private void UpdateHostedScrollBarHoverState(bool hovered)
+    {
+        _vScrollBar?.SetHostHover(hovered && _vScrollBar.Visible);
+        _hScrollBar?.SetHostHover(hovered && _hScrollBar.Visible);
+    }
+
+    private void EnsureOverlayScrollBarsAreTopmost()
+    {
+        if (_vScrollBar?.Visible == true)
+            _vScrollBar.BringToFront();
+
+        if (_hScrollBar?.Visible == true)
+            _hScrollBar.BringToFront();
+    }
+
     protected void UpdateScrollBars()
     {
         if (!AutoScroll || _vScrollBar == null || _hScrollBar == null)
@@ -2422,6 +2573,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         _vScrollBar.Visible = needsVScroll;
         _hScrollBar.Visible = needsHScroll;
         PositionOverlayScrollBars(needsVScroll, needsHScroll);
+        UpdateHostedScrollBarHoverState(_isPointerOver);
+        EnsureOverlayScrollBarsAreTopmost();
 
         if (needsVScroll)
         {
@@ -2521,6 +2674,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnMouseDown(MouseEventArgs e)
     {
         MouseDown?.Invoke(this, e);
+        UpdatePressedState(e.Button == MouseButtons.Left);
 
         var scrollOffset = GetScrollOffset();
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
@@ -2611,6 +2765,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnMouseUp(MouseEventArgs e)
     {
         MouseUp?.Invoke(this, e);
+        UpdatePressedState(false);
 
         var scrollOffset = GetScrollOffset();
         var adjusted = new SKPoint(e.X + scrollOffset.X, e.Y + scrollOffset.Y);
@@ -2678,6 +2833,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnMouseLeave(EventArgs e)
     {
         MouseLeave?.Invoke(this, e);
+        UpdatePointerOverState(false);
+        UpdatePressedState(false);
+        UpdateHostedScrollBarHoverState(false);
         //foreach (var control in Controls)
         //{
         //    if (control.Bounds.Contains(e.Location))
@@ -2707,6 +2865,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnMouseEnter(EventArgs e)
     {
         MouseEnter?.Invoke(this, e);
+        UpdatePointerOverState(true);
+        UpdateHostedScrollBarHoverState(true);
         //foreach (var control in Controls)
         //{
         //    if (control.Bounds.Contains(e.Location))
@@ -2726,6 +2886,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnVisibleChanged(EventArgs e)
     {
         VisibleChanged?.Invoke(this, e);
+        RefreshVisualStylesForStateChange();
         Invalidate();
         if (Parent is WindowBase parentWindow) parentWindow.PerformLayout();
         else if (Parent is ElementBase parentElement) parentElement.PerformLayout();
@@ -2734,6 +2895,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnEnabledChanged(EventArgs e)
     {
         EnabledChanged?.Invoke(this, e);
+        if (!Enabled)
+            UpdatePressedState(false);
+        RefreshVisualStylesForStateChange();
         Invalidate();
     }
 
@@ -2862,12 +3026,14 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnGotFocus(EventArgs e)
     {
         GotFocus?.Invoke(this, e);
+        RefreshVisualStylesForStateChange();
     }
 
     internal virtual void OnLostFocus(EventArgs e)
     {
         Focused = false;
         LostFocus?.Invoke(this, e);
+        RefreshVisualStylesForStateChange();
         if (CausesValidation)
             ValidateElement();
     }
@@ -3102,10 +3268,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (Parent == null)
             return p;
 
-        if (Parent is WindowBase parentWindow && !parentWindow.IsDisposed)
-            return parentWindow.PointToScreen(new SKPoint(p.X + Location.X, p.Y + Location.Y));
         if (Parent is ElementBase parentElement)
-            return parentElement.PointToScreen(new SKPoint(p.X + Location.X, p.Y + Location.Y));
+        {
+            var renderedLocation = GetRenderedChildLocation(parentElement, this);
+
+            if (parentElement is WindowBase parentWindow && !parentWindow.IsDisposed)
+                return parentWindow.PointToScreen(new SKPoint(p.X + renderedLocation.X, p.Y + renderedLocation.Y));
+
+            return parentElement.PointToScreen(new SKPoint(p.X + renderedLocation.X, p.Y + renderedLocation.Y));
+        }
 
         return p;
     }
@@ -3115,15 +3286,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (Parent == null)
             return p;
 
-        SKPoint clientPoint;
-        if (Parent is WindowBase parentWindow)
-            clientPoint = parentWindow.PointToClient(p);
-        else if (Parent is ElementBase parentElement)
-            clientPoint = parentElement.PointToClient(p);
-        else
+        if (Parent is not ElementBase parentElement)
             return p;
 
-        return new SKPoint(clientPoint.X - Location.X, clientPoint.Y - Location.Y);
+        var clientPoint = parentElement is WindowBase parentWindow
+            ? parentWindow.PointToClient(p)
+            : parentElement.PointToClient(p);
+
+        var renderedLocation = GetRenderedChildLocation(parentElement, this);
+        return new SKPoint(clientPoint.X - renderedLocation.X, clientPoint.Y - renderedLocation.Y);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -3133,6 +3304,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (disposing)
             {
                 // Yönetilen kaynakları temizle
+                DisposeMotionEffectsSystem();
+                DisposeVisualStyleSystem();
                 _font?.Dispose();
                 _cursor?.Dispose();
             }
@@ -3228,10 +3401,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     protected virtual void OnLayout(LayoutEventArgs e)
     {
         Layout?.Invoke(this, e);
+        SDUI.Layout.DefaultLayout.Instance.Layout(this, e);
 
         UpdateScrollBars();
-
-        SDUI.Layout.DefaultLayout.Instance.Layout(this, e);
     }
 
     internal virtual void OnControlAdded(ElementEventArgs e)

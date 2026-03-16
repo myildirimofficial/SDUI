@@ -103,7 +103,7 @@ public partial class WindowBase : ElementBase
     /// Represents the color used for the border.
     /// </summary>
     private SKColor borderColor = SKColors.Transparent;
-    public SKColor BorderColor
+    public new SKColor BorderColor
     {
         get => borderColor;
         set
