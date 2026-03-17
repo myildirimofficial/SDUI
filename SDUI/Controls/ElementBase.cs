@@ -3072,6 +3072,15 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (!Enabled || !Visible)
             return;
 
+        var shiftPressed = (ModifierKeys & Keys.Shift) == Keys.Shift;
+        if (HandlesMouseWheelScroll && shiftPressed && _hScrollBar != null && _hScrollBar.Visible)
+        {
+            var step = GetMouseWheelScrollStep(_hScrollBar);
+            var deltaValue = (e.Delta / 120f) * MouseWheelScrollLines * step;
+            _hScrollBar.ApplyWheelDelta(-deltaValue);
+            return;
+        }
+
         if (HandlesMouseWheelScroll && _vScrollBar != null && _vScrollBar.Visible)
         {
             var step = GetMouseWheelScrollStep(_vScrollBar);

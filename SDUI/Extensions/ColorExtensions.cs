@@ -30,7 +30,7 @@ public static class ColorExtensions
         else
             value = 255; // dark colors - white font
 
-        return new SKColor((byte)value, (byte)value, (byte)value);
+        return new SKColor((byte)value, (byte)value, (byte)value).WithAlpha(color.Alpha);
     }
 
     /// <summary>
@@ -44,12 +44,35 @@ public static class ColorExtensions
     /// <returns>
     ///     Corrected <see cref="Color" /> structure.
     /// </returns>
-    public static SKColor Brightness(this SKColor color, float correctionFactor)
+    public static SKColor Brightness(this SKColor color, float factor)
     {
-        color.ToHsl(out var h, out var s, out var l);
-        l = Math.Clamp(l + correctionFactor, 0, 1);
+        // factor: -1 .. +1
 
-        return SKColor.FromHsl(h, s, l);
+        float r = color.Red / 255f;
+        float g = color.Green / 255f;
+        float b = color.Blue / 255f;
+
+        // Gamma expand (sRGB -> linear)
+        r = MathF.Pow(r, 2.2f);
+        g = MathF.Pow(g, 2.2f);
+        b = MathF.Pow(b, 2.2f);
+
+        // Apply brightness
+        r = Math.Clamp(r + factor, 0f, 1f);
+        g = Math.Clamp(g + factor, 0f, 1f);
+        b = Math.Clamp(b + factor, 0f, 1f);
+
+        // Gamma compress (linear -> sRGB)
+        r = MathF.Pow(r, 1f / 2.2f);
+        g = MathF.Pow(g, 1f / 2.2f);
+        b = MathF.Pow(b, 1f / 2.2f);
+
+        return new SKColor(
+            (byte)(r * 255),
+            (byte)(g * 255),
+            (byte)(b * 255),
+            color.Alpha
+        );
     }
 
     /// <summary>
@@ -76,9 +99,9 @@ public static class ColorExtensions
     {
         var ratio = blend / 255d;
         var invRatio = 1d - ratio;
-        byte r = (byte)Math.Clamp((int)(backgroundColor.Red * invRatio + frontColor.Red * ratio),0, 255);
-        byte g = (byte)Math.Clamp((int)(backgroundColor.Green * invRatio + frontColor.Green * ratio),0, 255);
-        byte b = (byte)Math.Clamp((int)(backgroundColor.Blue * invRatio + frontColor.Blue * ratio),0, 255);
+        byte r = (byte)Math.Clamp((int)(backgroundColor.Red * invRatio + frontColor.Red * ratio), 0, 255);
+        byte g = (byte)Math.Clamp((int)(backgroundColor.Green * invRatio + frontColor.Green * ratio), 0, 255);
+        byte b = (byte)Math.Clamp((int)(backgroundColor.Blue * invRatio + frontColor.Blue * ratio), 0, 255);
         byte a = (byte)Math.Clamp((int)Math.Abs(frontColor.Alpha - backgroundColor.Alpha), 0, 255);
 
 

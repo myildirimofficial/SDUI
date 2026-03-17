@@ -17,6 +17,8 @@ public enum Keys
     Enter = 0x0D,
     Escape = 0x1B,
     Space = 0x20,
+    PageUp = 0x21,
+    PageDown = 0x22,
     Left = 0x25,
     Up = 0x26,
     Right = 0x27,
