@@ -249,13 +249,9 @@ public class MenuItem
     internal bool HasCustomFont => _font != null;
 
     [Category("Appearance")]
-    [Browsable(false)]
-    internal SKFont ResolvedFont => _font ?? Parent?.ResolvedFont ?? Application.SharedDefaultFont;
-
-    [Category("Appearance")]
     public SKFont Font
     {
-        get => ResolvedFont.CloneFont();
+        get => _font ?? Parent?.Font ?? Application.SharedDefaultFont;
         set
         {
             if (_font.FontEquals(value)) return;
@@ -326,7 +322,7 @@ public class MenuItem
     {
         if (Parent == null) return;
 
-        var font = ResolvedFont;
+        var font = Font;
         using var scaledFont = new SKFont(font.Typeface ?? SKTypeface.Default)
         {
             Size = font.Size.Topx(Parent),

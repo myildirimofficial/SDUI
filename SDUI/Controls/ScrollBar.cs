@@ -70,6 +70,7 @@ public class ScrollBar : ElementBase
         };
 
         _visibilityAnim.OnAnimationProgress += s => Invalidate();
+        _visibilityAnim.OnAnimationFinished += s => Invalidate();
 
         _scrollAnim = new AnimationManager(true)
         {
@@ -93,7 +94,7 @@ public class ScrollBar : ElementBase
             Invalidate();
         };
 
-        _hideTimer = new Timer { Interval = _hideDelay };
+        _hideTimer = new Timer { Interval = _hideDelay, AutoReset = false };
         _hideTimer.Elapsed += HideTimer_Tick;
 
         _inputSettleTimer = new Timer { Interval = InputSettleDelay, AutoReset = false };
@@ -465,7 +466,7 @@ public class ScrollBar : ElementBase
 
         var visibility = _autoHide ? (float)_visibilityAnim.GetProgress() : 1f;
         if (visibility <= 0f)
-            return; // tamamen gizli
+            return;
 
         var baseTrackColor = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
         var blendedTrack = baseTrackColor.BlendWith(ColorScheme.ForeColor, 0.18f);
@@ -536,7 +537,7 @@ public class ScrollBar : ElementBase
     private void HideNow()
     {
         if (!_autoHide) return;
-        if (_isHovered || _isDragging || _isThumbHovered) return;
+        if (_hostHovered || _isHovered || _isDragging || _isThumbHovered || _isInputStretching) return;
         _hideTimer.Stop();
         _visibilityAnim.StartNewAnimation(AnimationDirection.Out);
     }
@@ -868,6 +869,8 @@ public class ScrollBar : ElementBase
     {
         base.OnMouseLeave(e);
         _isHovered = false;
+        _isThumbHovered = false;
+        Invalidate();
         if (_autoHide)
         {
             _hideTimer.Stop();
@@ -904,8 +907,11 @@ public class ScrollBar : ElementBase
             else
             {
                 _hideTimer.Stop();
-                _hideTimer.Interval = _hideDelay;
-                _hideTimer.Start();
+                if (!_isHovered && !_isDragging && !_isThumbHovered)
+                {
+                    _hideTimer.Interval = _hideDelay;
+                    _hideTimer.Start();
+                }
             }
         }
 

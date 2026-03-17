@@ -32,6 +32,7 @@ public enum WindowMessage : uint
     WM_KILLFOCUS = 0x8,
     WM_MOVE = 0x0003,
     WM_SIZE = 0x0005,
+    WM_SETCURSOR = 0x0020,
     WM_VSCROLL = 0x115,
     WM_HSCROLL = 0x114,
     WM_THEMECHANGED = 0x031A,

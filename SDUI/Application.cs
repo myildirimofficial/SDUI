@@ -153,7 +153,7 @@ public class Application
 
     private static SKFont CreateDefaultFont()
     {
-        return new SKFont(SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default, 9f)
+        return new SKFont(SKTypeface.FromFamilyName("Inter") ?? SKTypeface.Default, 9.25f)
         {
             Subpixel = true,
             Edging = SKFontEdging.SubpixelAntialias,

@@ -139,12 +139,7 @@ public static class ColorScheme
 
     private static void RaiseThemeChanged()
     {
-        if (Interlocked.Exchange(ref _themeQueued, 1) == 1)
-            return;
-
         ThemeChanged?.Invoke(null, EventArgs.Empty);
-
-        Interlocked.Exchange(ref _themeQueued, 0);
     }
 
     private static SKColor SurfaceAdjust(SKColor baseColor, double amount)

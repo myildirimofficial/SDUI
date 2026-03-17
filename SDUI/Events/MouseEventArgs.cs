@@ -15,13 +15,15 @@ public class MouseEventArgs : EventArgs
     /// <param name="y">The y-coordinate of the mouse, in pixels, relative to the control.</param>
     /// <param name="delta">The number of detents the mouse wheel has rotated, where a positive value indicates forward rotation and a
     /// negative value indicates backward rotation.</param>
-    public MouseEventArgs(MouseButtons button, int clicks, int x, int y, int delta)
+    /// <param name="isHorizontalWheel">Indicates whether the delta came from a horizontal wheel gesture.</param>
+    public MouseEventArgs(MouseButtons button, int clicks, int x, int y, int delta, bool isHorizontalWheel = false)
     {
         Button = button;
         Clicks = clicks;
         X = x;
         Y = y;
         Delta = delta;
+        IsHorizontalWheel = isHorizontalWheel;
     }
     
     /// <summary>
@@ -48,6 +50,11 @@ public class MouseEventArgs : EventArgs
     /// Gets the difference between two related values.
     /// </summary>
     public int Delta { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the wheel delta represents a horizontal scrolling gesture.
+    /// </summary>
+    public bool IsHorizontalWheel { get; }
 
     /// <summary>
     /// Gets the location represented by the current X and Y coordinates as an SKPoint structure.

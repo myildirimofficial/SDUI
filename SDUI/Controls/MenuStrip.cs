@@ -379,10 +379,10 @@ public class MenuStrip : ElementBase
         UpdateMenuStripHeight();
     }
 
-    private SKFont GetDefaultSkFont()
+    protected SKFont GetDefaultSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        var font = ResolvedFont;
+        var font = Font;
         if (_defaultSkFont == null || !ReferenceEquals(_defaultSkFontSource, font) || _defaultSkFontDpi != dpi)
         {
             _defaultSkFont?.Dispose();
@@ -403,7 +403,7 @@ public class MenuStrip : ElementBase
     protected SKFont GetShortcutSkFont()
     {
         var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        var font = ResolvedFont;
+        var font = Font;
         if (_shortcutSkFont == null || !ReferenceEquals(_shortcutSkFontSource, font) || _shortcutSkFontDpi != dpi)
         {
             _shortcutSkFont?.Dispose();
@@ -1124,7 +1124,7 @@ public class MenuStrip : ElementBase
             Padding = source.Padding, Tag = source.Tag, Checked = source.Checked
         };
         if (source.HasCustomFont)
-            clone.Font = source.ResolvedFont;
+            clone.Font = source.Font;
         foreach (var child in source.DropDownItems) clone.AddDropDownItem(CloneMenuItem(child));
         clone.Click += (_, _) =>
         {

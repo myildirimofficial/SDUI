@@ -759,6 +759,20 @@ public partial class WindowBase : ElementBase
                     Marshal.StructureToPtr(mmi, lParam, true);
                     return IntPtr.Zero;
                 }
+            case WindowMessage.WM_SETCURSOR:
+                {
+                    var hitTarget = unchecked((short)(lParam.ToInt64() & 0xFFFF));
+                    if (hitTarget == HTCLIENT)
+                    {
+                        var targetCursor = _currentCursor ?? Cursors.Default;
+                        if (targetCursor.Handle != IntPtr.Zero)
+                            SetCursor(targetCursor.Handle);
+
+                        return (IntPtr)1;
+                    }
+
+                    return DefWindowProc(hWnd, msg, wParam, lParam);
+                }
             case WindowMessage.WM_MOUSEMOVE:
                 {
                     var point = GetClientMousePosition(lParam);
@@ -858,7 +872,7 @@ public partial class WindowBase : ElementBase
                     var point = GetMousePosition(lParam);
                     MousePosition = point;
                     var delta = GetWheelDelta(wParam);
-                    var args = new MouseEventArgs(MouseButtons.None, 0, (int)point.X, (int)point.Y, delta);
+                    var args = new MouseEventArgs(MouseButtons.None, 0, (int)point.X, (int)point.Y, delta, msg == (uint)WindowMessage.WM_MOUSEHWHEEL);
                     OnMouseWheel(args);
                     return IntPtr.Zero;
                 }

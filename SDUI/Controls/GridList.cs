@@ -13,12 +13,15 @@ public class GridList : ElementBase
     private const float DefaultGroupHeaderHeight = 30f;
     private const float DefaultCellPadding = 10f;
     private const float ResizeGripWidth = 10f;
+    private const float ResizeHitWidth = 18f;
     private const float RowResizeGripHeight = 6f;
     private const float CheckBoxSize = 16f;
     private const float IconSize = 16f;
 
-    private readonly Dictionary<string, bool> _collapsedGroups = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, AnimationManager> _groupAnimations = new(StringComparer.Ordinal);
+    // Group collapse state is tracked per rendered group instance (group index) rather than group text.
+    // This avoids collapsing every group that shares the same name when multiple groups have identical labels.
+    private readonly Dictionary<int, bool> _collapsedGroups = new();
+    private readonly Dictionary<int, AnimationManager> _groupAnimations = new();
     private readonly List<ColumnLayout> _columnLayouts = new();
     private readonly List<int> _displayItemIndices = new();
     private readonly List<LayoutEntry> _layoutEntries = new();
@@ -49,7 +52,6 @@ public class GridList : ElementBase
     private int _hoveredColumnIndex = -1;
     private int _hoveredHeaderResizeColumnIndex = -1;
     private int _hoveredGroupIndex = -1;
-    private string? _hoveredGroupKey;
     private int _hoveredItemIndex = -1;
     private int _hoveredRowResizeIndex = -1;
     private float _horizontalOffset;
@@ -366,7 +368,9 @@ public class GridList : ElementBase
         Invalidate();
     }
 
-    protected override bool HandlesMouseWheelScroll => _vScrollBar != null && _vScrollBar.Visible;
+    protected override bool HandlesMouseWheelScroll =>
+        (_vScrollBar != null && (_vScrollBar.Visible || _vScrollBar.Maximum > 0)) ||
+        (_hScrollBar != null && (_hScrollBar.Visible || _hScrollBar.Maximum > 0));
 
     protected override float MouseWheelScrollLines => 1f;
 
@@ -395,7 +399,6 @@ public class GridList : ElementBase
         _hoveredColumnIndex = -1;
         _hoveredHeaderResizeColumnIndex = -1;
         _hoveredGroupIndex = -1;
-        _hoveredGroupKey = null;
         _hoveredItemIndex = -1;
         _hoveredRowResizeIndex = -1;
         Cursor = Cursors.Default;
@@ -447,12 +450,11 @@ public class GridList : ElementBase
         }
 
         var hoverInfo = HitTest(e.Location);
-        _hoveredHeader = hoverInfo.Kind == HitKind.Header;
+        _hoveredHeader = hoverInfo.Kind == HitKind.Header || hoverInfo.Kind == HitKind.HeaderResize;
         _hoveredColumnIndex = hoverInfo.ColumnIndex;
         _hoveredHeaderResizeColumnIndex = hoverInfo.Kind == HitKind.HeaderResize ? hoverInfo.ColumnIndex : -1;
         _hoveredGroupIndex = hoverInfo.GroupIndex;
         _hoveredItemIndex = hoverInfo.ItemIndex;
-        _hoveredGroupKey = hoverInfo.GroupKey;
         _hoveredRowResizeIndex = hoverInfo.Kind == HitKind.RowResize ? hoverInfo.ItemIndex : -1;
         Cursor = hoverInfo.Kind switch
         {
@@ -484,10 +486,21 @@ public class GridList : ElementBase
             var column = GetColumn(hit.ColumnIndex);
             if (column != null)
             {
+                if (TryGetColumnLayout(hit.ColumnIndex, out var columnLayout))
+                {
+                    column.Width = columnLayout.Width;
+                    column.SizeMode = GridListColumnSizeMode.Fixed;
+                    _resizeOriginWidth = columnLayout.Width;
+                }
+                else
+                {
+                    column.SizeMode = GridListColumnSizeMode.Fixed;
+                    _resizeOriginWidth = column.Width;
+                }
+
                 _isResizingColumn = true;
                 _resizingColumnIndex = hit.ColumnIndex;
                 _resizeOriginX = e.X;
-                _resizeOriginWidth = column.Width;
                 GetParentWindow()?.SetMouseCapture(this);
             }
 
@@ -511,7 +524,7 @@ public class GridList : ElementBase
         switch (hit.Kind)
         {
             case HitKind.GroupHeader:
-                ToggleGroupCollapsed(hit.GroupKey);
+                ToggleGroupCollapsed(hit.GroupIndex);
                 break;
             case HitKind.ItemCell:
                 if (hit.ItemIndex >= 0)
@@ -603,12 +616,11 @@ public class GridList : ElementBase
         if (!Enabled || !Visible)
             return;
 
-        var shiftPressed = (ModifierKeys & Keys.Shift) == Keys.Shift;
-        if (shiftPressed && _hScrollBar != null && _hScrollBar.Visible)
+        var wantsHorizontal = WantsHorizontalMouseWheel(e);
+        if (wantsHorizontal && _hScrollBar != null && (_hScrollBar.Visible || _hScrollBar.Maximum > 0))
         {
-            var step = GetMouseWheelScrollStep(_hScrollBar);
-            var deltaValue = (e.Delta / 120f) * MouseWheelScrollLines * step;
-            _hScrollBar.ApplyWheelDelta(-deltaValue);
+            var deltaValue = GetMouseWheelDelta(e, _hScrollBar);
+            _hScrollBar.ApplyWheelDelta(e.IsHorizontalWheel ? deltaValue : -deltaValue);
             return;
         }
 
@@ -663,23 +675,34 @@ public class GridList : ElementBase
         }
     }
 
+    internal override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        _geometryDirty = true;
+        Invalidate();
+    }
+
     public override void OnPaint(SKCanvas canvas)
     {
         base.OnPaint(canvas);
         EnsureLayoutState();
+        using var renderFont = CreateRenderFont(Font);
 
         _fillPaint.Color = BackColor == SKColors.Transparent ? ColorScheme.Surface : BackColor;
-        _textPaint.Color = ResolvedForeColor;
+        _textPaint.Color = ForeColor;
         _borderPaint.Color = GridLineColor;
         _gridLinePaint.Color = GridLineColor;
 
-        using var textFont = CreateScaledFont(13.25f);
-        using var headerFont = CreateScaledFont(13.25f);
-        using var groupFont = CreateScaledFont(13.75f);
-        headerFont.Embolden = true;
-        groupFont.Embolden = true;
-
         var outerRect = GetOuterViewport();
+        outerRect = new SKRect(
+            (float)Math.Floor(outerRect.Left),
+            (float)Math.Floor(outerRect.Top),
+            (float)Math.Ceiling(outerRect.Right),
+            (float)Math.Ceiling(outerRect.Bottom));
+
+        // Ensure we always clear the background (especially when BackColor is Transparent)
+        canvas.DrawRect(outerRect, _fillPaint);
+
         var bodyViewport = GetBodyViewportRect(outerRect);
         var saveCount = canvas.Save();
         canvas.ClipRect(bodyViewport);
@@ -700,13 +723,13 @@ public class GridList : ElementBase
             switch (entry.Kind)
             {
                 case EntryKind.Header:
-                    DrawHeader(canvas, drawRect, _horizontalOffset, headerFont);
+                    DrawHeader(canvas, drawRect, _horizontalOffset, renderFont);
                     break;
                 case EntryKind.GroupHeader:
-                    DrawGroupHeader(canvas, drawRect, entry.GroupText ?? string.Empty, entry.GroupKey ?? string.Empty, entry.GroupIndex, groupFont);
+                    DrawGroupHeader(canvas, drawRect, entry.GroupText ?? string.Empty, entry.GroupKey ?? string.Empty, entry.GroupIndex, renderFont);
                     break;
                 case EntryKind.Item:
-                    DrawItemRow(canvas, drawRect, entry.ItemIndex, textFont);
+                    DrawItemRow(canvas, drawRect, entry.ItemIndex, renderFont);
                     break;
             }
         }
@@ -716,7 +739,7 @@ public class GridList : ElementBase
         if (HeaderVisible && StickyHeader)
         {
             var stickyHeaderRect = GetStickyHeaderRect(outerRect);
-            DrawHeader(canvas, stickyHeaderRect, _horizontalOffset, headerFont);
+            DrawHeader(canvas, stickyHeaderRect, _horizontalOffset, renderFont);
 
             using var dividerPaint = new SKPaint
             {
@@ -913,16 +936,16 @@ public class GridList : ElementBase
         CellClick?.Invoke(this, new GridListCellEventArgs(Items[itemIndex], column, cell, itemIndex, columnIndex));
     }
 
-    private void ToggleGroupCollapsed(string? groupKey)
+    private void ToggleGroupCollapsed(int groupIndex)
     {
-        if (string.IsNullOrEmpty(groupKey))
+        if (groupIndex < 0)
             return;
 
-        var collapsed = _collapsedGroups.TryGetValue(groupKey, out var isCollapsed) && isCollapsed;
+        var collapsed = _collapsedGroups.TryGetValue(groupIndex, out var isCollapsed) && isCollapsed;
         var nextCollapsed = !collapsed;
-        _collapsedGroups[groupKey] = nextCollapsed;
-        var animation = EnsureGroupAnimation(groupKey);
-        animation.SetProgress(GetGroupExpansionProgress(groupKey));
+        _collapsedGroups[groupIndex] = nextCollapsed;
+        var animation = EnsureGroupAnimation(groupIndex);
+        animation.SetProgress(GetGroupExpansionProgress(groupIndex));
         animation.StartNewAnimation(nextCollapsed ? AnimationDirection.Out : AnimationDirection.In);
         _geometryDirty = true;
         Invalidate();
@@ -933,24 +956,22 @@ public class GridList : ElementBase
         if (!_geometryDirty)
             return;
 
+        using var renderFont = CreateRenderFont(Font);
         var outer = GetOuterViewport();
         var initialWidth = Math.Max(1f, outer.Width);
-        BuildColumnLayouts(initialWidth);
+        BuildColumnLayouts(initialWidth, renderFont);
         BuildDisplayEntries();
         UpdateScrollState();
 
-        BuildColumnLayouts(Math.Max(1f, _bodyViewportWidth));
+        BuildColumnLayouts(Math.Max(1f, _bodyViewportWidth), renderFont);
         BuildDisplayEntries();
         UpdateScrollState();
         _geometryDirty = false;
     }
 
-    private void BuildColumnLayouts(float availableWidth)
+    private void BuildColumnLayouts(float availableWidth, SKFont font)
     {
         _columnLayouts.Clear();
-
-        using var headerFont = CreateScaledFont(13.25f);
-        using var textFont = CreateScaledFont(13.25f);
 
         var resolvedWidths = new float[Columns.Count];
         var fillColumns = new List<int>();
@@ -971,7 +992,7 @@ public class GridList : ElementBase
             }
 
             var width = column.SizeMode == GridListColumnSizeMode.Auto
-                ? MeasurePreferredColumnWidth(i, headerFont, textFont)
+                ? MeasurePreferredColumnWidth(i, font, font)
                 : column.Width;
 
             resolvedWidths[i] = Math.Clamp(width, column.MinWidth, column.MaxWidth);
@@ -1047,7 +1068,7 @@ public class GridList : ElementBase
                     groupIndex++;
                     _layoutEntries.Add(LayoutEntry.GroupHeader(new SKRect(0, y, _contentWidth, y + GroupHeaderHeight), currentGroupKey, currentGroupText, groupIndex));
                     y += GroupHeaderHeight;
-                    currentGroupExpansion = GetGroupExpansionProgress(currentGroupKey);
+                    currentGroupExpansion = GetGroupExpansionProgress(groupIndex);
                 }
 
                 if (currentGroupExpansion <= 0.001f)
@@ -1074,23 +1095,9 @@ public class GridList : ElementBase
         var availableWidth = Math.Max(1f, outer.Width);
         var availableHeight = Math.Max(1f, outer.Height - (showStickyHeader ? HeaderHeight : 0f));
         var overlayInset = MathF.Max(2f, 4f * ScaleFactor);
-        var verticalThickness = _vScrollBar?.Thickness ?? 8;
-        var horizontalThickness = _hScrollBar?.Thickness ?? 8;
 
         var needsVScroll = _contentHeight > availableHeight;
         var needsHScroll = _contentWidth > availableWidth;
-
-        if (needsVScroll)
-            availableWidth = Math.Max(1f, outer.Width - verticalThickness - overlayInset * 2f);
-
-        if (_contentWidth > availableWidth)
-        {
-            needsHScroll = true;
-            availableHeight = Math.Max(1f, availableHeight - horizontalThickness - overlayInset * 2f);
-        }
-
-        if (_contentHeight > availableHeight)
-            needsVScroll = true;
 
         _bodyViewportWidth = availableWidth;
         _bodyViewportHeight = availableHeight;
@@ -1101,7 +1108,7 @@ public class GridList : ElementBase
             if (needsVScroll)
             {
                 _vScrollBar.Location = new SKPoint(Math.Max(0f, outer.Right - _vScrollBar.Thickness - overlayInset), showStickyHeader ? outer.Top + HeaderHeight + overlayInset : outer.Top + overlayInset);
-                _vScrollBar.Size = new SKSize(_vScrollBar.Thickness, Math.Max(1f, availableHeight - overlayInset));
+                _vScrollBar.Size = new SKSize(_vScrollBar.Thickness, Math.Max(1f, availableHeight - overlayInset * 2 - (needsHScroll ? _hScrollBar.Thickness : 0) ));
                 _vScrollBar.Minimum = 0;
                 _vScrollBar.Maximum = Math.Max(0, _contentHeight - availableHeight);
                 _vScrollBar.SmallChange = Math.Max(8f, RowHeight);
@@ -1124,7 +1131,7 @@ public class GridList : ElementBase
             if (needsHScroll)
             {
                 _hScrollBar.Location = new SKPoint(outer.Left + overlayInset, Math.Max(0f, outer.Bottom - _hScrollBar.Thickness - overlayInset));
-                _hScrollBar.Size = new SKSize(Math.Max(1f, availableWidth - overlayInset), _hScrollBar.Thickness);
+                _hScrollBar.Size = new SKSize(Math.Max(1f, availableWidth - overlayInset * 2 - (needsVScroll ? _vScrollBar.Thickness : 0)), _hScrollBar.Thickness);
                 _hScrollBar.Minimum = 0;
                 _hScrollBar.Maximum = Math.Max(0, _contentWidth - availableWidth);
                 _hScrollBar.SmallChange = Math.Max(8f, 32f * ScaleFactor);
@@ -1196,10 +1203,9 @@ public class GridList : ElementBase
         if (columnIndex < 0 || columnIndex >= Columns.Count)
             return;
 
-        using var headerFont = CreateScaledFont(13.25f);
-        using var textFont = CreateScaledFont(13.25f);
         var column = Columns[columnIndex];
-        var preferredWidth = MeasurePreferredColumnWidth(columnIndex, headerFont, textFont);
+        using var renderFont = CreateRenderFont(Font);
+        var preferredWidth = MeasurePreferredColumnWidth(columnIndex, renderFont, renderFont);
         column.Width = preferredWidth;
         column.SizeMode = GridListColumnSizeMode.Fixed;
         _geometryDirty = true;
@@ -1247,16 +1253,9 @@ public class GridList : ElementBase
         return Math.Clamp(maxWidth + 6f, column.MinWidth, column.MaxWidth);
     }
 
-    private SKFont CreateScaledFont(float minimumPointSize)
+    private AnimationManager EnsureGroupAnimation(int groupIndex)
     {
-        var font = ResolvedFont.CloneFont();
-        font.Size = Math.Max(minimumPointSize * ScaleFactor, font.Size * ScaleFactor);
-        return font;
-    }
-
-    private AnimationManager EnsureGroupAnimation(string groupKey)
-    {
-        if (_groupAnimations.TryGetValue(groupKey, out var animation))
+        if (_groupAnimations.TryGetValue(groupIndex, out var animation))
             return animation;
 
         animation = new AnimationManager(true)
@@ -1265,7 +1264,7 @@ public class GridList : ElementBase
             AnimationType = AnimationType.CubicEaseOut,
             InterruptAnimation = true
         };
-        animation.SetProgress(_collapsedGroups.TryGetValue(groupKey, out var collapsed) && collapsed ? 0d : 1d);
+        animation.SetProgress(_collapsedGroups.TryGetValue(groupIndex, out var collapsed) && collapsed ? 0d : 1d);
         animation.OnAnimationProgress += _ =>
         {
             _geometryDirty = true;
@@ -1276,19 +1275,19 @@ public class GridList : ElementBase
             _geometryDirty = true;
             Invalidate();
         };
-        _groupAnimations[groupKey] = animation;
+        _groupAnimations[groupIndex] = animation;
         return animation;
     }
 
-    private float GetGroupExpansionProgress(string groupKey)
+    private float GetGroupExpansionProgress(int groupIndex)
     {
-        if (string.IsNullOrEmpty(groupKey))
+        if (groupIndex < 0)
             return 1f;
 
-        if (_groupAnimations.TryGetValue(groupKey, out var animation))
+        if (_groupAnimations.TryGetValue(groupIndex, out var animation))
             return Math.Clamp((float)animation.GetProgress(), 0f, 1f);
 
-        return _collapsedGroups.TryGetValue(groupKey, out var collapsed) && collapsed ? 0f : 1f;
+        return _collapsedGroups.TryGetValue(groupIndex, out var collapsed) && collapsed ? 0f : 1f;
     }
 
     private SKRect GetOuterViewport()
@@ -1307,6 +1306,21 @@ public class GridList : ElementBase
             return new SKRect(outer.Left, outer.Top + HeaderHeight, outer.Left + _bodyViewportWidth, outer.Top + HeaderHeight + _bodyViewportHeight);
 
         return new SKRect(outer.Left, outer.Top, outer.Left + _bodyViewportWidth, outer.Top + _bodyViewportHeight);
+    }
+
+    private bool TryGetColumnLayout(int columnIndex, out ColumnLayout columnLayout)
+    {
+        for (var i = 0; i < _columnLayouts.Count; i++)
+        {
+            if (_columnLayouts[i].ColumnIndex != columnIndex)
+                continue;
+
+            columnLayout = _columnLayouts[i];
+            return true;
+        }
+
+        columnLayout = default;
+        return false;
     }
 
     private void DrawHeader(SKCanvas canvas, SKRect bounds, float horizontalScroll, SKFont font)
@@ -1350,147 +1364,100 @@ public class GridList : ElementBase
                 DrawColumnResizeGrip(canvas, cellRect, isHovered, _hoveredHeaderResizeColumnIndex == layout.ColumnIndex || _resizingColumnIndex == layout.ColumnIndex);
 
             if (ShowGridLines)
-                canvas.DrawLine(cellRect.Right, cellRect.Top, cellRect.Right, cellRect.Bottom, _gridLinePaint);
+            {
+                var x = AlignToPixel(cellRect.Right);
+                canvas.DrawLine(x, cellRect.Top, x, cellRect.Bottom, _gridLinePaint);
+            }
         }
 
         if (ShowGridLines)
-            canvas.DrawLine(bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom, _gridLinePaint);
+        {
+            var y = AlignToPixel(bounds.Bottom);
+            canvas.DrawLine(bounds.Left, y, bounds.Right, y, _gridLinePaint);
+        }
     }
 
     private void DrawSortGlyph(SKCanvas canvas, SKRect cellRect, GridListSortDirection direction)
     {
-        var centerX = cellRect.Right - CellPadding;
+        var centerX = cellRect.Right - CellPadding - 8f;
         var centerY = cellRect.MidY;
-        using var glyphPaint = new SKPaint
-        {
-            Color = HeaderForeColor.WithAlpha(200),
-            IsAntialias = true,
-            Style = SKPaintStyle.Fill
-        };
-
-        using var path = new SKPath();
-        if (direction == GridListSortDirection.Ascending)
-        {
-            path.MoveTo(centerX - 4, centerY + 3);
-            path.LineTo(centerX + 4, centerY + 3);
-            path.LineTo(centerX, centerY - 3);
-        }
-        else
-        {
-            path.MoveTo(centerX - 4, centerY - 3);
-            path.LineTo(centerX + 4, centerY - 3);
-            path.LineTo(centerX, centerY + 3);
-        }
-
-        path.Close();
-        canvas.DrawPath(path, glyphPaint);
+        DrawChevronGlyph(
+            canvas,
+            new SKPoint(centerX, centerY),
+            HeaderForeColor.WithAlpha(200),
+            1.5f,
+            4f,
+            direction == GridListSortDirection.Ascending ? 180f : 0f);
     }
 
     private void DrawColumnResizeGrip(SKCanvas canvas, SKRect cellRect, bool emphasized, bool resizeHot)
     {
-        if (resizeHot)
-        {
-            using var hotFill = new SKPaint
-            {
-                Color = ColorScheme.Primary.WithAlpha(20),
-                IsAntialias = true,
-                Style = SKPaintStyle.Fill
-            };
-
-            var hotRect = new SKRect(cellRect.Right - ResizeGripWidth - 4f, cellRect.Top + 4f, cellRect.Right - 1f, cellRect.Bottom - 4f);
-            canvas.DrawRoundRect(hotRect, 6f, 6f, hotFill);
-
-            using var hotEdgePaint = new SKPaint
-            {
-                Color = ColorScheme.Primary.WithAlpha(150),
-                IsAntialias = true,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.4f,
-                StrokeCap = SKStrokeCap.Round
-            };
-
-            var edgeX = cellRect.Right - 0.5f;
-            canvas.DrawLine(edgeX, cellRect.Top + 6f, edgeX, cellRect.Bottom - 6f, hotEdgePaint);
-        }
-
+        var gripColor = resizeHot ? ColorScheme.Primary : HeaderForeColor.WithAlpha(110);
         using var gripPaint = new SKPaint
         {
-            Color = HeaderForeColor.WithAlpha(resizeHot ? (byte)220 : emphasized ? (byte)190 : (byte)110),
+            Color = gripColor,
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            StrokeWidth = resizeHot ? 1.5f : 1.2f,
+            StrokeWidth = resizeHot ? 2f : 1f,
             StrokeCap = SKStrokeCap.Round
         };
 
-        var centerX = cellRect.Right - 4f;
-        var top = cellRect.MidY - 6f;
-        var bottom = cellRect.MidY + 6f;
-        canvas.DrawLine(centerX - 2f, top, centerX - 2f, bottom, gripPaint);
-        canvas.DrawLine(centerX + 1f, top, centerX + 1f, bottom, gripPaint);
+        var x = AlignToPixel(cellRect.Right) - gripPaint.StrokeWidth / 2f;
+        var y1 = cellRect.Top + 8f;
+        var y2 = cellRect.Bottom - 8f;
 
-        if (resizeHot)
+        canvas.DrawLine(x, y1, x, y2, gripPaint);
+    }
+
+    private void DrawChevronGlyph(SKCanvas canvas, SKPoint center, SKColor color, float strokeWidth, float size, float rotationDegrees)
+    {
+        using var chevronPaint = new SKPaint
         {
-            using var chevronPaint = new SKPaint
-            {
-                Color = HeaderForeColor.WithAlpha(190),
-                IsAntialias = true,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.2f,
-                StrokeCap = SKStrokeCap.Round,
-                StrokeJoin = SKStrokeJoin.Round
-            };
+            Color = color,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = strokeWidth,
+            StrokeCap = SKStrokeCap.Round,
+            StrokeJoin = SKStrokeJoin.Round
+        };
 
-            using var path = new SKPath();
-            path.MoveTo(cellRect.Right - 8f, cellRect.MidY);
-            path.LineTo(cellRect.Right - 5.5f, cellRect.MidY - 2.25f);
-            path.MoveTo(cellRect.Right - 8f, cellRect.MidY);
-            path.LineTo(cellRect.Right - 5.5f, cellRect.MidY + 2.25f);
-            canvas.DrawPath(path, chevronPaint);
-        }
+        using var chevronPath = new SKPath();
+        chevronPath.MoveTo(-size, -size * 0.5f);
+        chevronPath.LineTo(0f, size * 0.5f);
+        chevronPath.LineTo(size, -size * 0.5f);
+
+        var saveCount = canvas.Save();
+        canvas.Translate(center.X, center.Y);
+        canvas.RotateDegrees(rotationDegrees);
+        canvas.DrawPath(chevronPath, chevronPaint);
+        canvas.RestoreToCount(saveCount);
     }
 
     private void DrawGroupHeader(SKCanvas canvas, SKRect bounds, string text, string groupKey, int groupIndex, SKFont font)
     {
-        var expansion = GetGroupExpansionProgress(groupKey);
+        var expansion = GetGroupExpansionProgress(groupIndex);
         var isHovered = _hoveredGroupIndex >= 0 && _hoveredGroupIndex == groupIndex;
         _fillPaint.Color = isHovered ? GroupHeaderBackColor.Brightness(0.04f) : GroupHeaderBackColor;
         canvas.DrawRect(bounds, _fillPaint);
 
         using var accentPaint = new SKPaint { Color = GroupHeaderBackColor.Brightness(0.12f).WithAlpha(180), IsAntialias = true, Style = SKPaintStyle.Fill };
-        using var accentBorder = new SKPaint { Color = ResolvedForeColor.WithAlpha(28), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
+        using var accentBorder = new SKPaint { Color = ForeColor.WithAlpha(28), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
         var accentRect = new SKRect(bounds.Left + CellPadding, bounds.Top + 5f, bounds.Left + CellPadding + 22f, bounds.Bottom - 5f);
         canvas.DrawRoundRect(accentRect, 10f, 10f, accentPaint);
         canvas.DrawRoundRect(accentRect, 10f, 10f, accentBorder);
 
-        using var chevronPaint = new SKPaint
-        {
-            Color = ResolvedForeColor.WithAlpha(220),
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 1.8f,
-            StrokeCap = SKStrokeCap.Round,
-            StrokeJoin = SKStrokeJoin.Round
-        };
-
         var chevronCenter = new SKPoint(accentRect.MidX, accentRect.MidY);
-        var chevronSave = canvas.Save();
-        canvas.Translate(chevronCenter.X, chevronCenter.Y);
-        canvas.RotateDegrees(-90f + expansion * 90f);
-        using (var chevronPath = new SKPath())
-        {
-            chevronPath.MoveTo(-3.5f, -4f);
-            chevronPath.LineTo(2.5f, 0f);
-            chevronPath.LineTo(-3.5f, 4f);
-            canvas.DrawPath(chevronPath, chevronPaint);
-        }
-        canvas.RestoreToCount(chevronSave);
+        DrawChevronGlyph(canvas, chevronCenter, ForeColor.WithAlpha(220), 1.8f, 3.6f, -90f + expansion * 90f);
 
         var textRect = new SKRect(accentRect.Right + CellPadding, bounds.Top, bounds.Right - CellPadding, bounds.Bottom);
-        _textPaint.Color = ResolvedForeColor;
+        _textPaint.Color = ForeColor;
         DrawControlText(canvas, text, textRect, _textPaint, font, ContentAlignment.MiddleLeft, false, true);
 
         if (ShowGridLines)
-            canvas.DrawLine(bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom, _gridLinePaint);
+        {
+            var y = AlignToPixel(bounds.Bottom);
+            canvas.DrawLine(bounds.Left, y, bounds.Right, y, _gridLinePaint);
+        }
     }
 
     private void DrawItemRow(SKCanvas canvas, SKRect bounds, int itemIndex, SKFont font)
@@ -1554,13 +1521,16 @@ public class GridList : ElementBase
 
             if (!string.IsNullOrEmpty(text))
             {
-                var foreColor = cell != null && cell.ForeColor != SKColor.Empty ? cell.ForeColor : (item.Enabled ? ResolvedForeColor : ResolvedForeColor.WithAlpha(140));
+                var foreColor = cell != null && cell.ForeColor != SKColor.Empty ? cell.ForeColor : (item.Enabled ? ForeColor : ForeColor.WithAlpha(140));
                 _textPaint.Color = WithOpacity(foreColor, revealProgress);
                 DrawControlText(canvas, text, contentRect, _textPaint, font, column.CellTextAlign, true, false);
             }
 
             if (ShowGridLines)
-                canvas.DrawLine(cellRect.Right, cellRect.Top, cellRect.Right, cellRect.Bottom, _gridLinePaint);
+            {
+                var x = AlignToPixel(cellRect.Right);
+                canvas.DrawLine(x, cellRect.Top, x, cellRect.Bottom, _gridLinePaint);
+            }
         }
 
         if (AllowRowResize && (_hoveredRowResizeIndex == itemIndex || _isResizingRow && _resizingRowIndex == itemIndex))
@@ -1587,6 +1557,15 @@ public class GridList : ElementBase
     {
         var alpha = (byte)Math.Clamp(Math.Round(color.Alpha * opacity), 0d, 255d);
         return color.WithAlpha(alpha);
+    }
+
+    private float AlignToPixel(float value)
+    {
+        var scale = ScaleFactor;
+        if (Math.Abs(scale - 1f) < 0.001f)
+            return value;
+
+        return (float)Math.Round(value * scale) / scale;
     }
 
     private static SKRect GetCheckBoxRect(SKRect contentRect)
@@ -1722,19 +1701,35 @@ public class GridList : ElementBase
 
     private HitInfo HitTestHeader(SKPoint location, SKRect headerRect, float horizontalOffset)
     {
+        if (AllowColumnResize)
+        {
+            var hitAreaWidth = Math.Max(ResizeGripWidth + 8f, ResizeHitWidth * ScaleFactor);
+            var halfHitArea = hitAreaWidth * 0.5f;
+
+            for (var i = 0; i < _columnLayouts.Count; i++)
+            {
+                var layout = _columnLayouts[i];
+                if (!Columns[layout.ColumnIndex].Resizable)
+                    continue;
+
+                var cellRect = new SKRect(headerRect.Left + layout.X - horizontalOffset, headerRect.Top, headerRect.Left + layout.X + layout.Width - horizontalOffset, headerRect.Bottom);
+                var resizeRect = new SKRect(
+                    Math.Max(headerRect.Left, cellRect.Right - halfHitArea),
+                    cellRect.Top,
+                    Math.Min(headerRect.Right, cellRect.Right + halfHitArea),
+                    cellRect.Bottom);
+
+                if (resizeRect.Contains(location))
+                    return HitInfo.ForHeaderResize(layout.ColumnIndex);
+            }
+        }
+
         for (var i = 0; i < _columnLayouts.Count; i++)
         {
             var layout = _columnLayouts[i];
             var cellRect = new SKRect(headerRect.Left + layout.X - horizontalOffset, headerRect.Top, headerRect.Left + layout.X + layout.Width - horizontalOffset, headerRect.Bottom);
             if (!cellRect.Contains(location))
                 continue;
-
-            if (AllowColumnResize && Columns[layout.ColumnIndex].Resizable)
-            {
-                var resizeRect = new SKRect(cellRect.Right - ResizeGripWidth * 1.5f, cellRect.Top, cellRect.Right + ResizeGripWidth, cellRect.Bottom);
-                if (resizeRect.Contains(location))
-                    return HitInfo.ForHeaderResize(layout.ColumnIndex);
-            }
 
             return HitInfo.ForHeader(layout.ColumnIndex);
         }

@@ -6,6 +6,7 @@ using SkiaSharp;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 
@@ -56,6 +57,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         InitializeScrollBars();
         InitializeVisualStyleSystem();
         InitializeMotionEffectsSystem();
+
+        ColorScheme.ThemeChanged += OnColorSchemeChanged;
     }
 
     private SKImage _backgroundImage;
@@ -237,7 +240,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     [Category("Appearance")]
     public SKColor BorderColor
     {
-        get => _borderColor;
+        get => _borderColor == SKColors.Transparent ? ColorScheme.BorderColor : _borderColor;
         set
         {
             if (_borderColor == value)
@@ -249,9 +252,6 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             Invalidate();
         }
     }
-
-    [Browsable(false)]
-    internal SKColor ResolvedBorderColor => _borderColor == SKColors.Transparent ? ColorScheme.BorderColor : _borderColor;
 
     /// <summary>
     /// Represents the thickness of the border. This field is initialized to zero thickness by default.
@@ -723,7 +723,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     public virtual SKColor BackColor
     {
-        get => _backColor;
+        get => _backColor == SKColors.Transparent ? ColorScheme.BackColor : _backColor;
         set
         {
             if (_backColor == value)
@@ -740,15 +740,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     }
 
     private SKColor _foreColor = SKColors.Transparent;
-
-    [Browsable(false)]
-    internal SKColor ResolvedForeColor => _foreColor == SKColors.Transparent
-        ? _parent?.ResolvedForeColor ?? ColorScheme.ForeColor
-        : _foreColor;
-
     public virtual SKColor ForeColor
     {
-        get => _foreColor;
+        get => _foreColor == SKColors.Transparent ? ColorScheme.ForeColor : _foreColor;
         set
         {
             if (_foreColor == value)
@@ -765,16 +759,9 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     }
 
     private SKFont? _font;
-
-    [Browsable(false)]
-    internal bool HasCustomFont => _font != null;
-
-    [Browsable(false)]
-    internal SKFont ResolvedFont => _font ?? Application.SharedDefaultFont;
-
     public virtual SKFont Font
     {
-        get => ResolvedFont.CloneFont();
+        get => _font ?? Application.SharedDefaultFont;
         set
         {
             if (_font.FontEquals(value))
@@ -800,6 +787,24 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         OnFontChanged(EventArgs.Empty);
         InvalidateMeasure();
         Invalidate();
+    }
+
+    protected SKFont CreateRenderFont(SKFont sourceFont)
+    {
+        if (sourceFont == null)
+            throw new ArgumentNullException(nameof(sourceFont));
+
+        return new SKFont(sourceFont.Typeface ?? SKTypeface.Default)
+        {
+            Size = sourceFont.Size.Topx(this),
+            Subpixel = sourceFont.Subpixel,
+            Edging = sourceFont.Edging,
+            Hinting = sourceFont.Hinting,
+            Embolden = sourceFont.Embolden,
+            ScaleX = sourceFont.ScaleX,
+            SkewX = sourceFont.SkewX,
+            LinearMetrics = sourceFont.LinearMetrics
+        };
     }
 
     private string _text = string.Empty;
@@ -1493,7 +1498,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
         // Only propagate to window if this isn't already the window
         // This prevents cascade invalidations that kill FPS
-        if (!(this is WindowBase))
+        if (this is not WindowBase)
         {
             var window = GetParentWindow();
             window?.Invalidate();
@@ -1530,6 +1535,16 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     protected virtual float GetMouseWheelScrollStep(ScrollBar scrollBar)
     {
         return Math.Max(1f, scrollBar.SmallChange);
+    }
+
+    protected bool WantsHorizontalMouseWheel(MouseEventArgs e)
+    {
+        return e.IsHorizontalWheel || (ModifierKeys & Keys.Shift) == Keys.Shift;
+    }
+
+    protected float GetMouseWheelDelta(MouseEventArgs e, ScrollBar scrollBar)
+    {
+        return (e.Delta / 120f) * MouseWheelScrollLines * GetMouseWheelScrollStep(scrollBar);
     }
 
     protected virtual bool UseAutoScrollTranslation => true;
@@ -1645,7 +1660,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             e.Clicks,
             (int)(hitPoint.X - target.Location.X),
             (int)(hitPoint.Y - target.Location.Y),
-            e.Delta);
+            e.Delta,
+            e.IsHorizontalWheel);
         return true;
     }
 
@@ -1670,7 +1686,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             source.Clicks,
             source.X - (int)elementWindowRect.Location.X,
             source.Y - (int)elementWindowRect.Location.Y,
-            source.Delta);
+            source.Delta,
+            source.IsHorizontalWheel);
     }
 
     protected static SKRect GetWindowRelativeBounds(ElementBase element)
@@ -1731,7 +1748,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         var target = FindDeepestMouseWheelTarget(elements, windowMousePos);
         while (target != null)
         {
-            if (target.CanHandleMouseWheel())
+            if (target.CanHandleMouseWheel(e))
             {
                 var targetBounds = GetWindowRelativeBounds(target);
                 var localEvent = new MouseEventArgs(
@@ -1739,7 +1756,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                     e.Clicks,
                     (int)windowMousePos.X - (int)targetBounds.Left,
                     (int)windowMousePos.Y - (int)targetBounds.Top,
-                    e.Delta);
+                    e.Delta,
+                    e.IsHorizontalWheel);
 
                 target.OnMouseWheel(localEvent);
                 return true;
@@ -1784,15 +1802,33 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         return FindDeepestMouseWheelTarget(topmostElement.Controls, windowMousePos) ?? topmostElement;
     }
 
-    private bool CanHandleMouseWheel()
+    private bool CanHandleMouseWheel(MouseEventArgs e)
     {
         if (!Enabled || !Visible)
             return false;
 
         if (HandlesMouseWheelScroll)
         {
-            if ((_vScrollBar?.Visible ?? false) || (_hScrollBar?.Visible ?? false))
+            var wantsHorizontal = WantsHorizontalMouseWheel(e);
+            var canScrollHorizontal = _hScrollBar != null && (_hScrollBar.Visible || _hScrollBar.Maximum > 0);
+            var canScrollVertical = _vScrollBar != null && (_vScrollBar.Visible || _vScrollBar.Maximum > 0);
+
+            if (wantsHorizontal)
+            {
+                if (canScrollHorizontal)
+                    return true;
+            }
+            else if (canScrollVertical || canScrollHorizontal)
+            {
                 return true;
+            }
+
+            // Allow scrolling even when scrollbars are auto-hidden; the presence of a scroll range indicates scrollability.
+            if ((_vScrollBar?.Visible ?? false) || (_hScrollBar?.Visible ?? false))
+                return !wantsHorizontal || canScrollHorizontal;
+
+            if ((_vScrollBar != null && _vScrollBar.Maximum > 0) || (_hScrollBar != null && _hScrollBar.Maximum > 0))
+                return !wantsHorizontal || canScrollHorizontal;
         }
 
         return MouseWheel != null;
@@ -2009,7 +2045,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             {
                 using var borderPaint = new SKPaint
                 {
-                    Color = ResolvedBorderColor,
+                    Color = BorderColor,
                     Style = SKPaintStyle.Stroke,
                     IsAntialias = true
                 };
@@ -2066,7 +2102,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             // Render default text for leaf-like controls. Containers are expected to manage their own content.
             if (this is not Container && !string.IsNullOrEmpty(Text))
             {
-                var textColor = ResolvedForeColor;
+                var textColor = ForeColor;
                 using var paint = new SKPaint
                 {
                     Color = textColor,
@@ -2074,18 +2110,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
                     Style = SKPaintStyle.Fill
                 };
 
-                var controlFont = ResolvedFont;
-                using var font = new SKFont(controlFont.Typeface ?? SKTypeface.Default)
-                {
-                    Size = controlFont.Size.Topx(this),
-                    Subpixel = controlFont.Subpixel,
-                    Edging = controlFont.Edging,
-                    Hinting = controlFont.Hinting,
-                    Embolden = controlFont.Embolden,
-                    ScaleX = controlFont.ScaleX,
-                    SkewX = controlFont.SkewX,
-                    LinearMetrics = controlFont.LinearMetrics
-                };
+                using var font = CreateRenderFont(Font);
 
                 DrawControlText(targetCanvas, ProcessedText, DisplayRectangle, paint, font, TextAlign, AutoEllipsis, UseMnemonic);
             }
@@ -2646,7 +2671,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
                 (int)(hitPoint.X - hoveredElement.Location.X),
                 (int)(hitPoint.Y - hoveredElement.Location.Y),
-                e.Delta);
+                e.Delta,
+                e.IsHorizontalWheel);
             hoveredElement.OnMouseMove(childEventArgs);
         }
 
@@ -2695,7 +2721,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
                 (int)(hitPoint.X - control.Location.X),
                 (int)(hitPoint.Y - control.Location.Y),
-                e.Delta);
+                e.Delta,
+                e.IsHorizontalWheel);
             control.OnMouseDown(childEventArgs);
 
             if (window is WindowBase uiWindowAfter)
@@ -2779,7 +2806,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
                 (int)(hitPoint.X - control.Location.X),
                 (int)(hitPoint.Y - control.Location.Y),
-                e.Delta);
+                e.Delta,
+                e.IsHorizontalWheel);
 
             control.OnMouseUp(childEventArgs);
         }
@@ -2803,7 +2831,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
                 (int)(hitPoint.X - control.Location.X),
                 (int)(hitPoint.Y - control.Location.Y),
-                e.Delta);
+                e.Delta,
+                e.IsHorizontalWheel);
 
             control.OnMouseClick(childEventArgs);
 
@@ -2826,7 +2855,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             var childEventArgs = new MouseEventArgs(e.Button, e.Clicks,
                 (int)(hitPoint.X - control.Location.X),
                 (int)(hitPoint.Y - control.Location.Y),
-                e.Delta);
+                e.Delta,
+                e.IsHorizontalWheel);
 
             control.OnMouseDoubleClick(childEventArgs);
         }
@@ -3063,8 +3093,14 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     internal virtual void OnCursorChanged(EventArgs e)
     {
         CursorChanged?.Invoke(this, e);
-        if (Parent is WindowBase parentWindow)
+        var parentWindow = GetParentWindow();
+        if (parentWindow != null)
             parentWindow.UpdateCursor(this);
+    }
+
+    private void OnColorSchemeChanged(object? sender, EventArgs e)
+    {
+        Invalidate();
     }
 
     internal virtual void OnMouseWheel(MouseEventArgs e)
@@ -3072,20 +3108,29 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (!Enabled || !Visible)
             return;
 
-        var shiftPressed = (ModifierKeys & Keys.Shift) == Keys.Shift;
-        if (HandlesMouseWheelScroll && shiftPressed && _hScrollBar != null && _hScrollBar.Visible)
+        var wantsHorizontal = WantsHorizontalMouseWheel(e);
+        var canScrollHorizontal = HandlesMouseWheelScroll && _hScrollBar != null && (_hScrollBar.Visible || _hScrollBar.Maximum > 0);
+        var canScrollVertical = HandlesMouseWheelScroll && _vScrollBar != null && (_vScrollBar.Visible || _vScrollBar.Maximum > 0);
+
+        if (wantsHorizontal && canScrollHorizontal)
         {
-            var step = GetMouseWheelScrollStep(_hScrollBar);
-            var deltaValue = (e.Delta / 120f) * MouseWheelScrollLines * step;
-            _hScrollBar.ApplyWheelDelta(-deltaValue);
+            var deltaValue = GetMouseWheelDelta(e, _hScrollBar);
+            _hScrollBar.ApplyWheelDelta(e.IsHorizontalWheel ? deltaValue : -deltaValue);
             return;
         }
 
-        if (HandlesMouseWheelScroll && _vScrollBar != null && _vScrollBar.Visible)
+        if (canScrollVertical)
         {
-            var step = GetMouseWheelScrollStep(_vScrollBar);
-            var deltaValue = (e.Delta / 120f) * MouseWheelScrollLines * step;
+            var deltaValue = GetMouseWheelDelta(e, _vScrollBar);
             _vScrollBar.ApplyWheelDelta(-deltaValue);
+            return;
+        }
+
+        // If vertical scrolling isn't available, allow horizontal scrolling with the wheel.
+        if (canScrollHorizontal)
+        {
+            var deltaValue = GetMouseWheelDelta(e, _hScrollBar);
+            _hScrollBar.ApplyWheelDelta(-deltaValue);
             return;
         }
 
@@ -3310,25 +3355,33 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
 
     protected virtual void Dispose(bool disposing)
     {
-        if (!IsDisposed)
-        {
-            if (disposing)
-            {
-                // Yönetilen kaynakları temizle
-                DisposeMotionEffectsSystem();
-                DisposeVisualStyleSystem();
-                _font?.Dispose();
-                _cursor?.Dispose();
-            }
+        if (IsDisposed)
+            return;
 
-            IsDisposed = true;
+        if (disposing)
+        {
+            // Dispose managed resources.
+            DisposeMotionEffectsSystem();
+            DisposeVisualStyleSystem();
+            _font?.Dispose();
+            _cursor?.Dispose();
+
+            ColorScheme.ThemeChanged -= OnColorSchemeChanged;
         }
+
+        // Note: No unmanaged resources at this time.
+        IsDisposed = true;
     }
 
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    void IDisposable.Dispose()
+    {
+        Dispose();
     }
 
     ~ElementBase()

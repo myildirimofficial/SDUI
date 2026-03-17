@@ -915,7 +915,8 @@ public partial class Window : WindowBase
             e.Clicks,
             (int)(e.X - bounds.Left),
             (int)(e.Y - bounds.Top),
-            e.Delta);
+            e.Delta,
+            e.IsHorizontalWheel);
 
         route(popup, localEvent);
         return true;
@@ -933,7 +934,8 @@ public partial class Window : WindowBase
             e.Clicks,
             (int)(e.X - popupBounds.Left),
             (int)(e.Y - popupBounds.Top),
-            e.Delta);
+            e.Delta,
+            e.IsHorizontalWheel);
 
         popup.OnMouseWheel(localEvent);
         return true;
@@ -1138,7 +1140,7 @@ public partial class Window : WindowBase
         {
             var captured = _mouseCapturedElement;
             var bounds = GetWindowRelativeBounds(captured);
-            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
+            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta, e.IsHorizontalWheel);
             captured.OnMouseUp(localEvent);
             if (e.Button == MouseButtons.Left) ReleaseMouseCapture(captured);
         }
@@ -1239,7 +1241,7 @@ public partial class Window : WindowBase
             // continues even when the cursor leaves its bounds.
             var captured = _mouseCapturedElement;
             var bounds = GetWindowRelativeBounds(captured);
-            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta);
+            var localEvent = new MouseEventArgs(e.Button, e.Clicks, (int)(e.X - bounds.Left), (int)(e.Y - bounds.Top), e.Delta, e.IsHorizontalWheel);
             captured.OnMouseMove(localEvent);
             return;
         }
@@ -1678,7 +1680,7 @@ public partial class Window : WindowBase
 
         if (_windowPageControl == null || _windowPageControl.Count == 0)
         {
-            var baseFont = ResolvedFont;
+            var baseFont = Font;
             var font = GetOrCreateFont("title", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
             {
                 Subpixel = true,
@@ -1806,7 +1808,7 @@ public partial class Window : WindowBase
 
                 if (_drawTabIcons)
                 {
-                    var baseFont = ResolvedFont;
+                    var baseFont = Font;
                     var font = GetOrCreateFont("tabIcon", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
                     {
                         Subpixel = true,
@@ -1839,7 +1841,7 @@ public partial class Window : WindowBase
                 }
                 else
                 {
-                    var baseFont = ResolvedFont;
+                    var baseFont = Font;
                     var font = GetOrCreateFont("tab", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
                     {
                         Subpixel = true,
@@ -2032,7 +2034,7 @@ public partial class Window : WindowBase
         var availableWidth = Width - occupiedWidth;
         var maxSize = 250f * ScaleFactor;
 
-        var baseFont = ResolvedFont;
+        var baseFont = Font;
         var font = GetOrCreateFont("tabMeasure", () => new SKFont(baseFont.Typeface ?? SKTypeface.Default)
         {
             Subpixel = true,

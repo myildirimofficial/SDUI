@@ -1651,27 +1651,6 @@ public class ContextMenuStrip : MenuStrip
         return w;
     }
 
-    private SKFont GetDefaultSkFont()
-    {
-        var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
-        var font = ResolvedFont;
-        if (_defaultSkFont == null || !ReferenceEquals(_defaultSkFontSource, font) || _defaultSkFontDpi != dpi)
-        {
-            _defaultSkFont?.Dispose();
-            _defaultSkFont = new SKFont(font.Typeface ?? SKTypeface.Default)
-            {
-                Size = font.Size.Topx(this),
-                Subpixel = true,
-                Edging = SKFontEdging.SubpixelAntialias,
-                Hinting = SKFontHinting.Full
-            };
-            _defaultSkFontSource = font;
-            _defaultSkFontDpi = dpi;
-        }
-
-        return _defaultSkFont;
-    }
-
     protected override void Dispose(bool disposing)
     {
         if (disposing)

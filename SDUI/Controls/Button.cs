@@ -16,10 +16,10 @@ public class Button : ElementBase
         AutoEllipsis = true;
         CanSelect = true;
         Cursor = Cursors.Hand;
-        MinimumSize = new SKSize(96, 40);
-        Padding = new Thickness(16, 10, 16, 10);
+        MinimumSize = new SKSize(45, 24);
+        Padding = new Thickness(8);
         Radius = new Radius(12);
-        Size = new SKSize(120, 40);
+        Size = new SKSize(45, 24);
         TabStop = true;
         TextAlign = ContentAlignment.MiddleCenter;
 
@@ -33,16 +33,16 @@ public class Button : ElementBase
                     .Border(1)
                     .BorderColor(ColorScheme.Primary.Brightness(-0.18f))
                     .Radius(12)
-                    .Shadow(new BoxShadow(0f, 6f, 14f, 0, SKColors.Black.WithAlpha(26))))
+                    .Shadow(new BoxShadow(0f, 6f, 14f, 0, ColorScheme.ShadowColor.WithAlpha(26))))
                 .OnHover(rule => rule
                     .Background(ColorScheme.Primary.Brightness(0.06f))
                     .BorderColor(ColorScheme.Primary.Brightness(-0.08f))
-                    .Shadow(new BoxShadow(0f, 10f, 20f, 0, SKColors.Black.WithAlpha(34))))
+                    .Shadow(new BoxShadow(0f, 10f, 20f, 0, ColorScheme.Primary.WithAlpha(34))))
                 .OnPressed(rule => rule
                     .Background(ColorScheme.Primary.Brightness(-0.08f))
                     .BorderColor(ColorScheme.Primary.Brightness(-0.24f))
                     .Opacity(0.94f)
-                    .Shadow(new BoxShadow(0f, 3f, 10f, 0, SKColors.Black.WithAlpha(22))))
+                    .Shadow(new BoxShadow(0f, 3f, 10f, 0, ColorScheme.Primary.WithAlpha(22))))
                 .OnFocused(rule => rule
                     .Border(2)
                     .BorderColor(ColorScheme.Primary.Brightness(0.18f)))
@@ -72,7 +72,7 @@ public class Button : ElementBase
 
     public override SKSize GetPreferredSize(SKSize proposedSize)
     {
-        using var font = ResolvedFont.CloneFont();
+        using var font = Font;
         var measurementConstraints = proposedSize;
         if (measurementConstraints.Width <= 0)
             measurementConstraints.Width = short.MaxValue;

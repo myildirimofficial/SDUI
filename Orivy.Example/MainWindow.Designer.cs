@@ -120,9 +120,9 @@ internal partial class MainWindow
             Radius = new(4),
             Border = new(1),
             Shadows = new[] {
-                new BoxShadow(0, 1, 3, 0, SKColors.Black.WithAlpha(30)),           // soft outer
-                new BoxShadow(0, 4, 12, new Radius(2), SKColors.Black.WithAlpha(15)), // wide spread
-                new BoxShadow(0, 1, 2, 0, SKColors.Black.WithAlpha(40), inset: true)     // subtle inset
+                new BoxShadow(0, 1, 3, 0, ColorScheme.ShadowColor),           // soft outer
+                new BoxShadow(0, 4, 12, new Radius(2), ColorScheme.ShadowColor), // wide spread
+                new BoxShadow(0, 1, 2, 0, ColorScheme.ShadowColor, inset: true)     // subtle inset
             }
         };
 
@@ -181,11 +181,9 @@ internal partial class MainWindow
             Height = 196,
             Padding = new(18),
             Margin = new(0, 0, 0, 14),
-            BackColor = new SKColor(18, 24, 38),
-            ForeColor = SKColors.White,
             Radius = new(20),
             Border = new(1),
-            BorderColor = new SKColor(74, 93, 124),
+            BorderColor = ColorScheme.Outline,
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -233,7 +231,7 @@ internal partial class MainWindow
             Padding = new(12),
             Margin = new(0, 0, 0, 14),
             BackColor = ColorScheme.Primary,
-            ForeColor = SKColors.White,
+            ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(0),
             TextAlign = ContentAlignment.MiddleCenter,
@@ -268,11 +266,11 @@ internal partial class MainWindow
             Height = 240,
             Padding = new(18),
             Margin = new(0, 0, 0, 14),
-            BackColor = new SKColor(19, 36, 31),
-            ForeColor = new SKColor(220, 252, 231),
+            BackColor = ColorScheme.SurfaceContainerHigh,
+            ForeColor = ColorScheme.ForeColor,
             Radius = new(18),
             Border = new(1),
-            BorderColor = new SKColor(52, 211, 153, 120),
+            BorderColor = ColorScheme.Primary.WithAlpha(120),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -346,15 +344,15 @@ internal partial class MainWindow
                     .BorderColor(ColorScheme.Outline)
                     .Radius(16)
                     .Opacity(1f)
-                    .Shadow(new BoxShadow(0f, 2f, 8f, 0, SKColors.Black.WithAlpha(16))))
+                    .Shadow(new BoxShadow(0f, 2f, 8f, 0, ColorScheme.ShadowColor)))
                 .OnHover(rule => rule
                     .Background(ColorScheme.SurfaceVariant)
                     .BorderColor(ColorScheme.Primary)
-                    .Shadow(new BoxShadow(0f, 12f, 24f, 0, SKColors.Black.WithAlpha(28))))
+                    .Shadow(new BoxShadow(0f, 12f, 24f, 0, ColorScheme.ShadowColor)))
                 .OnPressed(rule => rule
                     .Opacity(0.93f)
                     .Background(ColorScheme.SurfaceVariant.Brightness(-0.03f))
-                    .Shadow(new BoxShadow(0f, 4f, 12f, 0, SKColors.Black.WithAlpha(18))))
+                    .Shadow(new BoxShadow(0f, 4f, 12f, 0, ColorScheme.ShadowColor)))
                 .OnFocused(rule => rule
                     .Border(2)
                     .BorderColor(ColorScheme.Primary));
@@ -401,10 +399,10 @@ internal partial class MainWindow
                     .BorderColor(ColorScheme.Primary)
                     .Background(ColorScheme.SurfaceVariant))
                 .When((element, state) => Equals(element.Tag, "danger"), rule => rule
-                    .Background(new SKColor(160, 38, 38))
-                    .Foreground(SKColors.White)
-                    .BorderColor(new SKColor(239, 68, 68))
-                    .Shadow(new BoxShadow(0f, 14f, 30f, 0, new SKColor(127, 29, 29, 64))))
+                    .Background(ColorScheme.Error)
+                    .Foreground(ColorScheme.ForeColor)
+                    .BorderColor(ColorScheme.Error)
+                    .Shadow(new BoxShadow(0f, 14f, 30f, 0, ColorScheme.ShadowColor)))
                 .When((element, state) => Equals(element.Tag, "danger") && state.IsPointerOver, rule => rule
                     .Opacity(0.95f));
         });
@@ -431,12 +429,12 @@ internal partial class MainWindow
                 .DefaultTransition(TimeSpan.FromMilliseconds(160), AnimationType.CubicEaseOut)
                 .Base(baseStyle => baseStyle
                     .Background(ColorScheme.Primary)
-                    .Foreground(SKColors.White)
+                    .Foreground(ColorScheme.ForeColor)
                     .Radius(14)
-                    .Shadow(new BoxShadow(0f, 4f, 12f, 0, SKColors.Black.WithAlpha(22))))
+                    .Shadow(new BoxShadow(0f, 4f, 12f, 0, ColorScheme.ShadowColor)))
                 .OnHover(rule => rule
                     .Background(ColorScheme.Primary.Brightness(0.06f))
-                    .Shadow(new BoxShadow(0f, 10f, 18f, 0, SKColors.Black.WithAlpha(30))))
+                    .Shadow(new BoxShadow(0f, 10f, 18f, 0, ColorScheme.ShadowColor)))
                 .OnPressed(rule => rule
                     .Opacity(0.9f));
         });
@@ -462,14 +460,14 @@ internal partial class MainWindow
         {
             styles
                 .Base(baseStyle => baseStyle
-                    .Background(new SKColor(19, 36, 31))
-                    .Foreground(new SKColor(220, 252, 231))
+                    .Background(ColorScheme.SurfaceContainerHigh)
+                    .Foreground(ColorScheme.ForeColor)
                     .Border(1)
-                    .BorderColor(new SKColor(52, 211, 153, 120))
+                    .BorderColor(ColorScheme.Primary.WithAlpha(120))
                     .Radius(18))
                 .OnHover(rule => rule
-                    .BorderColor(new SKColor(110, 231, 183))
-                    .Background(new SKColor(24, 45, 39)));
+                    .BorderColor(ColorScheme.Primary)
+                    .Background(ColorScheme.SurfaceVariant));
         });
 
         var scrollLabHeader = new Element
@@ -496,11 +494,11 @@ internal partial class MainWindow
             Height = 180,
             Padding = new(16),
             Margin = new(0, 0, 0, 16),
-            BackColor = new SKColor(29, 45, 71),
-            ForeColor = SKColors.White,
+            BackColor = ColorScheme.SurfaceContainer,
+            ForeColor = ColorScheme.ForeColor,
             Radius = new(18),
             Border = new(1),
-            BorderColor = new SKColor(96, 165, 250, 110),
+            BorderColor = ColorScheme.Primary.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -548,8 +546,8 @@ internal partial class MainWindow
             Margin = new(0),
             Radius = new(14),
             Border = new(1),
-            BorderColor = new SKColor(148, 163, 184, 110),
-            BackColor = new SKColor(15, 23, 42, 28),
+            BorderColor = ColorScheme.Outline.WithAlpha(110),
+            BackColor = ColorScheme.Surface.WithAlpha(28),
             AutoScroll = true,
             AutoScrollMargin = new(0, 16)
         };
@@ -560,7 +558,7 @@ internal partial class MainWindow
             Dock = SDUI.DockStyle.Top,
             Height = 44,
             Margin = new(0, 0, 0, 10),
-            BackColor = new SKColor(241, 245, 249, 20),
+            BackColor = ColorScheme.Surface.WithAlpha(20),
             Radius = new(10),
             Border = new(0),
             Text = "Nested Host Start",
@@ -576,11 +574,11 @@ internal partial class MainWindow
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
-            BackColor = new SKColor(245, 158, 11, 46),
+            BackColor = ColorScheme.Warning.WithAlpha(46),
             ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(1),
-            BorderColor = new SKColor(245, 158, 11, 110),
+            BorderColor = ColorScheme.Warning.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -592,11 +590,11 @@ internal partial class MainWindow
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
-            BackColor = new SKColor(16, 185, 129, 38),
+            BackColor = ColorScheme.Success.WithAlpha(38),
             ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(1),
-            BorderColor = new SKColor(16, 185, 129, 110),
+            BorderColor = ColorScheme.Success.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -618,11 +616,11 @@ internal partial class MainWindow
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
-            BackColor = new SKColor(59, 130, 246, 34),
+            BackColor = ColorScheme.Primary.WithAlpha(34),
             ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(1),
-            BorderColor = new SKColor(59, 130, 246, 110),
+            BorderColor = ColorScheme.Primary.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -634,11 +632,11 @@ internal partial class MainWindow
             Height = 132,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
-            BackColor = new SKColor(168, 85, 247, 34),
+            BackColor = ColorScheme.SurfaceVariant.WithAlpha(34),
             ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(1),
-            BorderColor = new SKColor(168, 85, 247, 110),
+            BorderColor = ColorScheme.SurfaceVariant.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -650,11 +648,11 @@ internal partial class MainWindow
             Height = 320,
             Padding = new(18),
             Margin = new(0, 0, 0, 16),
-            BackColor = new SKColor(28, 25, 23),
-            ForeColor = new SKColor(254, 243, 199),
+            BackColor = ColorScheme.SurfaceContainerHigh,
+            ForeColor = ColorScheme.ForeColor,
             Radius = new(18),
             Border = new(1),
-            BorderColor = new SKColor(251, 191, 36, 110),
+            BorderColor = ColorScheme.Warning.WithAlpha(110),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -858,15 +856,12 @@ internal partial class MainWindow
             FullRowSelect = true,
             CheckBoxes = false,
             AllowColumnResize = true,
-            AllowRowResize = false,
+            AllowRowResize = true,
             ShowGridLines = true,
             HeaderHeight = 42,
             RowHeight = 38,
             GroupHeaderHeight = 32,
             CellPadding = 11,
-            BackColor = SKColors.Transparent,
-            BorderColor = SKColors.Transparent,
-            Font = new SKFont(SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default, 11f)
         };
 
         gridListPrimaryShell.Controls.Add(this.gridListPrimary);
@@ -912,15 +907,12 @@ internal partial class MainWindow
             HeaderVisible = false,
             StickyHeader = false,
             GroupingEnabled = false,
-            MultiSelect = false,
+            MultiSelect = true,
             FullRowSelect = true,
             ShowGridLines = false,
-            AllowRowResize = false,
+            AllowRowResize = true,
             RowHeight = 36,
             CellPadding = 11,
-            BackColor = SKColors.Transparent,
-            BorderColor = SKColors.Transparent,
-            Font = new SKFont(SKTypeface.FromFamilyName("Segoe UI") ?? SKTypeface.Default, 10.75f)
         };
 
         gridListCompactShell.Controls.Add(this.gridListCompact);

@@ -1,5 +1,6 @@
 using SkiaSharp;
 using System;
+using System.Runtime.CompilerServices;
 
 namespace SDUI;
 
@@ -10,15 +11,20 @@ public static class ColorExtensions
         return color == SKColors.Empty;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SKColor InterpolateColor(this SKColor start, SKColor end, float progress)
     {
-        var r = (byte)(start.Red + (end.Red - start.Red) * progress);
-        var g = (byte)(start.Green + (end.Green - start.Green) * progress);
-        var b = (byte)(start.Blue + (end.Blue - start.Blue) * progress);
-        var a = (byte)(start.Alpha + (end.Alpha - start.Alpha) * progress);
+        var t = Math.Clamp(progress, 0f, 1f);
+
+        byte r = (byte)Math.Round(start.Red + (end.Red - start.Red) * t);
+        byte g = (byte)Math.Round(start.Green + (end.Green - start.Green) * t);
+        byte b = (byte)Math.Round(start.Blue + (end.Blue - start.Blue) * t);
+        byte a = (byte)Math.Round(start.Alpha + (end.Alpha - start.Alpha) * t);
+
         return new SKColor(r, g, b, a);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SKColor Determine(this SKColor color)
     {
         var value = 0;
@@ -44,6 +50,7 @@ public static class ColorExtensions
     /// <returns>
     ///     Corrected <see cref="Color" /> structure.
     /// </returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SKColor Brightness(this SKColor color, float factor)
     {
         // factor: -1 .. +1
@@ -79,6 +86,7 @@ public static class ColorExtensions
     ///     Is the color dark <c>true</c>; otherwise <c>false</c>
     /// </summary>
     /// <param name="color">The color</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool IsDark(this SKColor color)
     {
         return 384 - color.Red - color.Green - color.Blue > 0;
@@ -95,15 +103,17 @@ public static class ColorExtensions
         return color;
     }
 
-    public static SKColor BlendWith(this SKColor backgroundColor, SKColor frontColor, double blend)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SKColor BlendWith(this SKColor bg, SKColor fg, double blend)
     {
-        var ratio = blend / 255d;
-        var invRatio = 1d - ratio;
-        byte r = (byte)Math.Clamp((int)(backgroundColor.Red * invRatio + frontColor.Red * ratio), 0, 255);
-        byte g = (byte)Math.Clamp((int)(backgroundColor.Green * invRatio + frontColor.Green * ratio), 0, 255);
-        byte b = (byte)Math.Clamp((int)(backgroundColor.Blue * invRatio + frontColor.Blue * ratio), 0, 255);
-        byte a = (byte)Math.Clamp((int)Math.Abs(frontColor.Alpha - backgroundColor.Alpha), 0, 255);
+        double alpha = blend * (fg.Alpha / 255.0);
 
+        double inv = 1 - alpha;
+
+        byte r = (byte)(bg.Red * inv + fg.Red * alpha);
+        byte g = (byte)(bg.Green * inv + fg.Green * alpha);
+        byte b = (byte)(bg.Blue * inv + fg.Blue * alpha);
+        byte a = (byte)(bg.Alpha * inv + fg.Alpha * alpha);
 
         return new SKColor(r, g, b, a);
     }
