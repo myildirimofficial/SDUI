@@ -156,8 +156,8 @@ public class Application
         return new SKFont(SKTypeface.FromFamilyName("Inter") ?? SKTypeface.Default, 9.25f)
         {
             Subpixel = true,
-            Edging = SKFontEdging.SubpixelAntialias,
-            Hinting = SKFontHinting.Full
+            Edging = SKFontEdging.Antialias,
+            Hinting = SKFontHinting.Slight
         };
     }
 
