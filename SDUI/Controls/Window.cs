@@ -1378,7 +1378,7 @@ public partial class Window : WindowBase
         var mousePos = e.Location;
 
         if (PropagateMouseWheel(Controls, mousePos, e))
-            return; // Event i�lendi
+            return;
     }
 
     private void ShowMaximize(bool IsOnMoving = false)
@@ -1476,7 +1476,7 @@ public partial class Window : WindowBase
             {
                 Style = SKPaintStyle.Stroke,
                 Color = foreColor,
-                StrokeWidth = ScaleFactor,
+                StrokeWidth = 1.1f * ScaleFactor,
                 IsAntialias = true
             };
 
@@ -1520,7 +1520,6 @@ public partial class Window : WindowBase
                     canvas.DrawRect(_maximizeBoxRect, paint);
                 }
 
-                // Maximize simgesi
                 centerX = _maximizeBoxRect.Left + _maximizeBoxRect.Width / 2;
                 centerY = _maximizeBoxRect.Top + _maximizeBoxRect.Height / 2;
                 size = (WindowState == FormWindowState.Maximized ? 4 : 5) * ScaleFactor;
@@ -1555,7 +1554,7 @@ public partial class Window : WindowBase
                     canvas.Restore();
                 }
 
-                canvas.DrawRoundRect(frontRect, cornerRadius, cornerRadius, strokePaint);
+                canvas.DrawRect(frontRect, strokePaint);
             }
 
             if (MinimizeBox)
@@ -1579,7 +1578,6 @@ public partial class Window : WindowBase
             }
         }
 
-        // Extend Box �izimi
         if (ExtendBox)
         {
             var color = foreColor;
