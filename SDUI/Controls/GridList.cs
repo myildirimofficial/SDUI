@@ -707,15 +707,19 @@ public class GridList : ElementBase
         var saveCount = canvas.Save();
         canvas.ClipRect(bodyViewport);
 
+        // Offsetleri tam sayıya yuvarla
+        var roundedHorizontalOffset = (float)Math.Round(_horizontalOffset);
+        var roundedVerticalOffset = (float)Math.Round(_verticalOffset);
+
         for (var i = 0; i < _layoutEntries.Count; i++)
         {
             var entry = _layoutEntries[i];
             var drawRect = entry.Bounds;
 
             if (HeaderVisible && !StickyHeader && entry.Kind == EntryKind.Header)
-                drawRect.Offset(bodyViewport.Left - _horizontalOffset, outerRect.Top - _verticalOffset);
+                drawRect.Offset(bodyViewport.Left - roundedHorizontalOffset, outerRect.Top - roundedVerticalOffset);
             else
-                drawRect.Offset(bodyViewport.Left - _horizontalOffset, bodyViewport.Top - _verticalOffset);
+                drawRect.Offset(bodyViewport.Left - roundedHorizontalOffset, bodyViewport.Top - roundedVerticalOffset);
 
             if (drawRect.Bottom < bodyViewport.Top || drawRect.Top > bodyViewport.Bottom)
                 continue;
@@ -723,7 +727,7 @@ public class GridList : ElementBase
             switch (entry.Kind)
             {
                 case EntryKind.Header:
-                    DrawHeader(canvas, drawRect, _horizontalOffset, renderFont);
+                    DrawHeader(canvas, drawRect, roundedHorizontalOffset, renderFont);
                     break;
                 case EntryKind.GroupHeader:
                     DrawGroupHeader(canvas, drawRect, entry.GroupText ?? string.Empty, entry.GroupKey ?? string.Empty, entry.GroupIndex, renderFont);
@@ -739,7 +743,7 @@ public class GridList : ElementBase
         if (HeaderVisible && StickyHeader)
         {
             var stickyHeaderRect = GetStickyHeaderRect(outerRect);
-            DrawHeader(canvas, stickyHeaderRect, _horizontalOffset, renderFont);
+            DrawHeader(canvas, stickyHeaderRect, roundedHorizontalOffset, renderFont);
 
             using var dividerPaint = new SKPaint
             {
@@ -1365,15 +1369,13 @@ public class GridList : ElementBase
 
             if (ShowGridLines)
             {
-                var x = AlignToPixel(cellRect.Right);
-                canvas.DrawLine(x, cellRect.Top, x, cellRect.Bottom, _gridLinePaint);
+                canvas.DrawLine(cellRect.Right, cellRect.Top, cellRect.Right, cellRect.Bottom, _gridLinePaint);
             }
         }
 
         if (ShowGridLines)
         {
-            var y = AlignToPixel(bounds.Bottom);
-            canvas.DrawLine(bounds.Left, y, bounds.Right, y, _gridLinePaint);
+            canvas.DrawLine(bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom, _gridLinePaint);
         }
     }
 
@@ -1402,7 +1404,7 @@ public class GridList : ElementBase
             StrokeCap = SKStrokeCap.Round
         };
 
-        var x = AlignToPixel(cellRect.Right) - gripPaint.StrokeWidth / 2f;
+        var x = cellRect.Right - gripPaint.StrokeWidth / 2f;
         var y1 = cellRect.Top + 8f;
         var y2 = cellRect.Bottom - 8f;
 
@@ -1455,8 +1457,7 @@ public class GridList : ElementBase
 
         if (ShowGridLines)
         {
-            var y = AlignToPixel(bounds.Bottom);
-            canvas.DrawLine(bounds.Left, y, bounds.Right, y, _gridLinePaint);
+            canvas.DrawLine(bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom, _gridLinePaint);
         }
     }
 
@@ -1528,8 +1529,7 @@ public class GridList : ElementBase
 
             if (ShowGridLines)
             {
-                var x = AlignToPixel(cellRect.Right);
-                canvas.DrawLine(x, cellRect.Top, x, cellRect.Bottom, _gridLinePaint);
+                canvas.DrawLine(cellRect.Right, cellRect.Top, cellRect.Right, cellRect.Bottom, _gridLinePaint);
             }
         }
 
@@ -1557,15 +1557,6 @@ public class GridList : ElementBase
     {
         var alpha = (byte)Math.Clamp(Math.Round(color.Alpha * opacity), 0d, 255d);
         return color.WithAlpha(alpha);
-    }
-
-    private float AlignToPixel(float value)
-    {
-        var scale = ScaleFactor;
-        if (Math.Abs(scale - 1f) < 0.001f)
-            return value;
-
-        return (float)Math.Round(value * scale) / scale;
     }
 
     private static SKRect GetCheckBoxRect(SKRect contentRect)
