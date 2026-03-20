@@ -587,11 +587,20 @@ public class WindowPageControl : ElementBase
 
     private void DrawBitmap(SKCanvas canvas, SKBitmap bitmap, SKRect destinationRect, byte alpha)
     {
+        if (bitmap == null || bitmap.Width <= 0 || bitmap.Height <= 0 || destinationRect.Width <= 0 || destinationRect.Height <= 0)
+            return;
+
+        var scaleX = destinationRect.Width / bitmap.Width;
+        var scaleY = destinationRect.Height / bitmap.Height;
+
+        if (float.IsInfinity(scaleX) || float.IsNaN(scaleX) || float.IsInfinity(scaleY) || float.IsNaN(scaleY))
+            return;
+
         _transitionPaint.Color = SKColors.White.WithAlpha(alpha);
 
         var saved = canvas.Save();
         canvas.Translate(destinationRect.Left, destinationRect.Top);
-        canvas.Scale(destinationRect.Width / bitmap.Width, destinationRect.Height / bitmap.Height);
+        canvas.Scale(scaleX, scaleY);
         canvas.DrawBitmap(bitmap, 0, 0, _transitionPaint);
         canvas.RestoreToCount(saved);
     }
