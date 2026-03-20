@@ -137,7 +137,7 @@ public partial class Window : WindowBase
 
     private HatchStyle _hatch = HatchStyle.Percent80;
 
-    private float _iconWidth = 42;
+    private float _iconWidth = 44;
 
     private bool _inCloseBox, _inMaxBox, _inMinBox, _inExtendBox, _inTabCloseBox, _inNewTabBox, _inFormMenuBox;
 
@@ -197,7 +197,7 @@ public partial class Window : WindowBase
     /// <summary>
     ///     The title height
     /// </summary>
-    private float _titleHeight = 32;
+    private float _titleHeight = 35;
 
     private WindowPageControl _windowPageControl;
     private SKPoint animationSource;
