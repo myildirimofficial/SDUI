@@ -155,6 +155,8 @@ public class AnimationManager : IDisposable
         return Running ? 1 : 0;
     }
 
+    public AnimationDirection Direction => _currentDirection;
+
     public AnimationDirection GetDirection()
     {
         return GetDirection(0);
@@ -218,5 +220,14 @@ public class AnimationManager : IDisposable
             AnimationType.QuarticEaseInOut => EasingMethods.QuarticEaseInOut,
             _ => EasingMethods.DefaultEase
         };
+    }
+
+    public void Stop()
+    {
+        if (!Running) return;
+
+        Running = false;
+        if (_timer != null)
+            _timer.Stop();
     }
 }

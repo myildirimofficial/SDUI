@@ -23,7 +23,7 @@ public class ScrollBar : ElementBase
 
     private bool _hostHovered;
     private bool _isDragging;
-    private bool _isHovered; // track hover
+    private bool _isHovered;
     private bool _isThumbHovered;
     private bool _isThumbPressed;
     private float _largeChange = 10;
@@ -31,8 +31,7 @@ public class ScrollBar : ElementBase
     private float _minimum;
     private Orientation _orientation = Orientation.Vertical;
 
-    // Corner radius for rounded corners (int pixels)
-    private int _cornerRadius = 6; // default larger radius
+    private int _cornerRadius = 6;
     private double _scrollAnimIncrement = 0.32;
     private AnimationType _scrollAnimType = AnimationType.CubicEaseOut;
     private float _rubberBandAnimationStartValue;
@@ -41,8 +40,8 @@ public class ScrollBar : ElementBase
     private float _springVelocity;
     private float _targetValue;
     private int _thickness = 2;
-    private SkiaSharp.SKRect _thumbRect;
-    private SkiaSharp.SKRect _trackRect;
+    private SKRect _thumbRect;
+    private SKRect _trackRect;
     private bool _useThumbShadow = true;
     private float _visualOverflowValue;
     private float _value;
@@ -55,6 +54,10 @@ public class ScrollBar : ElementBase
 
     private double _visibilityAnimIncrement = 0.20;
     private AnimationType _visibilityAnimType = AnimationType.EaseInOut;
+
+    private SKPaint _trackPaint;
+    private SKPaint _thumbPaint;
+    private SKPaint _shadowPaint;
 
     public ScrollBar()
     {
@@ -107,6 +110,10 @@ public class ScrollBar : ElementBase
         _animatedValue = _value;
         _scrollAnimationStartValue = _value;
         _targetValue = _value;
+
+        _trackPaint = new SKPaint { IsAntialias = true };
+        _thumbPaint = new SKPaint { IsAntialias = true };
+        _shadowPaint = new SKPaint { IsAntialias = true };
     }
 
     [DefaultValue(4)]
@@ -150,6 +157,7 @@ public class ScrollBar : ElementBase
             _autoHide = value;
             if (!_autoHide)
             {
+                _hideTimer.Stop();
                 _visibilityAnim.SetProgress(1);
                 Invalidate();
             }
@@ -198,7 +206,6 @@ public class ScrollBar : ElementBase
         }
     }
 
-    // New: expose animation settings
     [Category("Animation")]
     [DefaultValue(0.20)]
     [Description("Visibility animation speed (Increment). Higher values are faster.")]
@@ -325,7 +332,6 @@ public class ScrollBar : ElementBase
     internal event EventHandler DisplayValueChanged;
 
     public event EventHandler ValueChanged;
-    public event EventHandler Scroll;
 
     private float GetDisplayValue()
     {
@@ -405,6 +411,10 @@ public class ScrollBar : ElementBase
 
             _visibilityAnim.Dispose();
             _scrollAnim.Dispose();
+
+            _trackPaint?.Dispose();
+            _thumbPaint?.Dispose();
+            _shadowPaint?.Dispose();
         }
 
         base.Dispose(disposing);
@@ -414,8 +424,8 @@ public class ScrollBar : ElementBase
     {
         if (Maximum <= Minimum)
         {
-            _thumbRect = SkiaSharp.SKRect.Empty;
-            _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
+            _thumbRect = SKRect.Empty;
+            _trackRect = new SKRect(0, 0, Width, Height);
             return;
         }
 
@@ -444,13 +454,13 @@ public class ScrollBar : ElementBase
 
         if (IsVertical)
         {
-            _thumbRect = new SkiaSharp.SKRect(0, thumbPos, Width, thumbPos + thumbLength);
-            _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
+            _thumbRect = new SKRect(0, thumbPos, Width, thumbPos + thumbLength);
+            _trackRect = new SKRect(0, 0, Width, Height);
         }
         else
         {
-            _thumbRect = new SkiaSharp.SKRect(thumbPos, 0, thumbPos + thumbLength, Height);
-            _trackRect = new SkiaSharp.SKRect(0, 0, Width, Height);
+            _thumbRect = new SKRect(thumbPos, 0, thumbPos + thumbLength, Height);
+            _trackRect = new SKRect(0, 0, Width, Height);
         }
     }
 
@@ -462,10 +472,8 @@ public class ScrollBar : ElementBase
 
     public override void OnPaint(SKCanvas canvas)
     {
-        base.OnPaint(canvas);
-
         var visibility = _autoHide ? (float)_visibilityAnim.GetProgress() : 1f;
-        if (visibility <= 0f)
+        if (visibility <= 0f || Maximum <= Minimum)
             return;
 
         var baseTrackColor = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
@@ -473,15 +481,9 @@ public class ScrollBar : ElementBase
         var trackAlpha = (byte)(50 * visibility);
         var trackSk = blendedTrack.WithAlpha(trackAlpha);
 
-        using (var trackPaint = new SKPaint
-               {
-                   Color = trackSk,
-                   IsAntialias = true
-               })
-        {
-            var radius = Math.Max(0, _cornerRadius * ScaleFactor);
-            canvas.DrawRoundRect(new SKRoundRect(new SkiaSharp.SKRect(0, 0, Width, Height), radius), trackPaint);
-        }
+        _trackPaint.Color = trackSk;
+        var radius = Math.Max(0, _cornerRadius * ScaleFactor);
+        canvas.DrawRoundRect(new SKRoundRect(new SKRect(0, 0, Width, Height), radius), _trackPaint);
 
         if (_thumbRect.IsEmpty) return;
 
@@ -501,28 +503,14 @@ public class ScrollBar : ElementBase
 
         if (_useThumbShadow && visibility > 0f)
         {
-            using var shadowFilter =
-                SKImageFilter.CreateDropShadow(0, 0, 2, 2, SKColors.Black.WithAlpha((byte)(70 * visibility)));
-            using var shadowPaint = new SKPaint
-            {
-                Color = SKColors.Black.WithAlpha((byte)(30 * visibility)),
-                ImageFilter = shadowFilter,
-                IsAntialias = true
-            };
-
-            var rad = Math.Max(0, _cornerRadius * ScaleFactor);
-            canvas.DrawRoundRect(new SKRoundRect(_thumbRect, rad), shadowPaint);
+            using var shadowFilter = SKImageFilter.CreateDropShadow(0, 0, 2, 2, SKColors.Black.WithAlpha((byte)(70 * visibility)));
+            _shadowPaint.Color = SKColors.Black.WithAlpha((byte)(30 * visibility));
+            _shadowPaint.ImageFilter = shadowFilter;
+            canvas.DrawRoundRect(new SKRoundRect(_thumbRect, radius), _shadowPaint);
         }
 
-        using (var thumbPaint = new SKPaint
-               {
-                   Color = thumbColor,
-                   IsAntialias = true
-               })
-        {
-            var rad = Math.Max(0, _cornerRadius * ScaleFactor);
-            canvas.DrawRoundRect(new SKRoundRect(_thumbRect, rad), thumbPaint);
-        }
+        _thumbPaint.Color = thumbColor;
+        canvas.DrawRoundRect(new SKRoundRect(_thumbRect, radius), _thumbPaint);
     }
 
     private void ShowWithAutoHide()
@@ -774,8 +762,7 @@ public class ScrollBar : ElementBase
                 _dragStartPoint = e.Location;
                 _dragStartValue = Value;
 
-                // Capture mouse at window level so we continue receiving moves/up even when cursor leaves scrollbar bounds
-                var parentWindow = (this as ElementBase).GetParentWindow();
+                var parentWindow = (this as IElement).GetParentWindow();
                 if (parentWindow != null)
                     parentWindow.SetMouseCapture(this);
             }
@@ -819,7 +806,6 @@ public class ScrollBar : ElementBase
             var valuePerPixel = (float)(Maximum - Minimum) / trackLength;
             var newValue = _dragStartValue + delta * valuePerPixel;
             ApplyInputValue(newValue);
-            OnScroll(EventArgs.Empty);
         }
 
         ShowWithAutoHide();
@@ -834,7 +820,6 @@ public class ScrollBar : ElementBase
             _isThumbPressed = false;
             ReleaseVisualOverflow();
 
-            // Release capture if we had captured it
             var parentWindow = (this as IElement).GetParentWindow();
             if (parentWindow != null)
                 parentWindow.ReleaseMouseCapture(this);
@@ -854,7 +839,6 @@ public class ScrollBar : ElementBase
         var scrollLines = SystemInformation.MouseWheelScrollLines;
         var delta = e.Delta / 120 * scrollLines * SmallChange;
         ApplyWheelDelta(-delta);
-        OnScroll(EventArgs.Empty);
         ShowWithAutoHide();
     }
 
@@ -882,11 +866,6 @@ public class ScrollBar : ElementBase
     {
         ValueChanged?.Invoke(this, e);
         ShowWithAutoHide();
-    }
-
-    protected virtual void OnScroll(EventArgs e)
-    {
-        Scroll?.Invoke(this, e);
     }
 
     public override SKSize GetPreferredSize(SKSize proposedSize)

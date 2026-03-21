@@ -65,6 +65,8 @@ public class ContextMenuStrip : MenuStrip
     private SKPoint _anchorClientLocation;
     private float _contentHeight;
     private float _lastMetricsDpi;
+    private float _maxPopupHeight;
+    private float _minPopupWidth;
     private float _verticalItemGap;
     private float _scrollOffset;
     private float _viewportHeight;
@@ -179,6 +181,40 @@ public class ContextMenuStrip : MenuStrip
 
     [Browsable(false)]
     public ElementBase? SourceElement { get; private set; }
+
+    [Category("Layout")]
+    [DefaultValue(0f)]
+    public float MinPopupWidth
+    {
+        get => _minPopupWidth;
+        set
+        {
+            var clamped = Math.Max(0f, value);
+            if (Math.Abs(_minPopupWidth - clamped) < 0.001f)
+                return;
+
+            _minPopupWidth = clamped;
+            if (IsOpen)
+                RepositionToOwnerBounds();
+        }
+    }
+
+    [Category("Layout")]
+    [DefaultValue(0f)]
+    public float MaxPopupHeight
+    {
+        get => _maxPopupHeight;
+        set
+        {
+            var clamped = Math.Max(0f, value);
+            if (Math.Abs(_maxPopupHeight - clamped) < 0.001f)
+                return;
+
+            _maxPopupHeight = clamped;
+            if (IsOpen)
+                RepositionToOwnerBounds();
+        }
+    }
 
     internal ContextMenuStrip? ParentDropDown { get; set; }
 
@@ -1106,12 +1142,16 @@ public class ContextMenuStrip : MenuStrip
 
         // Minimum genişlik garantisi
         contentWidth = Math.Max(contentWidth, BaseMinimumContentWidth * ScaleFactor);
+        if (_minPopupWidth > 0f)
+            contentWidth = Math.Max(contentWidth, _minPopupWidth);
 
         // En alttaki öğenin border ile kesilmemesi için ekstra alan yok,
         // çünkü son item'dan sonra zaten ItemPadding var.
 
         var totalWidth = contentWidth;
         var totalHeight = contentHeight;
+        if (_maxPopupHeight > 0f)
+            totalHeight = Math.Min(totalHeight, _maxPopupHeight);
 
         return new SKSize((int)Math.Ceiling(totalWidth), (int)Math.Ceiling(totalHeight));
     }

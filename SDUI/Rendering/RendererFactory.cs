@@ -6,13 +6,11 @@ internal static class RendererFactory
 {
     internal static IWindowRenderer CreateRenderer(RenderBackend backend, nint hwnd)
     {
-        var renderer = backend switch
+        IWindowRenderer renderer = backend switch
         {
             RenderBackend.Software => new SoftwareRenderer(),
-            RenderBackend.OpenGL => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!"),
-            RenderBackend.DirectX11 => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!"),
-            RenderBackend.Vulkan => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!"),
-            RenderBackend.Metal => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!"),
+            RenderBackend.OpenGL => new OpenGLRenderer(),
+            RenderBackend.DirectX11 or RenderBackend.Vulkan or RenderBackend.Metal => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!"),
             _ => throw new NotSupportedException($"{backend} backend is not yet supported on this platform!")
         };
 

@@ -470,6 +470,97 @@ internal partial class MainWindow
                     .Background(ColorScheme.SurfaceVariant));
         });
 
+        var visualStyleComboShell = new Element
+        {
+            Name = "visualStyleComboShell",
+            Dock = SDUI.DockStyle.Top,
+            Height = 206,
+            Padding = new(18),
+            Margin = new(0, 0, 0, 14),
+            BackColor = ColorScheme.Surface,
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(18),
+            Border = new(1),
+            BorderColor = ColorScheme.Outline,
+            Text = "ComboBox Surface\nAnimated dropdown and chevron rotation now live in the shared controls library.",
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var visualStyleComboStatus = new Element
+        {
+            Name = "visualStyleComboStatus",
+            Dock = SDUI.DockStyle.Bottom,
+            Height = 60,
+            Padding = new(14),
+            Margin = new(0, 14, 0, 0),
+            BackColor = ColorScheme.SurfaceContainer,
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(14),
+            Border = new(1),
+            BorderColor = ColorScheme.Primary.WithAlpha(86),
+            Text = "Combo Status\nHover the chevron, open the list and switch presets to inspect the motion.",
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var visualStyleDensityCombo = new ComboBox
+        {
+            Name = "visualStyleDensityCombo",
+            Dock = SDUI.DockStyle.Top,
+            Height = 42,
+            Margin = new(0, 0, 0, 12),
+            PlaceholderText = "Density preset",
+            MaxDropDownItems = 6,
+            DropDownItemHeight = 34
+        };
+        visualStyleDensityCombo.Items.AddRange(new object[]
+        {
+            new ComboBoxItem("Compact Density", "compact"),
+            new ComboBoxItem("Balanced Density", "balanced"),
+            new ComboBoxItem("Comfort Density", "comfort"),
+            new ComboBoxItem("Presentation Density", "presentation")
+        });
+        visualStyleDensityCombo.SelectedIndex = 1;
+
+        var visualStyleThemeCombo = new ComboBox
+        {
+            Name = "visualStyleThemeCombo",
+            Dock = SDUI.DockStyle.Top,
+            Height = 42,
+            Margin = new(0, 0, 0, 12),
+            PlaceholderText = "Theme preset",
+            MaxDropDownItems = 6,
+            DropDownItemHeight = 34
+        };
+        visualStyleThemeCombo.Items.AddRange(new object[]
+        {
+            new ComboBoxItem("Ocean Blue", new SKColor(33, 150, 243)),
+            new ComboBoxItem("Emerald Pulse", new SKColor(16, 185, 129)),
+            new ComboBoxItem("Amber Signal", new SKColor(245, 158, 11)),
+            new ComboBoxItem("Rose Circuit", new SKColor(244, 63, 94))
+        });
+        visualStyleThemeCombo.SelectedIndex = 0;
+
+        visualStyleThemeCombo.SelectionChangeCommitted += (_, _) =>
+        {
+            if (visualStyleThemeCombo.SelectedValue is SKColor accent)
+                ColorScheme.SetPrimarySeedColor(accent);
+
+            var themeText = visualStyleThemeCombo.SelectedItem is ComboBoxItem item ? item.Text : visualStyleThemeCombo.Text;
+            var densityText = visualStyleDensityCombo.SelectedItem is ComboBoxItem densityItem ? densityItem.Text : visualStyleDensityCombo.Text;
+            visualStyleComboStatus.Text = $"Combo Status\nTheme: {themeText}. Density: {densityText}. Chevron and dropdown motion should remain synchronized.";
+        };
+
+        visualStyleDensityCombo.SelectionChangeCommitted += (_, _) =>
+        {
+            var themeText = visualStyleThemeCombo.SelectedItem is ComboBoxItem item ? item.Text : visualStyleThemeCombo.Text;
+            var densityText = visualStyleDensityCombo.SelectedItem is ComboBoxItem densityItem ? densityItem.Text : visualStyleDensityCombo.Text;
+            visualStyleComboStatus.Text = $"Combo Status\nTheme: {themeText}. Density: {densityText}. Item hover and checked state should stay crisp while scrolling.";
+        };
+
+        visualStyleComboShell.Controls.Add(visualStyleComboStatus);
+        visualStyleComboShell.Controls.Add(visualStyleDensityCombo);
+        visualStyleComboShell.Controls.Add(visualStyleThemeCombo);
+
         var scrollLabHeader = new Element
         {
             Name = "scrollLabHeader",
@@ -672,6 +763,7 @@ internal partial class MainWindow
         this.panel4.Controls.Add(this.visualStyleFooterAction);
         this.panel4.Controls.Add(this.visualStyleGhostButton);
         this.panel4.Controls.Add(this.visualStylePrimaryButton);
+        this.panel4.Controls.Add(visualStyleComboShell);
         this.panel4.Controls.Add(this.visualStyleDisabledCard);
         this.panel4.Controls.Add(this.visualStyleDangerCard);
         this.panel4.Controls.Add(this.visualStyleInteractiveCard);
