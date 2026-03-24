@@ -91,6 +91,7 @@ public partial class WindowBase
             ReleaseRetainedRenderResources();
             RecreateRenderer();
             ApplyNativeWindowStyles();
+            ApplyThemeToNativeWindow();
             InvalidateWindow();
             ForceBackendSwitchRedraw();
         }
@@ -282,7 +283,7 @@ public partial class WindowBase
         var composited = (nint)(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
         if (_renderer.IsSkiaGpuActive)
         {
-            if (_renderBackend == RenderBackend.OpenGL)
+            if (_renderBackend == RenderBackend.OpenGL && !UsesNativeBackdropMaterial)
                 exStyle |= noRedirect;
             else
                 exStyle &= ~noRedirect;

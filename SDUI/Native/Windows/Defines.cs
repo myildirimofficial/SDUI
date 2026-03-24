@@ -13,6 +13,8 @@ public partial class Methods
     public const int HTBOTTOMLEFT = 16;
     public const int HTBOTTOMRIGHT = 17;
 
+    public const uint DWMSBT_AUTO = 0;
+    public const uint DWMSBT_NONE = 1;
     public const uint DWMSBT_MAINWINDOW = 2; // Mica
     public const uint DWMSBT_TRANSIENTWINDOW = 3; // Acrylic
     public const uint DWMSBT_TABBEDWINDOW = 4; // Tabbed

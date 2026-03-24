@@ -32,8 +32,8 @@ public class WindowPageControl : ElementBase
         {
             Singular = true,
             InterruptAnimation = true,
-            Increment = 0.18,
-            SecondaryIncrement = 0.18,
+            Increment = 0.22,
+            SecondaryIncrement = 0.22,
             AnimationType = AnimationType.CubicEaseOut
         };
         _transitionAnimation.OnAnimationProgress += HandleTransitionProgress;

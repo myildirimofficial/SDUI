@@ -6,90 +6,123 @@ using System.Timers;
 
 namespace SDUI.Controls;
 
+/// <summary>
+/// A modern, animated scrollbar control with rubber-band overflow, auto-hide,
+/// and smooth scroll animation. Combines exponential-decay rubber-band (stable,
+/// no overshoot) with delta-guarded animation callbacks and proper event cleanup.
+/// </summary>
 public class ScrollBar : ElementBase
 {
+    // -------------------------------------------------------------------------
+    // Timers & animation managers
+    // -------------------------------------------------------------------------
     private readonly Timer _hideTimer;
     private readonly Timer _inputSettleTimer;
+    private readonly Timer _rubberBandTimer;
     private readonly AnimationManager _scrollAnim;
-    private readonly Timer _rubberBandAnim;
     private readonly AnimationManager _visibilityAnim;
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
     private double _animatedValue;
-    private bool _autoHide = true;
+    private bool   _autoHide = true;
     private SKPoint _dragStartPoint;
-    private float _dragStartValue;
-    private int _hideDelay = 1200; // ms
-    private bool _isInputStretching;
-    private bool _isRubberBandAnimating;
-
-    private bool _hostHovered;
-    private bool _isDragging;
-    private bool _isHovered;
-    private bool _isThumbHovered;
-    private bool _isThumbPressed;
-    private float _largeChange = 10;
-    private float _maximum = 100;
-    private float _minimum;
+    private float  _dragStartValue;
+    private int    _hideDelay = 1200;
+    private bool   _isInputStretching;
+    private bool   _isRubberBandAnimating;
+    private bool   _hostHovered;
+    private bool   _isDragging;
+    private bool   _isHovered;
+    private bool   _isThumbHovered;
+    private bool   _isThumbPressed;
+    private float  _largeChange = 10;
+    private float  _maximum = 100;
+    private float  _minimum;
     private Orientation _orientation = Orientation.Vertical;
-
-    private int _cornerRadius = 6;
+    private int    _cornerRadius = 6;
     private double _scrollAnimIncrement = 0.32;
     private AnimationType _scrollAnimType = AnimationType.CubicEaseOut;
-    private float _rubberBandAnimationStartValue;
-    private float _scrollAnimationStartValue;
-    private float _smallChange = 1;
-    private float _springVelocity;
-    private float _targetValue;
-    private int _thickness = 2;
+    private float  _scrollAnimationStartValue;
+    private float  _smallChange = 1;
+    private float  _targetValue;
+    private int    _thickness = 2;
     private SKRect _thumbRect;
     private SKRect _trackRect;
-    private bool _useThumbShadow = true;
-    private float _visualOverflowValue;
-    private float _value;
-    private const double InputSettleDelay = 72;
-    private const double SpringTickInterval = 16;
-    private const float SpringStiffness = 150f;
-    private const float SpringDamping = 30f;
-    private const float SpringStopDistance = 0.2f;
-    private const float SpringStopVelocity = 4f;
+    private bool   _useThumbShadow = true;
+    private float  _visualOverflowValue;
+    private float  _value;
+
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+    private const double InputSettleDelay    = 72;
+    private const double RubberBandInterval  = 16;
+
+    /// <summary>
+    /// Exponential decay factor applied each tick (~60 fps).
+    /// 0.82 gives a smooth ~200 ms settle without any overshoot.
+    /// Prefer this over a spring simulation for UI scrollbars:
+    ///   - zero overshoot / oscillation risk
+    ///   - single multiply per tick — trivially cheap
+    ///   - perceptually indistinguishable from a critically-damped spring
+    /// </summary>
+    private const float RubberBandDecay      = 0.82f;
+
+    /// <summary>Pixels below which overflow is snapped to zero.</summary>
+    private const float RubberBandStopThreshold = 0.5f;
 
     private double _visibilityAnimIncrement = 0.20;
     private AnimationType _visibilityAnimType = AnimationType.EaseInOut;
 
-    private SKPaint _trackPaint;
-    private SKPaint _thumbPaint;
-    private SKPaint _shadowPaint;
+    // -------------------------------------------------------------------------
+    // Cached paint objects (reused every frame, never recreated)
+    // -------------------------------------------------------------------------
+    private readonly SKPaint _trackPaint  = new() { IsAntialias = true };
+    private readonly SKPaint _thumbPaint  = new() { IsAntialias = true };
+    private readonly SKPaint _shadowPaint = new() { IsAntialias = true };
 
+    // =========================================================================
+    // Constructor
+    // =========================================================================
     public ScrollBar()
     {
         BackColor = SKColors.Transparent;
-        Cursor = Cursors.Default;
+        Cursor    = Cursors.Default;
         ApplyOrientationSize();
 
+        // --- Visibility animation ---
         _visibilityAnim = new AnimationManager(true)
         {
-            Increment = _visibilityAnimIncrement,
-            AnimationType = _visibilityAnimType,
+            Increment         = _visibilityAnimIncrement,
+            AnimationType     = _visibilityAnimType,
             InterruptAnimation = true
         };
+        _visibilityAnim.OnAnimationProgress += _ => Invalidate();
+        _visibilityAnim.OnAnimationFinished  += _ => Invalidate();
 
-        _visibilityAnim.OnAnimationProgress += s => Invalidate();
-        _visibilityAnim.OnAnimationFinished += s => Invalidate();
-
+        // --- Scroll animation ---
         _scrollAnim = new AnimationManager(true)
         {
-            Increment = _scrollAnimIncrement,
-            AnimationType = _scrollAnimType,
+            Increment         = _scrollAnimIncrement,
+            AnimationType     = _scrollAnimType,
             InterruptAnimation = true
         };
-
-        _scrollAnim.OnAnimationProgress += s =>
+        _scrollAnim.OnAnimationProgress += _ =>
         {
-            _animatedValue = _scrollAnimationStartValue + (_targetValue - _scrollAnimationStartValue) * _scrollAnim.GetProgress();
+            double newValue = _scrollAnimationStartValue
+                + (_targetValue - _scrollAnimationStartValue) * _scrollAnim.GetProgress();
+
+            // Guard: skip repaint when the visual change is sub-pixel
+            if (Math.Abs(_animatedValue - newValue) <= 0.001) return;
+
+            _animatedValue = newValue;
             UpdateThumbRect();
             NotifyDisplayValueChanged();
             Invalidate();
         };
-        _scrollAnim.OnAnimationFinished += s =>
+        _scrollAnim.OnAnimationFinished += _ =>
         {
             _animatedValue = _targetValue;
             UpdateThumbRect();
@@ -97,33 +130,37 @@ public class ScrollBar : ElementBase
             Invalidate();
         };
 
+        // --- Timers ---
         _hideTimer = new Timer { Interval = _hideDelay, AutoReset = false };
         _hideTimer.Elapsed += HideTimer_Tick;
 
         _inputSettleTimer = new Timer { Interval = InputSettleDelay, AutoReset = false };
         _inputSettleTimer.Elapsed += InputSettleTimer_Tick;
 
-        _rubberBandAnim = new Timer { Interval = SpringTickInterval, AutoReset = true };
-        _rubberBandAnim.Elapsed += SpringTimer_Tick;
+        _rubberBandTimer = new Timer { Interval = RubberBandInterval, AutoReset = true };
+        _rubberBandTimer.Elapsed += RubberBandTimer_Tick;
 
+        // --- Initial state ---
         _visibilityAnim.SetProgress(_autoHide ? 0 : 1);
-        _animatedValue = _value;
+        _animatedValue            = _value;
         _scrollAnimationStartValue = _value;
-        _targetValue = _value;
+        _targetValue              = _value;
 
-        _trackPaint = new SKPaint { IsAntialias = true };
-        _thumbPaint = new SKPaint { IsAntialias = true };
-        _shadowPaint = new SKPaint { IsAntialias = true };
+        UpdateThumbRect();
     }
 
-    [DefaultValue(4)]
-    [Description("Scrollbar thickness (width vertically, height horizontally)")]
+    // =========================================================================
+    // Public properties
+    // =========================================================================
+
+    [DefaultValue(2)]
+    [Description("Scrollbar thickness in pixels.")]
     public int Thickness
     {
         get => _thickness;
         set
         {
-            value = Math.Max(2, Math.Min(32, value));
+            value = Math.Clamp(value, 2, 32);
             if (_thickness == value) return;
             _thickness = value;
             ApplyOrientationSize();
@@ -133,13 +170,13 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(6)]
-    [Description("The corner radius")]
+    [Description("Corner radius applied to both track and thumb.")]
     public int CornerRadius
     {
         get => _cornerRadius;
         set
         {
-            value = Math.Max(0, Math.Min(64, value));
+            value = Math.Clamp(value, 0, 64);
             if (_cornerRadius == value) return;
             _cornerRadius = value;
             Invalidate();
@@ -147,7 +184,7 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(true)]
-    [Description("Auto hide")]
+    [Description("Automatically fade the scrollbar out after HideDelay ms of inactivity.")]
     public bool AutoHide
     {
         get => _autoHide;
@@ -157,6 +194,7 @@ public class ScrollBar : ElementBase
             _autoHide = value;
             if (!_autoHide)
             {
+                // Disabling auto-hide: stop any pending hide and snap fully visible
                 _hideTimer.Stop();
                 _visibilityAnim.SetProgress(1);
                 Invalidate();
@@ -169,27 +207,23 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(1200)]
-    [Description("Auto hidden (ms)")]
+    [Description("Milliseconds of inactivity before the scrollbar fades (AutoHide=true).")]
     public int HideDelay
     {
         get => _hideDelay;
         set
         {
-            _hideDelay = Math.Max(250, Math.Min(10000, value));
+            _hideDelay = Math.Clamp(value, 250, 10_000);
             _hideTimer.Interval = _hideDelay;
         }
     }
 
     [DefaultValue(true)]
-    [Description("Thumb shadow effect")]
+    [Description("Render a soft drop-shadow beneath the thumb.")]
     public bool UseThumbShadow
     {
         get => _useThumbShadow;
-        set
-        {
-            _useThumbShadow = value;
-            Invalidate();
-        }
+        set { _useThumbShadow = value; Invalidate(); }
     }
 
     [DefaultValue(Orientation.Vertical)]
@@ -206,9 +240,8 @@ public class ScrollBar : ElementBase
         }
     }
 
-    [Category("Animation")]
-    [DefaultValue(0.20)]
-    [Description("Visibility animation speed (Increment). Higher values are faster.")]
+    [Category("Animation"), DefaultValue(0.20)]
+    [Description("Speed of the fade-in / fade-out animation (0.01–1.0).")]
     public double VisibilityAnimationIncrement
     {
         get => _visibilityAnimIncrement;
@@ -219,22 +252,15 @@ public class ScrollBar : ElementBase
         }
     }
 
-    [Category("Animation")]
-    [DefaultValue(typeof(AnimationType), "EaseInOut")]
-    [Description("Visibility animation easing type")]
+    [Category("Animation"), DefaultValue(typeof(AnimationType), "EaseInOut")]
     public AnimationType VisibilityAnimationType
     {
         get => _visibilityAnimType;
-        set
-        {
-            _visibilityAnimType = value;
-            _visibilityAnim.AnimationType = _visibilityAnimType;
-        }
+        set { _visibilityAnimType = value; _visibilityAnim.AnimationType = value; }
     }
 
-    [Category("Animation")]
-    [DefaultValue(0.32)]
-    [Description("Scroll animation speed (Increment). Higher values are faster.")]
+    [Category("Animation"), DefaultValue(0.32)]
+    [Description("Speed of the programmatic scroll animation (0.01–1.0).")]
     public double ScrollAnimationIncrement
     {
         get => _scrollAnimIncrement;
@@ -245,29 +271,23 @@ public class ScrollBar : ElementBase
         }
     }
 
-    [Category("Animation")]
-    [DefaultValue(typeof(AnimationType), "CubicEaseOut")]
-    [Description("Scroll animation easing type")]
+    [Category("Animation"), DefaultValue(typeof(AnimationType), "CubicEaseOut")]
     public AnimationType ScrollAnimationType
     {
         get => _scrollAnimType;
-        set
-        {
-            _scrollAnimType = value;
-            _scrollAnim.AnimationType = _scrollAnimType;
-        }
+        set { _scrollAnimType = value; _scrollAnim.AnimationType = value; }
     }
 
-    public bool IsVertical => Orientation == Orientation.Vertical;
+    public bool IsVertical => _orientation == Orientation.Vertical;
 
-    [DefaultValue(0)]
+    [DefaultValue(0f)]
     public float Value
     {
         get => _value;
         set => SetValueCore(value, animate: !_isDragging);
     }
 
-    [DefaultValue(0)]
+    [DefaultValue(0f)]
     public float Minimum
     {
         get => _minimum;
@@ -275,13 +295,13 @@ public class ScrollBar : ElementBase
         {
             if (_minimum == value) return;
             _minimum = value;
-            if (Value < value) Value = value;
+            if (_value < value) Value = value;
             UpdateThumbRect();
             Invalidate();
         }
     }
 
-    [DefaultValue(100)]
+    [DefaultValue(100f)]
     public float Maximum
     {
         get => _maximum;
@@ -289,13 +309,13 @@ public class ScrollBar : ElementBase
         {
             if (_maximum == value) return;
             _maximum = value;
-            if (Value > value) Value = value;
+            if (_value > value) Value = value;
             UpdateThumbRect();
             Invalidate();
         }
     }
 
-    [DefaultValue(10)]
+    [DefaultValue(10f)]
     public float LargeChange
     {
         get => _largeChange;
@@ -308,7 +328,7 @@ public class ScrollBar : ElementBase
         }
     }
 
-    [DefaultValue(1)]
+    [DefaultValue(1f)]
     public float SmallChange
     {
         get => _smallChange;
@@ -320,148 +340,104 @@ public class ScrollBar : ElementBase
     }
 
     [DefaultValue(typeof(SKColor), "Transparent")]
-    [Description("Track color override; if Transparent, ColorScheme is used")]
     public SKColor TrackColor { get; set; } = SKColors.Transparent;
 
     [DefaultValue(typeof(SKColor), "Transparent")]
-    [Description("Thumb color override; if Transparent, ColorScheme is used")]
     public SKColor ThumbColor { get; set; } = SKColors.Transparent;
 
-    internal float DisplayValue => GetDisplayValue();
+    // =========================================================================
+    // Internal API (consumed by the host ScrollPanel / ScrollViewer)
+    // =========================================================================
 
-    internal event EventHandler DisplayValueChanged;
+    internal float DisplayValue => (float)(_animatedValue + _visualOverflowValue);
 
-    public event EventHandler ValueChanged;
+    internal event EventHandler? DisplayValueChanged;
+    public  event EventHandler? ValueChanged;
+    public  event EventHandler? Scroll;
 
-    private float GetDisplayValue()
-    {
-        return (float)(_animatedValue + _visualOverflowValue);
-    }
-
-    private void NotifyDisplayValueChanged()
-    {
-        DisplayValueChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void ApplyOrientationSize()
-    {
-        Size = IsVertical ? new SKSize(_thickness, Math.Max(Height, 100)) : new SKSize(Math.Max(Width, 100), _thickness);
-    }
-
-    private void HideTimer_Tick(object sender, EventArgs e)
-    {
-        HideNow();
-    }
-
-    private void InputSettleTimer_Tick(object? sender, ElapsedEventArgs e)
-    {
-        _isInputStretching = false;
-
-        if (_isDragging)
-            return;
-
-        StartVisualOverflowReturn();
-    }
-
-    private void SpringTimer_Tick(object? sender, ElapsedEventArgs e)
-    {
-        if (!_isRubberBandAnimating)
-            return;
-
-        if (_isInputStretching || _isDragging)
-            return;
-
-        var deltaTime = (float)(SpringTickInterval / 1000d);
-        var acceleration = (-SpringStiffness * _visualOverflowValue) - (SpringDamping * _springVelocity);
-        _springVelocity += acceleration * deltaTime;
-        _visualOverflowValue += _springVelocity * deltaTime;
-
-        if (MathF.Abs(_visualOverflowValue) <= SpringStopDistance && MathF.Abs(_springVelocity) <= SpringStopVelocity)
-        {
-            StopVisualOverflowReturn();
-            _visualOverflowValue = 0f;
-        }
-
-        UpdateThumbRect();
-        NotifyDisplayValueChanged();
-        Invalidate();
-    }
+    // =========================================================================
+    // Dispose
+    // =========================================================================
 
     protected override void Dispose(bool disposing)
     {
-        if (IsDisposed)
-        {
-            base.Dispose(disposing);
-            return;
-        }
+        if (IsDisposed) { base.Dispose(disposing); return; }
 
         if (disposing)
         {
-            _hideTimer.Stop();
-            _hideTimer.Elapsed -= HideTimer_Tick;
-            _hideTimer.Dispose();
-
-            _inputSettleTimer.Stop();
+            // Unsubscribe events before stopping — prevents a final Elapsed
+            // firing after Dispose if the OS thread-pool beat us to it.
+            _hideTimer.Elapsed        -= HideTimer_Tick;
             _inputSettleTimer.Elapsed -= InputSettleTimer_Tick;
-            _inputSettleTimer.Dispose();
+            _rubberBandTimer.Elapsed  -= RubberBandTimer_Tick;
 
-            _rubberBandAnim.Stop();
-            _rubberBandAnim.Elapsed -= SpringTimer_Tick;
-            _rubberBandAnim.Dispose();
+            _hideTimer.Stop();        _hideTimer.Dispose();
+            _inputSettleTimer.Stop(); _inputSettleTimer.Dispose();
+            _rubberBandTimer.Stop();  _rubberBandTimer.Dispose();
 
             _visibilityAnim.Dispose();
             _scrollAnim.Dispose();
 
-            _trackPaint?.Dispose();
-            _thumbPaint?.Dispose();
-            _shadowPaint?.Dispose();
+            // Cached paints
+            _trackPaint.Dispose();
+            _thumbPaint.Dispose();
+            _shadowPaint.Dispose();
         }
 
         base.Dispose(disposing);
     }
 
+    // =========================================================================
+    // Geometry helpers
+    // =========================================================================
+
+    private void ApplyOrientationSize()
+    {
+        Size = IsVertical
+            ? new SKSize(_thickness, Math.Max(Height, 100))
+            : new SKSize(Math.Max(Width, 100), _thickness);
+    }
+
     private void UpdateThumbRect()
     {
-        if (Maximum <= Minimum)
+        _trackRect = new SKRect(0, 0, Width, Height);
+
+        if (_maximum <= _minimum)
         {
             _thumbRect = SKRect.Empty;
-            _trackRect = new SKRect(0, 0, Width, Height);
             return;
         }
 
-        var trackLength = MathF.Max(1f, IsVertical ? Height : Width);
-        var thumbLength = MathF.Max(20f, (float)Math.Round(LargeChange / (Maximum - Minimum + LargeChange) * trackLength));
+        float trackLength = MathF.Max(1f, IsVertical ? Height : Width);
+        float range       = MathF.Max(0.0001f, _maximum - _minimum);
+
+        // Thumb length proportional to the visible page
+        float thumbLength = MathF.Max(20f, _largeChange / (_maximum - _minimum + _largeChange) * trackLength);
         thumbLength = MathF.Min(trackLength, thumbLength);
 
-        var currentValue = GetDisplayValue();
-        var range = MathF.Max(0.0001f, Maximum - Minimum);
-        var trackTravel = MathF.Max(0f, trackLength - thumbLength);
-        var boundedValue = Math.Clamp(currentValue, Minimum, Maximum);
-        var normalized = Math.Clamp((boundedValue - Minimum) / range, 0f, 1f);
-        var thumbPos = (float)Math.Round(normalized * trackTravel);
-        var overflow = currentValue - boundedValue;
+        float trackTravel  = MathF.Max(0f, trackLength - thumbLength);
+        float currentValue = DisplayValue;
+        float bounded      = Math.Clamp(currentValue, _minimum, _maximum);
+        float normalized   = Math.Clamp((bounded - _minimum) / range, 0f, 1f);
+        float thumbPos     = normalized * trackTravel;
 
-        if (Math.Abs(overflow) > 0.001f)
+        // Rubber-band: compress thumb when pulled past the limits
+        float overflow = currentValue - bounded;
+        if (MathF.Abs(overflow) > 0.001f)
         {
-            var valuePerPixel = range / MathF.Max(1f, trackTravel);
-            var overflowPixels = valuePerPixel <= 0f
+            float valuePerPixel  = range / MathF.Max(1f, trackTravel);
+            float overflowPixels = valuePerPixel <= 0f
                 ? 0f
                 : MathF.Min(trackLength * 0.22f, MathF.Abs(overflow) / valuePerPixel * 0.22f);
-            var minThumbLength = MathF.Min(thumbLength, MathF.Max(16f, thumbLength * 0.62f));
+
+            float minThumbLength = MathF.Max(16f, thumbLength * 0.62f);
             thumbLength = MathF.Max(minThumbLength, thumbLength - overflowPixels);
-            thumbPos = overflow < 0f ? 0f : trackLength - thumbLength;
+            thumbPos    = overflow < 0f ? 0f : trackLength - thumbLength;
         }
 
-        if (IsVertical)
-        {
-            _thumbRect = new SKRect(0, thumbPos, Width, thumbPos + thumbLength);
-            _trackRect = new SKRect(0, 0, Width, Height);
-        }
-        else
-        {
-            _thumbRect = new SKRect(thumbPos, 0, thumbPos + thumbLength, Height);
-            _trackRect = new SKRect(0, 0, Width, Height);
-        }
+        _thumbRect = IsVertical
+            ? new SKRect(0, thumbPos, Width, thumbPos + thumbLength)
+            : new SKRect(thumbPos, 0, thumbPos + thumbLength, Height);
     }
 
     internal override void OnSizeChanged(EventArgs e)
@@ -470,53 +446,80 @@ public class ScrollBar : ElementBase
         UpdateThumbRect();
     }
 
+    // =========================================================================
+    // Painting
+    // =========================================================================
+
     public override void OnPaint(SKCanvas canvas)
     {
-        var visibility = _autoHide ? (float)_visibilityAnim.GetProgress() : 1f;
-        if (visibility <= 0f || Maximum <= Minimum)
-            return;
+        float visibility = _autoHide ? (float)_visibilityAnim.GetProgress() : 1f;
+        if (visibility <= 0f || _maximum <= _minimum) return;
 
-        var baseTrackColor = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
-        var blendedTrack = baseTrackColor.BlendWith(ColorScheme.ForeColor, 0.18f);
-        var trackAlpha = (byte)(50 * visibility);
-        var trackSk = blendedTrack.WithAlpha(trackAlpha);
+        float sf     = MathF.Max(ScaleFactor, 1f);
+        float radius = MathF.Max(0f, _cornerRadius * sf);
 
-        _trackPaint.Color = trackSk;
-        var radius = Math.Max(0, _cornerRadius * ScaleFactor);
-        canvas.DrawRoundRect(new SKRoundRect(new SKRect(0, 0, Width, Height), radius), _trackPaint);
+        // --- Track ---
+        SKColor trackBase   = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
+        SKColor blendedTrack = trackBase.BlendWith(ColorScheme.ForeColor, 0.18f);
+        _trackPaint.Color   = blendedTrack.WithAlpha((byte)(50 * visibility));
+
+        using var trackRR = new SKRoundRect(_trackRect, radius);
+        canvas.DrawRoundRect(trackRR, _trackPaint);
 
         if (_thumbRect.IsEmpty) return;
 
-        var schemeBase = ThumbColor == SKColors.Transparent ? ColorScheme.BorderColor : ThumbColor;
-        if (schemeBase == SKColors.Transparent)
-            schemeBase = ColorScheme.ForeColor;
+        // --- Thumb colour (state-driven) ---
+        SKColor schemeBase = ThumbColor == SKColors.Transparent ? ColorScheme.BorderColor : ThumbColor;
+        if (schemeBase == SKColors.Transparent) schemeBase = ColorScheme.ForeColor;
 
-        SKColor stateColor;
-        if (_isThumbPressed)
-            stateColor = schemeBase.BlendWith(ColorScheme.ForeColor, 0.35f);
-        else if (_isThumbHovered || _isHovered || _hostHovered)
-            stateColor = schemeBase.BlendWith(ColorScheme.ForeColor, 0.25f);
-        else
-            stateColor = schemeBase.BlendWith(ColorScheme.Surface, 0.15f);
+        SKColor stateColor = _isThumbPressed
+            ? schemeBase.BlendWith(ColorScheme.ForeColor, 0.35f)
+            : (_isThumbHovered || _isHovered || _hostHovered)
+                ? schemeBase.BlendWith(ColorScheme.ForeColor, 0.25f)
+                : schemeBase.BlendWith(ColorScheme.Surface, 0.15f);
 
-        var thumbColor = stateColor.WithAlpha((byte)(220 * Math.Clamp(visibility, 0f, 1f)));
+        byte thumbAlpha = (byte)(220 * Math.Clamp(visibility, 0f, 1f));
+        SKColor thumbColor = stateColor.WithAlpha(thumbAlpha);
 
-        if (_useThumbShadow && visibility > 0f)
+        using var thumbRR = new SKRoundRect(_thumbRect, radius);
+
+        // --- Optional shadow (single paint, filter reused via property) ---
+        if (_useThumbShadow)
         {
-            using var shadowFilter = SKImageFilter.CreateDropShadow(0, 0, 2, 2, SKColors.Black.WithAlpha((byte)(70 * visibility)));
-            _shadowPaint.Color = SKColors.Black.WithAlpha((byte)(30 * visibility));
-            _shadowPaint.ImageFilter = shadowFilter;
-            canvas.DrawRoundRect(new SKRoundRect(_thumbRect, radius), _shadowPaint);
-        }
+            using var shadowFilter = SKImageFilter.CreateDropShadow(
+                0, 1, 3, 3, SKColors.Black.WithAlpha((byte)(60 * visibility)));
 
-        _thumbPaint.Color = thumbColor;
-        canvas.DrawRoundRect(new SKRoundRect(_thumbRect, radius), _thumbPaint);
+            _shadowPaint.Color       = thumbColor;
+            _shadowPaint.ImageFilter = shadowFilter;
+            canvas.DrawRoundRect(thumbRR, _shadowPaint);
+            _shadowPaint.ImageFilter = null; // reset so it doesn't leak
+        }
+        else
+        {
+            _thumbPaint.Color = thumbColor;
+            canvas.DrawRoundRect(thumbRR, _thumbPaint);
+        }
     }
 
+    // =========================================================================
+    // Auto-hide logic
+    // =========================================================================
+
+    /// <summary>
+    /// Makes the scrollbar visible and (re)starts the hide countdown.
+    /// Skips re-starting the animation when it is already fully visible
+    /// and heading In — prevents a visible flicker on rapid input.
+    /// </summary>
     private void ShowWithAutoHide()
     {
         if (!_autoHide) return;
-        _visibilityAnim.StartNewAnimation(AnimationDirection.In);
+
+        if (_visibilityAnim.Direction != AnimationDirection.In
+            || _visibilityAnim.GetProgress() < 1.0)
+        {
+            _visibilityAnim.StartNewAnimation(AnimationDirection.In);
+        }
+
         _hideTimer.Stop();
         _hideTimer.Interval = _hideDelay;
         _hideTimer.Start();
@@ -526,23 +529,93 @@ public class ScrollBar : ElementBase
     {
         if (!_autoHide) return;
         if (_hostHovered || _isHovered || _isDragging || _isThumbHovered || _isInputStretching) return;
+
         _hideTimer.Stop();
         _visibilityAnim.StartNewAnimation(AnimationDirection.Out);
+    }
+
+    private void HideTimer_Tick(object? sender, ElapsedEventArgs e) => HideNow();
+
+    // =========================================================================
+    // Rubber-band (overflow) helpers
+    // =========================================================================
+
+    /// <summary>
+    /// Maps a raw overflow value to a physically-capped visual offset using
+    /// logarithmic resistance — the further you pull, the harder it gets.
+    /// </summary>
+    private float ComputeVisualOverflow(float overflow)
+    {
+        if (MathF.Abs(overflow) <= 0.001f) return 0f;
+
+        float viewport    = MathF.Max(1f, IsVertical ? Height : Width);
+        float maxOverflow = MathF.Max(18f, viewport * 0.12f);
+        float resistance  = MathF.Max(1f,  viewport * 0.24f);
+        float normalized  = MathF.Abs(overflow) / resistance;
+        float magnitude   = maxOverflow * (1f - MathF.Exp(-normalized * 0.75f));
+        return MathF.CopySign(magnitude, overflow);
+    }
+
+    private float MaxVisualOverflow()
+    {
+        float viewport = MathF.Max(1f, IsVertical ? Height : Width);
+        return MathF.Max(18f, viewport * 0.12f);
+    }
+
+    /// <summary>
+    /// Incremental stretch delta used when the wheel keeps scrolling past
+    /// the boundary — progressively harder the further we are from the edge.
+    /// </summary>
+    private float WheelStretchDelta(float delta)
+    {
+        float max          = MaxVisualOverflow();
+        float currentRatio = MathF.Min(1f, MathF.Abs(_visualOverflowValue) / max);
+        float resistance   = MathF.Max(0.08f, 1f - currentRatio * 0.92f);
+        float stretch      = MathF.Max(0.35f, MathF.Abs(delta) * 0.18f * resistance);
+        return MathF.CopySign(stretch, delta);
+    }
+
+    private void SetVisualOverflow(float overflow)
+    {
+        float clamped = Math.Clamp(overflow, -MaxVisualOverflow(), MaxVisualOverflow());
+        if (MathF.Abs(_visualOverflowValue - clamped) <= 0.001f) return;
+        _visualOverflowValue = clamped;
+        UpdateThumbRect();
+        NotifyDisplayValueChanged();
+        Invalidate();
     }
 
     private void ClearVisualOverflow()
     {
         _isInputStretching = false;
         _inputSettleTimer.Stop();
-        StopVisualOverflowReturn();
+        StopRubberBand();
+        if (MathF.Abs(_visualOverflowValue) <= 0.001f) return;
         _visualOverflowValue = 0f;
+        UpdateThumbRect();
+        NotifyDisplayValueChanged();
+        Invalidate();
     }
 
-    private void StopVisualOverflowReturn()
+    private void StopRubberBand()
     {
         _isRubberBandAnimating = false;
-        _rubberBandAnim.Stop();
-        _springVelocity = 0f;
+        _rubberBandTimer.Stop();
+    }
+
+    private void StartRubberBandReturn()
+    {
+        if (_isInputStretching) return;
+
+        if (MathF.Abs(_visualOverflowValue) <= 0.001f)
+        {
+            ClearVisualOverflow();
+            return;
+        }
+
+        _isRubberBandAnimating = true;
+        _rubberBandTimer.Stop();
+        _rubberBandTimer.Start();
     }
 
     private void RestartInputSettleTimer()
@@ -553,149 +626,83 @@ public class ScrollBar : ElementBase
         _inputSettleTimer.Start();
     }
 
-    private void StartVisualOverflowReturn()
+    private void InputSettleTimer_Tick(object? sender, ElapsedEventArgs e)
     {
-        if (_isInputStretching)
-            return;
+        _isInputStretching = false;
+        if (!_isDragging) StartRubberBandReturn();
+    }
 
-        if (Math.Abs(_visualOverflowValue) <= 0.001f)
+    /// <summary>
+    /// Each tick: multiply overflow by the decay factor.
+    /// Exponential decay is equivalent to a critically-damped spring at the
+    /// frequencies a scrollbar operates at, but cannot oscillate — ideal here.
+    /// </summary>
+    private void RubberBandTimer_Tick(object? sender, ElapsedEventArgs e)
+    {
+        if (!_isRubberBandAnimating || _isInputStretching || _isDragging) return;
+
+        _visualOverflowValue *= RubberBandDecay;
+
+        if (MathF.Abs(_visualOverflowValue) <= RubberBandStopThreshold)
         {
-            ClearVisualOverflow();
-            UpdateThumbRect();
-            NotifyDisplayValueChanged();
-            Invalidate();
-            return;
+            StopRubberBand();
+            _visualOverflowValue = 0f;
         }
 
-        _rubberBandAnimationStartValue = _visualOverflowValue;
-        _isRubberBandAnimating = true;
-        _springVelocity = -_rubberBandAnimationStartValue * 0.35f;
-        _rubberBandAnim.Stop();
-        _rubberBandAnim.Start();
-    }
-
-    private float GetVisualOverflowValue(float overflow)
-    {
-        if (Math.Abs(overflow) <= 0.001f)
-            return 0f;
-
-        var viewportLength = MathF.Max(1f, IsVertical ? Height : Width);
-        var maxOverflow = MathF.Max(18f, viewportLength * 0.12f);
-        var resistance = MathF.Max(1f, viewportLength * 0.24f);
-        var normalized = MathF.Abs(overflow) / resistance;
-        var magnitude = maxOverflow * (1f - MathF.Exp(-normalized * 0.75f));
-        return MathF.CopySign(magnitude, overflow);
-    }
-
-    private float GetMaximumVisualOverflow()
-    {
-        var viewportLength = MathF.Max(1f, IsVertical ? Height : Width);
-        return MathF.Max(18f, viewportLength * 0.12f);
-    }
-
-    private float GetWheelStretchDelta(float delta)
-    {
-        var maxOverflow = GetMaximumVisualOverflow();
-        var currentRatio = MathF.Min(1f, MathF.Abs(_visualOverflowValue) / maxOverflow);
-        var resistance = MathF.Max(0.08f, 1f - currentRatio * 0.92f);
-        var stretch = MathF.Max(0.35f, MathF.Abs(delta) * 0.18f * resistance);
-        return MathF.CopySign(stretch, delta);
-    }
-
-    private void SetVisualOverflow(float overflow)
-    {
-        var maxOverflow = GetMaximumVisualOverflow();
-        _visualOverflowValue = Math.Clamp(overflow, -maxOverflow, maxOverflow);
         UpdateThumbRect();
         NotifyDisplayValueChanged();
         Invalidate();
     }
 
-    internal void ApplyWheelDelta(float delta)
-    {
-        if (Math.Abs(delta) <= 0.001f)
-            return;
+    // =========================================================================
+    // Value management
+    // =========================================================================
 
-        StopVisualOverflowReturn();
+    private void NotifyDisplayValueChanged() => DisplayValueChanged?.Invoke(this, EventArgs.Empty);
 
-        var rawValue = Math.Abs(_visualOverflowValue) > 0.001f
-            ? GetDisplayValue() + delta
-            : Value + delta;
-        var boundedValue = Math.Clamp(rawValue, Minimum, Maximum);
-        SetValueCore(boundedValue, animate: false);
-
-        var overflow = rawValue - boundedValue;
-        if (Math.Abs(overflow) <= 0.001f)
-        {
-            ClearVisualOverflow();
-            UpdateThumbRect();
-            NotifyDisplayValueChanged();
-            Invalidate();
-            ShowWithAutoHide();
-            return;
-        }
-
-        var targetOverflow = GetVisualOverflowValue(overflow);
-        var sameDirection = Math.Abs(_visualOverflowValue) > 0.001f && MathF.Sign(_visualOverflowValue) == MathF.Sign(delta);
-        var nextOverflow = sameDirection
-            ? _visualOverflowValue + GetWheelStretchDelta(delta)
-            : targetOverflow;
-
-        SetVisualOverflow(nextOverflow);
-        RestartInputSettleTimer();
-        ShowWithAutoHide();
-    }
-
-    private float GetAccumulatedInputValue(float delta)
-    {
-        var displayValue = GetDisplayValue();
-        if (displayValue < Minimum && delta < 0f)
-            return displayValue + delta;
-
-        if (displayValue > Maximum && delta > 0f)
-            return displayValue + delta;
-
-        if (Math.Abs(_visualOverflowValue) > 0.001f)
-            return displayValue + delta;
-
-        return Value + delta;
-    }
-
+    /// <summary>
+    /// Core setter. Returns true when the logical value actually changed.
+    /// When <paramref name="animate"/> is false the scroll animation is
+    /// explicitly stopped so no stale animation overwrites the new position.
+    /// </summary>
     private bool SetValueCore(float value, bool animate)
     {
-        value = Math.Clamp(value, Minimum, Maximum);
+        value = Math.Clamp(value, _minimum, _maximum);
 
-        if (_value == value)
+        if (MathF.Abs(_value - value) <= 0.001f)
         {
-            if (!animate && Math.Abs((float)_animatedValue - value) > 0.001f)
+            // Value unchanged, but animated position may still lag (e.g. mid-animation)
+            if (!animate && MathF.Abs((float)_animatedValue - value) > 0.001f)
             {
+                _scrollAnim.Stop();
                 _scrollAnimationStartValue = value;
-                _animatedValue = value;
-                _targetValue = value;
+                _animatedValue             = value;
+                _targetValue               = value;
                 UpdateThumbRect();
                 NotifyDisplayValueChanged();
                 Invalidate();
             }
-
             return false;
         }
 
         ClearVisualOverflow();
-        var startValue = _animatedValue;
+
+        float startValue = (float)_animatedValue;
         _value = value;
 
         if (_isDragging || !animate)
         {
+            _scrollAnim.Stop();
             _scrollAnimationStartValue = value;
-            _animatedValue = value;
-            _targetValue = value;
+            _animatedValue             = value;
+            _targetValue               = value;
             UpdateThumbRect();
             NotifyDisplayValueChanged();
         }
         else
         {
-            _scrollAnimationStartValue = (float)startValue;
-            _targetValue = value;
+            _scrollAnimationStartValue = startValue;
+            _targetValue               = value;
             _scrollAnim.StartNewAnimation(AnimationDirection.In);
         }
 
@@ -704,27 +711,72 @@ public class ScrollBar : ElementBase
         return true;
     }
 
-    internal void ApplyInputValue(float value, bool keepStretchActive = false)
+    /// <summary>
+    /// Returns the best starting point for an accumulated delta:
+    /// continues from the display value when we are already overflowing,
+    /// otherwise starts from the logical value to avoid jump artefacts.
+    /// </summary>
+    private float AccumulatedInputBase(float delta)
     {
-        var boundedValue = Math.Clamp(value, Minimum, Maximum);
-        SetValueCore(boundedValue, animate: !keepStretchActive && !_isDragging);
+        float display = DisplayValue;
+        if (display < _minimum && delta < 0f) return display + delta;
+        if (display > _maximum && delta > 0f) return display + delta;
+        if (MathF.Abs(_visualOverflowValue) > 0.001f) return display + delta;
+        return _value + delta;
+    }
 
-        var overflow = value - boundedValue;
-        if (Math.Abs(overflow) <= 0.001f)
+    // =========================================================================
+    // Internal API called by the host (ScrollPanel / touch gesture recogniser)
+    // =========================================================================
+
+    /// <summary>Applies a wheel-style delta with rubber-band overflow.</summary>
+    internal void ApplyWheelDelta(float delta)
+    {
+        if (MathF.Abs(delta) <= 0.001f) return;
+
+        StopRubberBand();
+
+        float raw     = MathF.Abs(_visualOverflowValue) > 0.001f ? DisplayValue + delta : _value + delta;
+        float bounded = Math.Clamp(raw, _minimum, _maximum);
+        SetValueCore(bounded, animate: false);
+
+        float overflow = raw - bounded;
+        if (MathF.Abs(overflow) <= 0.001f)
         {
             ClearVisualOverflow();
-            UpdateThumbRect();
-            NotifyDisplayValueChanged();
-            Invalidate();
             ShowWithAutoHide();
             return;
         }
 
-        StopVisualOverflowReturn();
-        _visualOverflowValue = GetVisualOverflowValue(overflow);
-        UpdateThumbRect();
-        NotifyDisplayValueChanged();
-        Invalidate();
+        float targetOverflow = ComputeVisualOverflow(overflow);
+        bool  sameDir = MathF.Abs(_visualOverflowValue) > 0.001f
+                     && MathF.Sign(_visualOverflowValue) == MathF.Sign(delta);
+
+        float next = sameDir
+            ? _visualOverflowValue + WheelStretchDelta(delta)
+            : targetOverflow;
+
+        SetVisualOverflow(next);
+        RestartInputSettleTimer();
+        ShowWithAutoHide();
+    }
+
+    /// <summary>Applies an absolute value with optional rubber-band stretch.</summary>
+    internal void ApplyInputValue(float value, bool keepStretchActive = false)
+    {
+        float bounded  = Math.Clamp(value, _minimum, _maximum);
+        SetValueCore(bounded, animate: !keepStretchActive && !_isDragging);
+
+        float overflow = value - bounded;
+        if (MathF.Abs(overflow) <= 0.001f)
+        {
+            ClearVisualOverflow();
+            ShowWithAutoHide();
+            return;
+        }
+
+        StopRubberBand();
+        SetVisualOverflow(ComputeVisualOverflow(overflow));
         ShowWithAutoHide();
 
         if (keepStretchActive)
@@ -733,79 +785,99 @@ public class ScrollBar : ElementBase
             return;
         }
 
-        if (!_isDragging)
-            StartVisualOverflowReturn();
+        if (!_isDragging) StartRubberBandReturn();
     }
 
     internal void ApplyInputDelta(float delta, bool keepStretchActive = false)
+        => ApplyInputValue(AccumulatedInputBase(delta), keepStretchActive);
+
+    internal void ReleaseVisualOverflow() => StartRubberBandReturn();
+
+    internal void SetHostHover(bool hovered)
     {
-        ApplyInputValue(GetAccumulatedInputValue(delta), keepStretchActive);
+        _hostHovered = hovered;
+        if (_autoHide)
+        {
+            if (hovered)
+            {
+                if (_visibilityAnim.Direction != AnimationDirection.In
+                    || _visibilityAnim.GetProgress() < 1.0)
+                    _visibilityAnim.StartNewAnimation(AnimationDirection.In);
+                _hideTimer.Stop();
+            }
+            else
+            {
+                _hideTimer.Stop();
+                if (!_isHovered && !_isDragging && !_isThumbHovered)
+                {
+                    _hideTimer.Interval = _hideDelay;
+                    _hideTimer.Start();
+                }
+            }
+        }
+        Invalidate();
     }
 
-    internal void ReleaseVisualOverflow()
-    {
-        StartVisualOverflowReturn();
-    }
+    // =========================================================================
+    // Mouse events
+    // =========================================================================
 
     internal override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        if (e.Button == MouseButtons.Left)
+        if (e.Button != MouseButtons.Left) return;
+
+        _inputSettleTimer.Stop();
+        _isInputStretching = false;
+
+        if (_thumbRect.Contains(e.Location))
         {
-            _inputSettleTimer.Stop();
-            _isInputStretching = false;
-
-            if (_thumbRect.Contains(e.Location))
+            _isDragging      = true;
+            _isThumbPressed  = true;
+            _dragStartPoint  = e.Location;
+            _dragStartValue  = _value;
+            ((IElement)this).GetParentWindow()?.SetMouseCapture(this);
+        }
+        else
+        {
+            // Click on track: jump by one page
+            if (IsVertical)
             {
-                _isDragging = true;
-                _isThumbPressed = true;
-                _dragStartPoint = e.Location;
-                _dragStartValue = Value;
-
-                var parentWindow = (this as IElement).GetParentWindow();
-                if (parentWindow != null)
-                    parentWindow.SetMouseCapture(this);
+                if      (e.Y < _thumbRect.Top)    Value -= _largeChange;
+                else if (e.Y > _thumbRect.Bottom) Value += _largeChange;
             }
             else
             {
-                if (IsVertical)
-                {
-                    if (e.Y < _thumbRect.Location.Y)
-                        Value -= LargeChange;
-                    else if (e.Y > _thumbRect.Bottom)
-                        Value += LargeChange;
-                }
-                else
-                {
-                    if (e.X < _thumbRect.Location.X)
-                        Value -= LargeChange;
-                    else if (e.X > _thumbRect.Right)
-                        Value += LargeChange;
-                }
+                if      (e.X < _thumbRect.Left)  Value -= _largeChange;
+                else if (e.X > _thumbRect.Right) Value += _largeChange;
             }
-
-            ShowWithAutoHide();
-            Invalidate();
         }
+
+        ShowWithAutoHide();
+        Invalidate();
     }
 
     internal override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var oldThumbHovered = _isThumbHovered;
+
+        bool oldThumbHovered = _isThumbHovered;
         _isThumbHovered = _thumbRect.Contains(e.Location);
-        _isHovered = SKRect.Create(SKPoint.Empty, Size).Contains(e.Location);
-        if (oldThumbHovered != _isThumbHovered)
-            Invalidate();
+        _isHovered      = _trackRect.Contains(e.Location);
+
+        if (oldThumbHovered != _isThumbHovered) Invalidate();
 
         if (_isDragging)
         {
-            var delta = IsVertical ? e.Y - _dragStartPoint.Y : e.X - _dragStartPoint.X;
-            var trackLength = IsVertical ? Height - _thumbRect.Height : Width - _thumbRect.Width;
-            if (trackLength <= 0) return;
-            var valuePerPixel = (float)(Maximum - Minimum) / trackLength;
-            var newValue = _dragStartValue + delta * valuePerPixel;
-            ApplyInputValue(newValue);
+            float delta       = IsVertical ? e.Y - _dragStartPoint.Y : e.X - _dragStartPoint.X;
+            float trackTravel = IsVertical ? Height - _thumbRect.Height : Width - _thumbRect.Width;
+
+            if (trackTravel > 0f)
+            {
+                float valuePerPixel = (_maximum - _minimum) / trackTravel;
+                ApplyInputValue(_dragStartValue + delta * valuePerPixel);
+                OnScroll(EventArgs.Empty);
+            }
         }
 
         ShowWithAutoHide();
@@ -814,31 +886,26 @@ public class ScrollBar : ElementBase
     internal override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        if (e.Button == MouseButtons.Left)
-        {
-            _isDragging = false;
-            _isThumbPressed = false;
-            ReleaseVisualOverflow();
+        if (e.Button != MouseButtons.Left) return;
 
-            var parentWindow = (this as IElement).GetParentWindow();
-            if (parentWindow != null)
-                parentWindow.ReleaseMouseCapture(this);
+        _isDragging     = false;
+        _isThumbPressed = false;
 
-            Invalidate();
-            if (_autoHide)
-            {
-                _hideTimer.Stop();
-                _hideTimer.Start();
-            }
-        }
+        ReleaseVisualOverflow();
+        ((IElement)this).GetParentWindow()?.ReleaseMouseCapture(this);
+
+        Invalidate();
+        if (_autoHide) { _hideTimer.Stop(); _hideTimer.Start(); }
     }
 
     internal override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
-        var scrollLines = SystemInformation.MouseWheelScrollLines;
-        var delta = e.Delta / 120 * scrollLines * SmallChange;
+
+        float scrollLines = SystemInformation.MouseWheelScrollLines;
+        float delta       = e.Delta / 120f * scrollLines * _smallChange;
         ApplyWheelDelta(-delta);
+        OnScroll(EventArgs.Empty);
         ShowWithAutoHide();
     }
 
@@ -852,15 +919,16 @@ public class ScrollBar : ElementBase
     internal override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        _isHovered = false;
+        _isHovered      = false;
         _isThumbHovered = false;
         Invalidate();
-        if (_autoHide)
-        {
-            _hideTimer.Stop();
-            _hideTimer.Start();
-        }
+
+        if (_autoHide) { _hideTimer.Stop(); _hideTimer.Start(); }
     }
+
+    // =========================================================================
+    // Overridable event raisers
+    // =========================================================================
 
     protected virtual void OnValueChanged(EventArgs e)
     {
@@ -868,32 +936,12 @@ public class ScrollBar : ElementBase
         ShowWithAutoHide();
     }
 
+    protected virtual void OnScroll(EventArgs e) => Scroll?.Invoke(this, e);
+
+    // =========================================================================
+    // Layout
+    // =========================================================================
+
     public override SKSize GetPreferredSize(SKSize proposedSize)
-    {
-        return IsVertical ? new SKSize(_thickness, 100) : new SKSize(100, _thickness);
-    }
-
-    internal void SetHostHover(bool hovered)
-    {
-        _hostHovered = hovered;
-        if (_autoHide)
-        {
-            if (hovered)
-            {
-                _visibilityAnim.StartNewAnimation(AnimationDirection.In);
-                _hideTimer.Stop();
-            }
-            else
-            {
-                _hideTimer.Stop();
-                if (!_isHovered && !_isDragging && !_isThumbHovered)
-                {
-                    _hideTimer.Interval = _hideDelay;
-                    _hideTimer.Start();
-                }
-            }
-        }
-
-        Invalidate();
-    }
+        => IsVertical ? new SKSize(_thickness, 100) : new SKSize(100, _thickness);
 }

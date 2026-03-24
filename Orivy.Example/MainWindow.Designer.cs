@@ -42,10 +42,12 @@ internal partial class MainWindow
         {
             Text = "Designer",
             Name = "panel3",
-            Padding = new(5),
+            Padding = new(24),
             Dock = SDUI.DockStyle.Fill,
             Radius = new(0),
-            Border = new(0)
+            Border = new(0),
+            AutoScroll = true,
+            AutoScrollMargin = new(0, 24)
         };
 
         this.panel4 = new()
@@ -470,27 +472,43 @@ internal partial class MainWindow
                     .Background(ColorScheme.SurfaceVariant));
         });
 
-        var visualStyleComboShell = new Element
+        var designerControlHeader = new Element
         {
-            Name = "visualStyleComboShell",
+            Name = "designerControlHeader",
+            Text = "Designer Controls\nComboBox demos live only on this page now. Use the motion preset, multi-select dropdown and inline color picker together.",
             Dock = SDUI.DockStyle.Top,
-            Height = 206,
+            Height = 102,
             Padding = new(18),
-            Margin = new(0, 0, 0, 14),
-            BackColor = ColorScheme.Surface,
+            Margin = new(0, 0, 0, 16),
+            BackColor = ColorScheme.SurfaceVariant,
             ForeColor = ColorScheme.ForeColor,
             Radius = new(18),
             Border = new(1),
             BorderColor = ColorScheme.Outline,
-            Text = "ComboBox Surface\nAnimated dropdown and chevron rotation now live in the shared controls library.",
             TextAlign = ContentAlignment.MiddleLeft
         };
 
-        var visualStyleComboStatus = new Element
+        var designerControlShell = new Element
         {
-            Name = "visualStyleComboStatus",
+            Name = "designerControlShell",
+            Dock = SDUI.DockStyle.Top,
+            Height = 628,
+            Padding = new(18),
+            Margin = new(0, 0, 0, 16),
+            BackColor = ColorScheme.Surface,
+            ForeColor = ColorScheme.ForeColor,
+            Radius = new(20),
+            Border = new(1),
+            BorderColor = ColorScheme.Outline,
+            Text = "Inspector Surface\nSingle-select, multi-select, popup motion and the new color picker live together here.",
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var designerControlStatus = new Element
+        {
+            Name = "designerControlStatus",
             Dock = SDUI.DockStyle.Bottom,
-            Height = 60,
+            Height = 72,
             Padding = new(14),
             Margin = new(0, 14, 0, 0),
             BackColor = ColorScheme.SurfaceContainer,
@@ -498,68 +516,125 @@ internal partial class MainWindow
             Radius = new(14),
             Border = new(1),
             BorderColor = ColorScheme.Primary.WithAlpha(86),
-            Text = "Combo Status\nHover the chevron, open the list and switch presets to inspect the motion.",
+            Text = "Designer Status\nDropdown motion, multi-select state and color picker values will report here.",
             TextAlign = ContentAlignment.MiddleLeft
         };
 
-        var visualStyleDensityCombo = new ComboBox
+        var designerSurfaceCombo = new ComboBox
         {
-            Name = "visualStyleDensityCombo",
+            Name = "designerSurfaceCombo",
             Dock = SDUI.DockStyle.Top,
             Height = 42,
             Margin = new(0, 0, 0, 12),
-            PlaceholderText = "Density preset",
+            PlaceholderText = "Inspector surface",
             MaxDropDownItems = 6,
-            DropDownItemHeight = 34
+            DropDownItemHeight = 34,
+            ShowSelectionIndicator = true,
+            DropDownOpeningEffect = OpeningEffectType.PopFade
         };
-        visualStyleDensityCombo.Items.AddRange(new object[]
+        designerSurfaceCombo.Items.AddRange(new object[]
         {
-            new ComboBoxItem("Compact Density", "compact"),
-            new ComboBoxItem("Balanced Density", "balanced"),
-            new ComboBoxItem("Comfort Density", "comfort"),
-            new ComboBoxItem("Presentation Density", "presentation")
+            new ComboBoxItem("Canvas Inspector", "canvas"),
+            new ComboBoxItem("Prototype Flow", "prototype"),
+            new ComboBoxItem("Component Tokens", "tokens"),
+            new ComboBoxItem("Export Review", "export")
         });
-        visualStyleDensityCombo.SelectedIndex = 1;
+        designerSurfaceCombo.SelectedIndex = 0;
 
-        var visualStyleThemeCombo = new ComboBox
+        var designerMotionCombo = new ComboBox
         {
-            Name = "visualStyleThemeCombo",
+            Name = "designerMotionCombo",
             Dock = SDUI.DockStyle.Top,
             Height = 42,
             Margin = new(0, 0, 0, 12),
-            PlaceholderText = "Theme preset",
+            PlaceholderText = "Popup motion preset",
             MaxDropDownItems = 6,
             DropDownItemHeight = 34
         };
-        visualStyleThemeCombo.Items.AddRange(new object[]
+        designerMotionCombo.Items.AddRange(new object[]
         {
-            new ComboBoxItem("Ocean Blue", new SKColor(33, 150, 243)),
-            new ComboBoxItem("Emerald Pulse", new SKColor(16, 185, 129)),
-            new ComboBoxItem("Amber Signal", new SKColor(245, 158, 11)),
-            new ComboBoxItem("Rose Circuit", new SKColor(244, 63, 94))
+            new ComboBoxItem("Pop Fade", OpeningEffectType.PopFade),
+            new ComboBoxItem("Scale Fade", OpeningEffectType.ScaleFade),
+            new ComboBoxItem("Slide Down Fade", OpeningEffectType.SlideDownFade),
+            new ComboBoxItem("Slide Up Fade", OpeningEffectType.SlideUpFade),
+            new ComboBoxItem("Fade", OpeningEffectType.Fade)
         });
-        visualStyleThemeCombo.SelectedIndex = 0;
+        designerMotionCombo.SelectedValue = OpeningEffectType.PopFade;
 
-        visualStyleThemeCombo.SelectionChangeCommitted += (_, _) =>
+        var designerModulesCombo = new ComboBox
         {
-            if (visualStyleThemeCombo.SelectedValue is SKColor accent)
+            Name = "designerModulesCombo",
+            Dock = SDUI.DockStyle.Top,
+            Height = 42,
+            Margin = new(0, 0, 0, 12),
+            PlaceholderText = "Inspector modules",
+            MaxDropDownItems = 8,
+            DropDownItemHeight = 34,
+            MultiSelect = true,
+            DropDownOpeningEffect = OpeningEffectType.PopFade
+        };
+        designerModulesCombo.Items.AddRange(new object[]
+        {
+            new ComboBoxItem("Layout Grid", "layout"),
+            new ComboBoxItem("Layer Stack", "layers"),
+            new ComboBoxItem("Token Studio", "tokens"),
+            new ComboBoxItem("Motion Curves", "motion"),
+            new ComboBoxItem("Accessibility", "a11y"),
+            new ComboBoxItem("Export Hooks", "export")
+        });
+        designerModulesCombo.SetItemSelected(0, true);
+        designerModulesCombo.SetItemSelected(2, true);
+        designerModulesCombo.SetItemSelected(3, true);
+
+        var designerAccentPicker = new ColorPicker
+        {
+            Name = "designerAccentPicker",
+            Dock = SDUI.DockStyle.Top,
+            Height = 346,
+            Margin = new(0, 0, 0, 14),
+            ReferenceColor = ColorScheme.Primary,
+            SelectedColor = ColorScheme.Primary,
+            ShowAlphaChannel = true,
+            ShowReferenceSwatch = true
+        };
+
+        void UpdateDesignerControlStatus()
+        {
+            var surfaceText = designerSurfaceCombo.SelectedItem is ComboBoxItem surfaceItem ? surfaceItem.Text : designerSurfaceCombo.Text;
+            var motionText = designerMotionCombo.SelectedItem is ComboBoxItem motionItem ? motionItem.Text : designerMotionCombo.Text;
+            var modulesText = string.IsNullOrWhiteSpace(designerModulesCombo.Text) ? "None" : designerModulesCombo.Text;
+            designerControlStatus.Text = $"Designer Status\nSurface: {surfaceText}. Motion: {motionText}. Modules: {modulesText}. Accent: {designerAccentPicker.HexValue}.";
+        }
+
+        designerMotionCombo.SelectionChangeCommitted += (_, _) =>
+        {
+            if (designerMotionCombo.SelectedValue is not OpeningEffectType effect)
+                return;
+
+            designerSurfaceCombo.DropDownOpeningEffect = effect;
+            designerModulesCombo.DropDownOpeningEffect = effect;
+            UpdateDesignerControlStatus();
+        };
+
+        designerSurfaceCombo.SelectionChangeCommitted += (_, _) => UpdateDesignerControlStatus();
+        designerModulesCombo.SelectionChangeCommitted += (_, _) => UpdateDesignerControlStatus();
+        designerAccentPicker.SelectedColorCommitted += (_, _) =>
+        {
+            var accent = designerAccentPicker.SelectedColor;
+            if (accent != SKColors.Transparent)
                 ColorScheme.SetPrimarySeedColor(accent);
 
-            var themeText = visualStyleThemeCombo.SelectedItem is ComboBoxItem item ? item.Text : visualStyleThemeCombo.Text;
-            var densityText = visualStyleDensityCombo.SelectedItem is ComboBoxItem densityItem ? densityItem.Text : visualStyleDensityCombo.Text;
-            visualStyleComboStatus.Text = $"Combo Status\nTheme: {themeText}. Density: {densityText}. Chevron and dropdown motion should remain synchronized.";
+            UpdateDesignerControlStatus();
         };
+        designerAccentPicker.SelectedColorChanged += (_, _) => UpdateDesignerControlStatus();
 
-        visualStyleDensityCombo.SelectionChangeCommitted += (_, _) =>
-        {
-            var themeText = visualStyleThemeCombo.SelectedItem is ComboBoxItem item ? item.Text : visualStyleThemeCombo.Text;
-            var densityText = visualStyleDensityCombo.SelectedItem is ComboBoxItem densityItem ? densityItem.Text : visualStyleDensityCombo.Text;
-            visualStyleComboStatus.Text = $"Combo Status\nTheme: {themeText}. Density: {densityText}. Item hover and checked state should stay crisp while scrolling.";
-        };
+        UpdateDesignerControlStatus();
 
-        visualStyleComboShell.Controls.Add(visualStyleComboStatus);
-        visualStyleComboShell.Controls.Add(visualStyleDensityCombo);
-        visualStyleComboShell.Controls.Add(visualStyleThemeCombo);
+        designerControlShell.Controls.Add(designerControlStatus);
+        designerControlShell.Controls.Add(designerAccentPicker);
+        designerControlShell.Controls.Add(designerModulesCombo);
+        designerControlShell.Controls.Add(designerMotionCombo);
+        designerControlShell.Controls.Add(designerSurfaceCombo);
 
         var scrollLabHeader = new Element
         {
@@ -759,11 +834,13 @@ internal partial class MainWindow
         visualStylePrimaryButton.Click += VisualStylePrimaryButton_Click;
         visualStyleFooterAction.Click += VisualStyleEnableDisabled_Click;
 
+        this.panel3.Controls.Add(designerControlShell);
+        this.panel3.Controls.Add(designerControlHeader);
+
         this.panel4.Controls.Add(this.visualStyleScrollProbe);
         this.panel4.Controls.Add(this.visualStyleFooterAction);
         this.panel4.Controls.Add(this.visualStyleGhostButton);
         this.panel4.Controls.Add(this.visualStylePrimaryButton);
-        this.panel4.Controls.Add(visualStyleComboShell);
         this.panel4.Controls.Add(this.visualStyleDisabledCard);
         this.panel4.Controls.Add(this.visualStyleDangerCard);
         this.panel4.Controls.Add(this.visualStyleInteractiveCard);
@@ -1127,11 +1204,11 @@ internal partial class MainWindow
         // 
         this.Name = "MainWindow";
         this.Text = "Orivy Example";
-        this.Width = 800;
-        this.Height = 450;
+        this.Width = 1100;
+        this.Height = 650;
         this.DwmMargin = -1;
         this.Padding = new(10);
-        this.EnableMica = true;
+        this.WindowThemeType = WindowThemeType.Tabbed;
         this.ContextMenuStrip = this.extendMenu;
         this.WindowPageControl = windowPageControl;
         this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;

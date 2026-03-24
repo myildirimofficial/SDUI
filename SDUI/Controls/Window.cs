@@ -29,6 +29,8 @@ public partial class Window : WindowBase
     private const int TAB_INDICATOR_HEIGHT = 3;
 
     private const float HOVER_ANIMATION_SPEED = 0.1f;
+    private const double TAB_INDICATOR_ANIMATION_SPEED = 0.10; // hız artırıldı, gecikme azaltıldı
+
     // Hot-path caches (avoid per-frame LINQ allocations)
     private readonly Dictionary<string, SKPaint> _paintCache = new();
     private readonly Dictionary<string, SKFont> _fontCache = new();
@@ -244,7 +246,7 @@ public partial class Window : WindowBase
         pageRect = [];
 
         // create individual hover managers then register for bulk operations
-        pageAreaAnimationManager = CreateHoverAnimation();
+        pageAreaAnimationManager = CreateHoverAnimation(TAB_INDICATOR_ANIMATION_SPEED);
         minBoxHoverAnimationManager = CreateHoverAnimation();
         maxBoxHoverAnimationManager = CreateHoverAnimation();
         closeBoxHoverAnimationManager = CreateHoverAnimation();
@@ -1173,7 +1175,9 @@ public partial class Window : WindowBase
         _formMoveMouseDown = false;
 
         if (shouldSelectPendingTab && _windowPageControl != null && pendingTabSelectionIndex < _windowPageControl.Count)
+        {
             _windowPageControl.SelectedIndex = pendingTabSelectionIndex;
+        }
 
         _pendingTabSelectionIndex = -1;
 
@@ -1425,16 +1429,32 @@ public partial class Window : WindowBase
         if (info.Width <= 0 || info.Height <= 0)
             return;
 
-        if (!ShowTitle)
+        bool revealNativeBackdrop = UsesNativeBackdropMaterial && ShowTitle && DwmMargin != 0;
+
+        if (revealNativeBackdrop)
+        {
+            canvas.Clear(SKColors.Transparent);
+
+            float bodyTop = Math.Min(_titleBarBottomDPI, info.Height);
+            float bodyHeight = Math.Max(0, info.Height - bodyTop);
+            if (bodyHeight > 0)
+            {
+                using var bodyPaint = new SKPaint { Color = ColorScheme.Surface, IsAntialias = false };
+                canvas.DrawRect(0, bodyTop, info.Width, bodyHeight, bodyPaint);
+            }
+        }
+        else
         {
             canvas.Clear(ColorScheme.Surface);
+        }
+
+        if (!ShowTitle)
+        {
             return;
         }
 
         var foreColor = ColorScheme.ForeColor;
         var hoverColor = ColorScheme.BorderColor;
-
-        canvas.Clear(ColorScheme.Surface);
 
         if (FullDrawHatch)
         {
@@ -1708,26 +1728,7 @@ public partial class Window : WindowBase
                 pageRect.Count != _windowPageControl.Count)
                 UpdateTabRects();
 
-            var animationProgress = isPageTransitionAnimating ? pageAreaAnimationManager.GetProgress() : 1d;
-
-            // Click feedback
-            if (pageAreaAnimationManager.IsAnimating())
-            {
-                var ripplePaint = GetOrCreatePaint("tabRipple", () => new SKPaint { IsAntialias = true });
-                ripplePaint.Color = foreColor.WithAlpha((byte)(31 - animationProgress * 30));
-
-                var rippleSize = (int)(animationProgress * pageRect[_windowPageControl.SelectedIndex].Width * 1.75);
-                var rippleRect = new SkiaSharp.SKRect(
-                    animationSource.X - rippleSize / 2,
-                    animationSource.Y - rippleSize / 2,
-                    animationSource.X + rippleSize / 2,
-                    animationSource.Y + rippleSize / 2);
-
-                canvas.Save();
-                canvas.ClipRect(pageRect[_windowPageControl.SelectedIndex]);
-                canvas.DrawOval(rippleRect, ripplePaint);
-                canvas.Restore();
-            }
+            var transitionProgress = isPageTransitionAnimating ? pageAreaAnimationManager.GetProgress() : 1d;
 
             // fix desing time error
             if (_windowPageControl.SelectedIndex <= -1 || _windowPageControl.SelectedIndex >= _windowPageControl.Count)
@@ -1750,9 +1751,9 @@ public partial class Window : WindowBase
             var activePageRect = pageRect[_windowPageControl.SelectedIndex];
 
             var y = activePageRect.Bottom - 2;
-            var x = previousActivePageRect.Left + (activePageRect.Left - previousActivePageRect.Left) * (float)animationProgress;
+            var x = previousActivePageRect.Left + (activePageRect.Left - previousActivePageRect.Left) * (float)transitionProgress;
             var width = previousActivePageRect.Width +
-                        (activePageRect.Width - previousActivePageRect.Width) * (float)animationProgress;
+                        (activePageRect.Width - previousActivePageRect.Width) * (float)transitionProgress;
 
             if (_tabDesingMode == TabDesingMode.Rectangle)
             {
@@ -2099,11 +2100,11 @@ public partial class Window : WindowBase
     /// <summary>
     /// Lightweight factory for hover‑style animation managers.
     /// </summary>
-    private AnimationManager CreateHoverAnimation()
+    private AnimationManager CreateHoverAnimation(double increment = HOVER_ANIMATION_SPEED)
     {
         var m = new AnimationManager
         {
-            Increment = HOVER_ANIMATION_SPEED,
+            Increment = increment,
             AnimationType = AnimationType.EaseInOut,
             Singular = true,
             InterruptAnimation = true

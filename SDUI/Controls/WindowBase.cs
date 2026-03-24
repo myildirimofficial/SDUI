@@ -64,27 +64,34 @@ public partial class WindowBase : ElementBase
     /// <summary>
     /// Enable or disable win10 ver 1809 + mica backdrop effects
     /// </summary>
-    private bool _enableMica;
-    public bool EnableMica
+    private SDUI.WindowThemeType _windowThemeType;
+    public SDUI.WindowThemeType WindowThemeType
     {
-        get => _enableMica;
+        get => _windowThemeType;
         set
         {
-            if (_enableMica == value)
+            if (_windowThemeType == value)
                 return;
-            _enableMica = value;
+
+            _windowThemeType = value;
 
             if (IsHandleCreated)
             {
-                if (value)
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW);
-                else
-                    SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);
+                ApplyNativeWindowStyles();
+                SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0,
+                    SetWindowPosFlags.SWP_FRAMECHANGED | SetWindowPosFlags.SWP_NOSIZE | SetWindowPosFlags.SWP_NOMOVE |
+                    SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOOWNERZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+                ApplyThemeToNativeWindow();
+                InvalidateWindow();
+                return;
             }
 
             Invalidate();
         }
     }
+
+    protected bool UsesNativeBackdropMaterial
+        => _windowThemeType != SDUI.WindowThemeType.None && SDUI.Native.Windows.Helpers.IsModern;
 
     public override string Text
     {
@@ -280,6 +287,7 @@ public partial class WindowBase : ElementBase
             // Window is created hidden; visibility is controlled explicitly via Show()/ShowDialog().
             // This prevents WM_SHOWWINDOW/OnShown from firing before InitializeComponent completes.
             cp.Style = (int)WindowStyles.WS_OVERLAPPEDWINDOW;
+            cp.Style &= ~(int)WindowStyles.WS_SYSMENU;
             cp.ExStyle = 0;
 
             // Class styles
@@ -293,8 +301,9 @@ public partial class WindowBase : ElementBase
                 cp.Style |= (int)(SetWindowLongFlags.WS_CLIPCHILDREN |
                                   SetWindowLongFlags.WS_CLIPSIBLINGS);
                 // WS_EX_NOREDIRECTIONBITMAP helps some WGL/SwapBuffers flicker scenarios,
-                // but can interfere with DXGI swapchains. Apply only for OpenGL.
-                if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL)
+                // but fluent backdrops need DWM redirection. Keep it disabled when a native
+                // backdrop material is requested.
+                if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL && !UsesNativeBackdropMaterial)
                     cp.ExStyle |= (uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
                 cp.ExStyle &= ~(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
             }
@@ -735,21 +744,21 @@ public partial class WindowBase : ElementBase
                     var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
                     var screen = Screen.FromHandle(hWnd);
                     var work = screen.WorkingArea;
-                    
+
                     // ptMaxPosition and ptMaxSize define the maximized window bounds
                     // Use full working area - custom title bar is part of client area
-                    mmi.ptMaxPosition = new POINT 
-                    { 
-                        X = work.Left - screen.Bounds.Left, 
+                    mmi.ptMaxPosition = new POINT
+                    {
+                        X = work.Left - screen.Bounds.Left,
                         Y = work.Top - screen.Bounds.Top
                     };
-                    
-                    mmi.ptMaxSize = new POINT 
-                    { 
-                        X = work.Width, 
+
+                    mmi.ptMaxSize = new POINT
+                    {
+                        X = work.Width,
                         Y = work.Height
                     };
-                    
+
                     if (MinimumSize.Width > 0 || MinimumSize.Height > 0)
                         mmi.ptMinTrackSize = new POINT
                         {
@@ -1236,19 +1245,34 @@ public partial class WindowBase : ElementBase
         if (!IsHandleCreated || !SDUI.Native.Windows.Helpers.IsModern)
             return;
 
-        SDUI.Native.Windows.Helpers.UseImmersiveDarkMode(Handle, ColorScheme.Surface.IsDark());
+        bool isDark = ColorScheme.Surface.IsDark();
+        Native.Windows.Helpers.UseImmersiveDarkMode(Handle, isDark);
 
-        if (EnableMica)
+        if (!IsHandleCreated)
+            return;
+
+        switch (_windowThemeType)
         {
-            SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW);
-        }
-        else if (ColorScheme.Surface.IsDark())
-        {
-            SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_TABBEDWINDOW);
-        }
-        else
-        {
-            SDUI.Native.Windows.Helpers.EnableBackdropType(Handle, 0);
+            case SDUI.WindowThemeType.None:
+                Native.Windows.Helpers.DisableAcrylic(Handle);
+                Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_NONE);
+                break;
+            case SDUI.WindowThemeType.Mica:
+                Native.Windows.Helpers.DisableAcrylic(Handle);
+                if (!Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_MAINWINDOW))
+                    Native.Windows.Helpers.EnableAcrylic(Handle, ColorScheme.Surface.WithAlpha(88));
+                break;
+            case SDUI.WindowThemeType.Acrylic:
+                if (Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_TRANSIENTWINDOW))
+                    Native.Windows.Helpers.DisableAcrylic(Handle);
+                else
+                    Native.Windows.Helpers.EnableAcrylic(Handle, ColorScheme.Surface.WithAlpha(100));
+                break;
+            case SDUI.WindowThemeType.Tabbed:
+                Native.Windows.Helpers.DisableAcrylic(Handle);
+                if (!Native.Windows.Helpers.EnableBackdropType(Handle, DWMSBT_TABBEDWINDOW))
+                    Native.Windows.Helpers.EnableAcrylic(Handle, ColorScheme.Surface.WithAlpha(88));
+                break;
         }
     }
 

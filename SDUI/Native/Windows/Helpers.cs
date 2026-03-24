@@ -164,36 +164,60 @@ public static class Helpers
         DwmSetWindowAttribute(hWnd, dwAttribute, ref pvAttribute, sizeof(int));
     }
 
-    public static void EnableAcrylic(IntPtr windowHandle, SKColor blurColor)
+    public static bool EnableAcrylic(IntPtr windowHandle, SKColor blurColor)
     {
         var accentPolicy = new AccentPolicy
         {
             AccentState = ACCENT.ENABLE_ACRYLICBLURBEHIND,
             GradientColor = (uint)blurColor
         };
-        var accentSize = Marshal.SizeOf(accentPolicy);
-        var accentPolicyPtr = Marshal.AllocHGlobal(accentSize);
-        Marshal.StructureToPtr(accentPolicy, accentPolicyPtr, false);
-
-        var data = new WindowCompositionAttributeData
-        {
-            Attribute = WindowCompositionAttribute.WCA_ACCENT_POLICY,
-            Data = accentPolicyPtr,
-            SizeOfData = Marshal.SizeOf<AccentPolicy>()
-        };
-
-        SetWindowCompositionAttribute(
-            windowHandle,
-            ref data);
+        return SetAccentPolicy(windowHandle, accentPolicy);
     }
 
-    public static void EnableBackdropType(IntPtr windowHandle, uint backdropType = DWMSBT_TABBEDWINDOW)
+    public static bool DisableAcrylic(IntPtr windowHandle)
     {
+        var accentPolicy = new AccentPolicy
+        {
+            AccentState = ACCENT.DISABLED
+        };
+        return SetAccentPolicy(windowHandle, accentPolicy);
+    }
+
+    private static bool SetAccentPolicy(IntPtr windowHandle, AccentPolicy accentPolicy)
+    {
+        var accentSize = Marshal.SizeOf(accentPolicy);
+        var accentPolicyPtr = Marshal.AllocHGlobal(accentSize);
+        try
+        {
+            Marshal.StructureToPtr(accentPolicy, accentPolicyPtr, false);
+
+            var data = new WindowCompositionAttributeData
+            {
+                Attribute = WindowCompositionAttribute.WCA_ACCENT_POLICY,
+                Data = accentPolicyPtr,
+                SizeOfData = Marshal.SizeOf<AccentPolicy>()
+            };
+
+            return SetWindowCompositionAttribute(
+                windowHandle,
+                ref data);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(accentPolicyPtr);
+        }
+    }
+
+    public static bool EnableBackdropType(IntPtr windowHandle, uint backdropType = DWMSBT_TABBEDWINDOW)
+    {
+        if (!IsEleven || BuildInfo.BuildNumber < 22621)
+            return false;
+
         var flag = backdropType;
-        DwmSetWindowAttribute(
+        return DwmSetWindowAttribute(
             windowHandle,
             DWMWINDOWATTRIBUTE.DWMWA_SYSTEMBACKDROP_TYPE,
             ref flag,
-            Marshal.SizeOf<int>());
+            Marshal.SizeOf<uint>()) == 0;
     }
 }

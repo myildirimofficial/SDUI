@@ -11,7 +11,10 @@ namespace SDUI.Controls;
 public enum OpeningEffectType
 {
     Fade,
-    SlideDownFade
+    SlideDownFade,
+    SlideUpFade,
+    ScaleFade,
+    PopFade
 }
 
 public class ContextMenuStrip : MenuStrip
@@ -33,10 +36,12 @@ public class ContextMenuStrip : MenuStrip
     private const float BaseAccordionIndent = 18f;
     private const float BaseAccordionMaxHeight = 200f;
     private const float BasePopupTopAnchorOffset = 6f;
+    private const float OpeningOpacityFloor = 0.78f;
     private const double AccordionAnimationIncrement = 0.18;
     private const float PopupMargin = 8f;
     private const float ScrollBarGap = 4f;
     private readonly AnimationManager _fadeInAnimation;
+    private bool _isClosing;
 
     private readonly Dictionary<MenuItem, AnimationManager> _itemHoverAnims = new();
     private readonly Dictionary<MenuItem, AnimationManager> _accordionAnims = new();
@@ -67,6 +72,7 @@ public class ContextMenuStrip : MenuStrip
     private float _lastMetricsDpi;
     private float _maxPopupHeight;
     private float _minPopupWidth;
+    private float _openingTargetOpacity = 1f;
     private float _verticalItemGap;
     private float _scrollOffset;
     private float _viewportHeight;
@@ -135,7 +141,30 @@ public class ContextMenuStrip : MenuStrip
             Singular = true,
             InterruptAnimation = false
         };
-        _fadeInAnimation.OnAnimationProgress += _ => Invalidate();
+        _fadeInAnimation.OnAnimationProgress += _ =>
+        {
+            var progress = (float)_fadeInAnimation.GetProgress();
+            var openProgress = _fadeInAnimation.Direction == AnimationDirection.Out ? 1f - progress : progress;
+            var opacity = _openingTargetOpacity * (OpeningOpacityFloor + (1f - OpeningOpacityFloor) * openProgress);
+            if (Math.Abs(Opacity - opacity) > 0.0001f)
+                Opacity = opacity;
+
+            Invalidate();
+        };
+        _fadeInAnimation.OnAnimationFinished += _ =>
+        {
+            if (_fadeInAnimation.Direction == AnimationDirection.In)
+            {
+                if (Math.Abs(Opacity - _openingTargetOpacity) > 0.0001f)
+                    Opacity = _openingTargetOpacity;
+
+                _isClosing = false;
+                Invalidate();
+                return;
+            }
+
+            CompleteHide();
+        };
     }
 
     [Category("Behavior")]
@@ -306,6 +335,8 @@ public class ContextMenuStrip : MenuStrip
 
         AttachHandlers();
 
+        _openingTargetOpacity = Math.Clamp(Opacity, 0.01f, 1f);
+        Opacity = _openingTargetOpacity * OpeningOpacityFloor;
         _fadeInAnimation.SetProgress(0);
         _fadeInAnimation.StartNewAnimation(AnimationDirection.In);
 
@@ -320,7 +351,7 @@ public class ContextMenuStrip : MenuStrip
 
     public new void Hide()
     {
-        if (!IsOpen) return;
+        if (!IsOpen || _isClosing) return;
 
         var canceling = new CancelEventArgs();
         Closing?.Invoke(this, canceling);
@@ -330,6 +361,15 @@ public class ContextMenuStrip : MenuStrip
         // Close any open submenus before hiding
         CloseSubmenu();
 
+        _isClosing = true;
+        _fadeInAnimation.SetProgress(0);
+        _fadeInAnimation.StartNewAnimation(AnimationDirection.Out);
+    }
+
+    private void CompleteHide()
+    {
+        _isClosing = false;
+
         DetachHandlers();
         Visible = false;
         _ownerWindow?.Invalidate();
@@ -338,6 +378,7 @@ public class ContextMenuStrip : MenuStrip
         ParentDropDown = null;
         ResetElementAnchor();
         _accordionCenterTarget = null;
+        Opacity = _openingTargetOpacity;
         IsOpen = false;
     }
 
@@ -1267,18 +1308,18 @@ public class ContextMenuStrip : MenuStrip
         EnsureSkiaCaches();
 
         var fadeProgress = (float)_fadeInAnimation.GetProgress();
+        if (_fadeInAnimation.Direction == AnimationDirection.Out)
+            fadeProgress = 1f - fadeProgress;
+
         var fadeAlpha = (byte)(fadeProgress * 255);
 
         var animationSaveCount = -1;
-        if (_openingEffect == OpeningEffectType.SlideDownFade)
+        if (_openingEffect != OpeningEffectType.Fade)
         {
             _layerPaint ??= new SKPaint { IsAntialias = true };
             _layerPaint.Color = SKColors.White.WithAlpha(fadeAlpha);
             animationSaveCount = canvas.SaveLayer(_layerPaint);
-
-            // Restore the original slide feel while respecting upward opening direction.
-            var translateY = (_openingUpwards ? 1f - fadeProgress : fadeProgress - 1f) * 8f;
-            canvas.Translate(0, translateY);
+            ApplyOpeningTransform(canvas, fadeProgress);
         }
 
         var scale = ScaleFactor;
@@ -1459,42 +1500,21 @@ public class ContextMenuStrip : MenuStrip
 
             if (ShowSubmenuArrow && item.HasDropDown)
             {
-                var chevronSize = 5f * scale;
-                var chevronX = itemRect.Right - 14 * scale; // Align to Right - 14px (More space to ensure full 12px gap)
+                var chevronX = itemRect.Right - 14f * scale;
                 var chevronY = itemRect.MidY;
-
-                // Chevron gets active text color and full opacity on hover, 0.4 opacity otherwise
                 var arrowColor = isHovered ? hoverFore : MenuForeColor;
-                var arrowAlphaBase = (isHovered ? 255 : 102) * contentAlphaScale;
-                _arrowPaint!.Color = arrowColor.WithAlpha((byte)(fadeAlpha * arrowAlphaBase / 255f));
-
-                _chevronPath!.Reset();
+                var arrowAlphaBase = (isHovered ? 255 : 140) * contentAlphaScale;
 
                 if (UseAccordionSubmenus)
                 {
                     var accordionProgress = GetAccordionProgress(item);
                     var chevronRotation = GetChevronRotation(accordionProgress);
-                    _chevronPath.MoveTo(-chevronSize, -chevronSize);
-                    _chevronPath.LineTo(2 * scale, 0f);
-                    _chevronPath.LineTo(-chevronSize, chevronSize);
-                    _chevronPath.Close();
-
-                    var chevronSave = canvas.Save();
-                    canvas.Translate(chevronX, chevronY);
-                    canvas.RotateDegrees(chevronRotation);
-                    canvas.DrawPath(_chevronPath, _arrowPaint);
-                    canvas.RestoreToCount(chevronSave);
+                    DrawSubmenuChevron(canvas, chevronX, chevronY, scale, chevronRotation, arrowColor, (byte)(fadeAlpha * arrowAlphaBase / 255f));
                     canvas.RestoreToCount(itemSave);
                     continue;
                 }
 
-                _chevronPath.MoveTo(chevronX - chevronSize, chevronY - chevronSize);
-                _chevronPath.LineTo(chevronX + 2 * scale, chevronY);
-                _chevronPath.LineTo(chevronX - chevronSize, chevronY + chevronSize);
-
-                _chevronPath.Close();
-
-                canvas.DrawPath(_chevronPath, _arrowPaint);
+                DrawSubmenuChevron(canvas, chevronX, chevronY, scale, 0f, arrowColor, (byte)(fadeAlpha * arrowAlphaBase / 255f));
             }
 
             canvas.RestoreToCount(itemSave);
@@ -1502,11 +1522,95 @@ public class ContextMenuStrip : MenuStrip
 
         canvas.RestoreToCount(itemClipSave);
 
-        // Restore layer if SlideDownFade effect was applied
+        // Restore layer if an opening effect layer was applied
         if (animationSaveCount >= 0)
         {
             canvas.RestoreToCount(animationSaveCount);
         }
+    }
+
+    private void DrawSubmenuChevron(SKCanvas canvas, float centerX, float centerY, float scale, float rotationDegrees, SKColor color, byte alpha)
+    {
+        _arrowPaint!.Style = SKPaintStyle.Stroke;
+        _arrowPaint.StrokeWidth = Math.Max(1.35f, 1.35f * scale);
+        _arrowPaint.StrokeCap = SKStrokeCap.Round;
+        _arrowPaint.StrokeJoin = SKStrokeJoin.Round;
+        _arrowPaint.Color = color.WithAlpha(alpha);
+
+        _chevronPath!.Reset();
+        var halfWidth = 3.7f * scale;
+        var halfHeight = 4.15f * scale;
+        var tipOffset = 0.95f * scale;
+        _chevronPath.MoveTo(-halfWidth, -halfHeight);
+        _chevronPath.LineTo(tipOffset, 0f);
+        _chevronPath.LineTo(-halfWidth, halfHeight);
+
+        var chevronSave = canvas.Save();
+        canvas.Translate(centerX, centerY);
+        if (Math.Abs(rotationDegrees) > 0.001f)
+            canvas.RotateDegrees(rotationDegrees);
+
+        canvas.DrawPath(_chevronPath, _arrowPaint);
+        canvas.RestoreToCount(chevronSave);
+    }
+
+    private void ApplyOpeningTransform(SKCanvas canvas, float progress)
+    {
+        progress = Math.Clamp(progress, 0f, 1f);
+
+        switch (_openingEffect)
+        {
+            case OpeningEffectType.SlideDownFade:
+            {
+                var translateY = (_openingUpwards ? 1f - progress : progress - 1f) * 8f;
+                canvas.Translate(0f, translateY);
+                break;
+            }
+
+            case OpeningEffectType.SlideUpFade:
+            {
+                var translateY = (_openingUpwards ? progress - 1f : 1f - progress) * 8f;
+                canvas.Translate(0f, translateY);
+                break;
+            }
+
+            case OpeningEffectType.ScaleFade:
+                ApplyScaleOpeningTransform(canvas, progress, 0.965f, 4.5f);
+                break;
+
+            case OpeningEffectType.PopFade:
+                ApplyScaleOpeningTransform(canvas, progress, 0.93f, 6f);
+                break;
+        }
+    }
+
+    private void ApplyScaleOpeningTransform(SKCanvas canvas, float progress, float startScale, float verticalOffset)
+    {
+        var scale = startScale + (1f - startScale) * progress;
+        var pivot = GetOpeningEffectPivot();
+        var translateY = (_openingUpwards ? 1f - progress : progress - 1f) * verticalOffset;
+
+        canvas.Translate(pivot.X, pivot.Y + translateY);
+        canvas.Scale(scale, scale);
+        canvas.Translate(-pivot.X, -pivot.Y);
+    }
+
+    private SKPoint GetOpeningEffectPivot()
+    {
+        var width = Math.Max(1f, _viewportWidth + ItemPadding * 2f);
+        var height = Math.Max(1f, _viewportHeight);
+        var inset = Math.Max(12f, 18f * ScaleFactor);
+
+        var x = _anchorPlacement == PopupAnchorPlacement.Beside
+            ? _openingLeftwards
+                ? width - inset
+                : inset
+            : width * 0.5f;
+        var y = _openingUpwards ? height - inset : inset;
+
+        return new SKPoint(
+            Math.Clamp(x, inset, Math.Max(inset, width - inset)),
+            Math.Clamp(y, inset, Math.Max(inset, height - inset)));
     }
 
     private float GetAccordionProgress(MenuItem item)
