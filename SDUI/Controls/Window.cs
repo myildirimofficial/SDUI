@@ -1429,19 +1429,15 @@ public partial class Window : WindowBase
         if (info.Width <= 0 || info.Height <= 0)
             return;
 
-        bool revealNativeBackdrop = UsesNativeBackdropMaterial && ShowTitle && DwmMargin != 0;
+        bool revealNativeBackdrop = UsesNativeBackdropMaterial && DwmMargin != 0;
 
         if (revealNativeBackdrop)
         {
+            // Clear the entire canvas to transparent (premultiplied black).
+            // DWM treats pure-black GDI pixels as transparent when DwmExtendFrameIntoClientArea
+            // covers the area, so the native backdrop (Mica / Acrylic / Tabbed) shows through
+            // everywhere that controls don't paint over it.
             canvas.Clear(SKColors.Transparent);
-
-            float bodyTop = Math.Min(_titleBarBottomDPI, info.Height);
-            float bodyHeight = Math.Max(0, info.Height - bodyTop);
-            if (bodyHeight > 0)
-            {
-                using var bodyPaint = new SKPaint { Color = ColorScheme.Surface, IsAntialias = false };
-                canvas.DrawRect(0, bodyTop, info.Width, bodyHeight, bodyPaint);
-            }
         }
         else
         {
@@ -1714,7 +1710,7 @@ public partial class Window : WindowBase
             font.MeasureText(Text, out bounds);
             var textX = showMenuInsteadOfIcon
                 ? _formMenuRect.Left + _formMenuRect.Width + 8 * ScaleFactor
-                : _titleBarLeftInsetDPI + ((ShowIcon && Icon != null) ? faviconSize + 14 * ScaleFactor : 0);
+                : _titleBarLeftInsetDPI + ((ShowIcon && Icon != null) ? faviconSize + 14 * ScaleFactor : 8);
             var textY = _titleBarCenterYDPI + Math.Abs(font.Metrics.Ascent + font.Metrics.Descent) / 2;
 
             TextRenderer.DrawText(canvas, Text, textX, textY, SKTextAlign.Left, font, textPaint);

@@ -18,6 +18,14 @@ internal class SoftwareRenderer : IWindowRenderer
     private int _cachedWidth;
     private int _cachedHeight;
     private bool _disposed;
+
+    /// <summary>
+    /// When true, uses GdiAlphaBlend instead of BitBlt so premultiplied-alpha pixels
+    /// composite correctly against the DWM backdrop (Mica / Acrylic / Tabbed).
+    /// Must be set to true whenever WS_EX_NOREDIRECTIONBITMAP is active with a system backdrop.
+    /// </summary>
+    public bool UseAlphaCompositing { get; set; }
+
     public bool IsSkiaGpuActive => false;
     public RenderBackend Backend => RenderBackend.Software;
     public GRContext? GrContext => null;
@@ -102,7 +110,21 @@ internal class SoftwareRenderer : IWindowRenderer
             }
 
             // Blit the memory DC to the screen
-            GdiNativeMethods.BitBlt(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, GdiNativeMethods.SRCCOPY);
+            if (UseAlphaCompositing)
+            {
+                var blend = new GdiNativeMethods.BLENDFUNCTION
+                {
+                    BlendOp = GdiNativeMethods.AC_SRC_OVER,
+                    BlendFlags = 0,
+                    SourceConstantAlpha = 255,
+                    AlphaFormat = GdiNativeMethods.AC_SRC_ALPHA
+                };
+                GdiNativeMethods.AlphaBlend(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, width, height, blend);
+            }
+            else
+            {
+                GdiNativeMethods.BitBlt(hdc, 0, 0, width, height, _cachedMemDC, 0, 0, GdiNativeMethods.SRCCOPY);
+            }
             return true;
         }
         finally

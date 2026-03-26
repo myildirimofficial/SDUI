@@ -349,7 +349,7 @@ public class ScrollBar : ElementBase
     // Internal API (consumed by the host ScrollPanel / ScrollViewer)
     // =========================================================================
 
-    internal float DisplayValue => (float)(_animatedValue + _visualOverflowValue);
+    internal float DisplayValue => (float)Math.Round(_animatedValue + _visualOverflowValue);
 
     internal event EventHandler? DisplayValueChanged;
     public  event EventHandler? ValueChanged;
@@ -642,6 +642,7 @@ public class ScrollBar : ElementBase
         if (!_isRubberBandAnimating || _isInputStretching || _isDragging) return;
 
         _visualOverflowValue *= RubberBandDecay;
+        //_visualOverflowValue = MathF.Round(_visualOverflowValue);
 
         if (MathF.Abs(_visualOverflowValue) <= RubberBandStopThreshold)
         {

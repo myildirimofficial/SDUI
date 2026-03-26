@@ -102,6 +102,7 @@ public class ComboBox : ElementBase
 
         _dropDown.Opening += OnDropDownOpening;
         _dropDown.Closing += OnDropDownClosing;
+        _dropDown.Closed += OnDropDownClosed;
 
         AutoEllipsis = true;
         CanSelect = true;
@@ -310,7 +311,7 @@ public class ComboBox : ElementBase
     }
 
     [Browsable(false)]
-    public bool DroppedDown => _dropDown is { IsOpen: true };
+    public bool DroppedDown => _dropDown is { IsOpen: true, IsClosing: false };
 
     [Category("Behavior")]
     [DefaultValue(typeof(OpeningEffectType), nameof(OpeningEffectType.PopFade))]
@@ -514,10 +515,14 @@ public class ComboBox : ElementBase
         if (_suppressNextMouseToggle)
         {
             _suppressNextMouseToggle = false;
+            UpdatePressedState(false);
             return;
         }
 
         ToggleDropDown();
+        // WM_LBUTTONUP routes to the ContextMenuStrip popup (higher hit-test priority)
+        // so ComboBox.OnMouseUp never fires after ToggleDropDown. Clear pressed state now.
+        UpdatePressedState(false);
     }
 
     internal override void OnMouseWheel(MouseEventArgs e)
@@ -652,6 +657,7 @@ public class ComboBox : ElementBase
 
             _dropDown.Opening -= OnDropDownOpening;
             _dropDown.Closing -= OnDropDownClosing;
+            _dropDown.Closed -= OnDropDownClosed;
             _dropDown.Dispose();
             _chevronAnimation.Dispose();
 
@@ -739,6 +745,14 @@ public class ComboBox : ElementBase
         DetachOwnerWindowHandlers();
         ReevaluateVisualStyles();
         DropDownClosed?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+    }
+
+    private void OnDropDownClosed(object? sender, EventArgs e)
+    {
+        // Fired after the close animation completes and the dropdown is fully hidden.
+        // Re-evaluate once more to ensure the visual state reflects DroppedDown=false.
+        ReevaluateVisualStyles();
         Invalidate();
     }
 

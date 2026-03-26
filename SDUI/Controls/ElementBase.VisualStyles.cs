@@ -319,7 +319,7 @@ public abstract partial class ElementBase
         RefreshVisualStyles();
     }
 
-    private void UpdatePressedState(bool isPressed)
+    protected void UpdatePressedState(bool isPressed)
     {
         if (!_visualStylesEnabled)
             return;

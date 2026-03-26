@@ -247,8 +247,11 @@ public class ContextMenuStrip : MenuStrip
 
     internal ContextMenuStrip? ParentDropDown { get; set; }
 
+    public bool IsClosing => _isClosing;
+
     public event CancelEventHandler? Opening;
     public event CancelEventHandler? Closing;
+    public event EventHandler? Closed;
 
     public SKSize MeasurePreferredSize()
     {
@@ -353,25 +356,40 @@ public class ContextMenuStrip : MenuStrip
     {
         if (!IsOpen || _isClosing) return;
 
+        // Set _isClosing before raising Closing so that subscribers (e.g. ComboBox)
+        // which check DroppedDown (IsOpen && !IsClosing) see the correct false value
+        // and can correctly transition their visual styles to closed state.
+        _isClosing = true;
+
         var canceling = new CancelEventArgs();
         Closing?.Invoke(this, canceling);
         if (canceling.Cancel)
+        {
+            _isClosing = false;
             return;
+        }
 
         // Close any open submenus before hiding
         CloseSubmenu();
 
-        _isClosing = true;
+        // Stop any in-progress opening animation before starting the close,
+        // otherwise StartNewAnimation(Out) is skipped when Running=true and
+        // InterruptAnimation=false, leaving the dropdown stuck open.
+        _fadeInAnimation.Stop();
         _fadeInAnimation.SetProgress(0);
         _fadeInAnimation.StartNewAnimation(AnimationDirection.Out);
     }
 
     private void CompleteHide()
     {
+        // Clear IsOpen before _isClosing so that DroppedDown (IsOpen && !IsClosing)
+        // never has a transient window where both are true.
+        IsOpen = false;
         _isClosing = false;
 
         DetachHandlers();
         Visible = false;
+        Closed?.Invoke(this, EventArgs.Empty);
         _ownerWindow?.Invalidate();
         _ownerWindow = null!;
         SourceElement = null;
@@ -379,7 +397,6 @@ public class ContextMenuStrip : MenuStrip
         ResetElementAnchor();
         _accordionCenterTarget = null;
         Opacity = _openingTargetOpacity;
-        IsOpen = false;
     }
 
     private void ConfigureElementAnchor(ElementBase element, SKRect anchorBounds, PopupAnchorPlacement placement)

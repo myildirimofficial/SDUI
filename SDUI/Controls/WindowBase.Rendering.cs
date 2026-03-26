@@ -281,12 +281,13 @@ public partial class WindowBase
         var exStyle = exStylePtr;
         var noRedirect = (nint)(uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
         var composited = (nint)(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
+
+        // WS_EX_NOREDIRECTIONBITMAP is required for GPU rendering.
+        // Software (GDI) renderer must NOT have this flag — GetDC+BitBlt requires DWM's
+        // redirection bitmap; setting this flag causes the window to render as white/blank.
         if (_renderer.IsSkiaGpuActive)
         {
-            if (_renderBackend == RenderBackend.OpenGL && !UsesNativeBackdropMaterial)
-                exStyle |= noRedirect;
-            else
-                exStyle &= ~noRedirect;
+            exStyle |= noRedirect;
             exStyle &= ~composited;
         }
         else
@@ -311,6 +312,7 @@ public partial class WindowBase
             hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SetWindowPosFlags.SWP_NOMOVE | SetWindowPosFlags.SWP_NOSIZE |
             SetWindowPosFlags.SWP_NOZORDER | SetWindowPosFlags.SWP_NOACTIVATE);
+
     }
 
 

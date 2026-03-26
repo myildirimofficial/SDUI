@@ -300,11 +300,11 @@ public partial class WindowBase : ElementBase
             {
                 cp.Style |= (int)(SetWindowLongFlags.WS_CLIPCHILDREN |
                                   SetWindowLongFlags.WS_CLIPSIBLINGS);
-                // WS_EX_NOREDIRECTIONBITMAP helps some WGL/SwapBuffers flicker scenarios,
-                // but fluent backdrops need DWM redirection. Keep it disabled when a native
-                // backdrop material is requested.
-                if (_renderBackend == SDUI.Rendering.RenderBackend.OpenGL && !UsesNativeBackdropMaterial)
-                    cp.ExStyle |= (uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
+                // WS_EX_NOREDIRECTIONBITMAP is required for GPU renderers so DWM does not
+                // create a competing redirection surface that would cause flickering/blanking.
+                // NOTE: Software (GDI) rendering uses GetDC+BitBlt which requires DWM's redirection
+                // bitmap — setting this flag on a GDI window makes it render white/blank.
+                cp.ExStyle |= (uint)SetWindowLongFlags.WS_EX_NOREDIRECTIONBITMAP;
                 cp.ExStyle &= ~(uint)SetWindowLongFlags.WS_EX_COMPOSITED;
             }
 

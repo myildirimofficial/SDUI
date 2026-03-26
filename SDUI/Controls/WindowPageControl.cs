@@ -18,9 +18,14 @@ public class WindowPageControl : ElementBase
     private SKBitmap? _transitionToSnapshot;
     private readonly SKPaint _transitionPaint;
 
+    public override SKColor BackColor
+    {
+        get => SKColors.Transparent;
+        set { }
+    }
+
     public WindowPageControl()
     {
-        BackColor = SKColors.Transparent;
 
         _transitionPaint = new SKPaint
         {
@@ -81,7 +86,7 @@ public class WindowPageControl : ElementBase
 
     private bool IsPageControl(ElementBase element)
     {
-        return element is not ScrollBar;
+        return element is Container;
     }
 
     private int GetPageCount()
@@ -187,7 +192,6 @@ public class WindowPageControl : ElementBase
             return;
 
         element.Dock = DockStyle.Fill;
-        element.BackColor = SKColors.Transparent;
         SyncPageBounds(element);
         element.Visible = Count == 1;
 

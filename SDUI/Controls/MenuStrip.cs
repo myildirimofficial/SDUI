@@ -45,8 +45,6 @@ public class MenuStrip : ElementBase
     private bool _isAnimating;
     private float _itemHeight = 28f;
     private float _itemPadding = 6f;
-    private SKColor _menuBackColor = SKColor.Empty;
-    private SKColor _menuForeColor = SKColor.Empty;
     private MenuItem? _openedItem;
     private Orientation _orientation = Orientation.Horizontal;
     private bool _roundedCorners = true;
@@ -132,36 +130,6 @@ public class MenuStrip : ElementBase
     }
 
     [Category("Appearance")]
-    public SKColor MenuBackColor
-    {
-        get
-        {
-            if (!_menuBackColor.IsEmpty()) return _menuBackColor;
-            // "Other color" unification: everything uses Surface by default
-            return ColorScheme.Surface;
-        }
-        set
-        {
-            if (_menuBackColor == value) return;
-            _menuBackColor = value;
-            BackColor = value;
-            Invalidate();
-        }
-    }
-
-    [Category("Appearance")]
-    public SKColor MenuForeColor
-    {
-        get => _menuForeColor.IsEmpty() ? ColorScheme.ForeColor : _menuForeColor;
-        set
-        {
-            if (_menuForeColor == value) return;
-            _menuForeColor = value;
-            Invalidate();
-        }
-    }
-
-    [Category("Appearance")]
     public SKColor HoverBackColor
     {
         get => _hoverBackColor.IsEmpty() ? ColorScheme.SurfaceVariant : _hoverBackColor;
@@ -176,7 +144,7 @@ public class MenuStrip : ElementBase
     [Category("Appearance")]
     public SKColor HoverForeColor
     {
-        get => _hoverForeColor.IsEmpty() ? MenuForeColor : _hoverForeColor;
+        get => _hoverForeColor.IsEmpty() ? ForeColor : _hoverForeColor;
         set
         {
             if (_hoverForeColor == value) return;
@@ -534,12 +502,6 @@ public class MenuStrip : ElementBase
 
     private void OnThemeChanged(object? sender, EventArgs e)
     {
-        if (_menuBackColor.IsEmpty())
-            BackColor = ColorScheme.Surface;
-
-        if (_menuForeColor.IsEmpty())
-            ForeColor = ColorScheme.ForeColor;
-
         SyncDropDownAppearance();
         Invalidate();
     }
@@ -582,7 +544,7 @@ public class MenuStrip : ElementBase
 
         // Flat modern background
         _bgPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        _bgPaint.Color = MenuBackColor;
+        _bgPaint.Color = SKColors.Red.WithAlpha(20); // Light red tint for debugging
         canvas.DrawRect(new SkiaSharp.SKRect(0, 0, bounds.Width, bounds.Height), _bgPaint);
 
         // Subtle bottom border
@@ -666,7 +628,7 @@ public class MenuStrip : ElementBase
                     StrokeCap = SKStrokeCap.Round,
                     StrokeJoin = SKStrokeJoin.Round
                 };
-                _checkPaint.Color = MenuForeColor;
+                _checkPaint.Color = ForeColor;
 
                 _checkPath ??= new SKPath();
                 _checkPath.Reset();
@@ -684,7 +646,7 @@ public class MenuStrip : ElementBase
                     IsAntialias = true,
                     Style = SKPaintStyle.Fill
                 };
-                _checkPaint.Color = MenuForeColor.WithAlpha(128);
+                _checkPaint.Color = ForeColor.WithAlpha(128);
 
                 var boxSize = 4f * scale;
                 var boxRect = new SkiaSharp.SKRect(
@@ -718,9 +680,9 @@ public class MenuStrip : ElementBase
         var hoverFore = !HoverForeColor.IsEmpty()
             ? HoverForeColor
             : HoverBackColor.IsEmpty()
-                ? MenuForeColor
+                ? ForeColor
                 : HoverBackColor.Determine();
-        var textColor = hover ? hoverFore : MenuForeColor;
+        var textColor = hover ? hoverFore : ForeColor;
         var shortcutText = GetShortcutText(item, vertical);
         var shouldDrawShortcut = shortcutText.Length > 0;
 
@@ -770,7 +732,7 @@ public class MenuStrip : ElementBase
 
             // Opacity logic: 0.4 (approx 102) constant when resting, Full opacity when hovered
             var arrowAlpha = hover ? (byte)255 : (byte)102; 
-            var arrowColor = hover ? textColor : MenuForeColor; // Use active text color on hover
+            var arrowColor = hover ? textColor : ForeColor; // Use active text color on hover
             _arrowPaint.Color = arrowColor.WithAlpha(arrowAlpha);
 
             var chevronSize = 5f * scale;
@@ -1080,9 +1042,7 @@ public class MenuStrip : ElementBase
     {
         if (_activeDropDown == null) return;
         _activeDropDown.UseAccordionSubmenus = this is ContextMenuStrip contextMenu && contextMenu.UseAccordionSubmenus;
-        _activeDropDown.MenuBackColor = SubmenuBackColor;
         _activeDropDown.BackColor = SubmenuBackColor;
-        _activeDropDown.MenuForeColor = MenuForeColor;
         _activeDropDown.HoverBackColor = HoverBackColor;
         _activeDropDown.HoverForeColor = HoverForeColor;
         _activeDropDown.SubmenuBackColor = SubmenuBackColor;

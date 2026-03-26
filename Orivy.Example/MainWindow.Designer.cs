@@ -83,8 +83,7 @@ internal partial class MainWindow
             Radius = new(0),
             Border = new(0),
             AutoScroll = true,
-            AutoScrollMargin = new(0, 24),
-            BackColor = ColorScheme.SurfaceVariant
+            AutoScrollMargin = new(0, 24)
         };
 
         this.buttonOpenGL = new()
@@ -150,11 +149,9 @@ internal partial class MainWindow
             Height = 84,
             Padding = new(14),
             Margin = new(0, 0, 0, 16),
-            BackColor = ColorScheme.SurfaceVariant,
             ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(1),
-            BorderColor = ColorScheme.Outline,
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -166,11 +163,8 @@ internal partial class MainWindow
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
-            BackColor = ColorScheme.Surface,
-            ForeColor = ColorScheme.ForeColor,
             Radius = new(16),
             Border = new(1),
-            BorderColor = ColorScheme.Outline,
             TextAlign = ContentAlignment.MiddleLeft,
             Cursor = Cursors.Hand
         };
@@ -197,11 +191,8 @@ internal partial class MainWindow
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
-            BackColor = ColorScheme.Surface,
-            ForeColor = ColorScheme.ForeColor,
             Radius = new(16),
             Border = new(1),
-            BorderColor = ColorScheme.Outline,
             TextAlign = ContentAlignment.MiddleLeft,
             Cursor = Cursors.Hand,
             Tag = "normal"
@@ -215,11 +206,8 @@ internal partial class MainWindow
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
-            BackColor = ColorScheme.Surface,
-            ForeColor = ColorScheme.ForeColor,
             Radius = new(16),
             Border = new(1),
-            BorderColor = ColorScheme.Outline,
             TextAlign = ContentAlignment.MiddleLeft,
             Enabled = false
         };
@@ -232,8 +220,6 @@ internal partial class MainWindow
             Height = 54,
             Padding = new(12),
             Margin = new(0, 0, 0, 14),
-            BackColor = ColorScheme.Primary,
-            ForeColor = ColorScheme.ForeColor,
             Radius = new(14),
             Border = new(0),
             TextAlign = ContentAlignment.MiddleCenter,
@@ -1124,8 +1110,8 @@ internal partial class MainWindow
         {
             Name = "windowPageControl",
             Dock = SDUI.DockStyle.Fill,
-            TransitionEffect = WindowPageTransitionEffect.SlideHorizontal,
-            TransitionAnimationType = AnimationType.CubicEaseOut,
+            TransitionEffect = WindowPageTransitionEffect.ScaleFade,
+            TransitionAnimationType = AnimationType.QuarticEaseIn,
             TransitionIncrement = 0.18,
             TransitionSecondaryIncrement = 0.18,
             LockInputDuringTransition = true,
@@ -1206,7 +1192,7 @@ internal partial class MainWindow
         this.Text = "Orivy Example";
         this.Width = 1100;
         this.Height = 650;
-        this.DwmMargin = -1;
+        this.DwmMargin = 1000;
         this.Padding = new(10);
         this.WindowThemeType = WindowThemeType.Tabbed;
         this.ContextMenuStrip = this.extendMenu;
@@ -1219,12 +1205,12 @@ internal partial class MainWindow
         this.ResumeLayout(false);
     }
 
-    private Element panel;
-    private Element panel2;
-    private Element panel3;
-    private Element panel4;
-    private Element panel5;
-    private Element panel6;
+    private Container panel;
+    private Container panel2;
+    private Container panel3;
+    private Container panel4;
+    private Container panel5;
+    private Container panel6;
     private Element buttonOpenGL;
     private Element buttonSoftware;
     private Element buttonDirectX;
@@ -1249,13 +1235,6 @@ internal partial class MainWindow
     private WindowPageControl windowPageControl;
     private MenuStrip menuStrip;
     private ContextMenuStrip extendMenu;
-    private MenuItem fileMenuItem;
-    private MenuItem openMenuItem;
-    private MenuItem helpMenuItem;
-    private MenuItem transitionsMenuItem;
     
-    private MenuItem settingsMenuItem;
-    private MenuItem checkForUpdatesMenuItem;
-    private MenuItemSeparator menuItemSeparator;
 
 }

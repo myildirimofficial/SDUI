@@ -9,47 +9,47 @@ namespace SDUI.Controls;
 public sealed partial class ColorPicker : ElementBase
 {
     // ── Layout constants ────────────────────────────────────────────────────
-    private const int DefaultWidth      = 320;
-    private const int DefaultHeight     = 372;
-    private const int DefaultMinWidth   = 248;
-    private const int DefaultMinHeight  = 280;
+    private const int DefaultWidth = 320;
+    private const int DefaultHeight = 372;
+    private const int DefaultMinWidth = 248;
+    private const int DefaultMinHeight = 280;
 
-    private const float PaddingBase     = 16f;
-    private const float GapBase         = 12f;
-    private const float HueWidthBase    = 18f;
+    private const float PaddingBase = 16f;
+    private const float GapBase = 12f;
+    private const float HueWidthBase = 18f;
     private const float AlphaHeightBase = 16f;
     private const float FooterHeightBase = 76f;
-    private const float SwatchSizeBase  = 38f;
+    private const float SwatchSizeBase = 38f;
     private const float CircleRadiusBase = 7f;
-    private const float StripRadiusBase  = 9f;
-    private const float SvRadiusBase     = 12f;
+    private const float StripRadiusBase = 9f;
+    private const float SvRadiusBase = 12f;
 
     // ── Interaction state ───────────────────────────────────────────────────
     private enum HitTarget { None, SaturationValue, Hue, Alpha, Reference }
 
     private HitTarget _activeTarget;
     private HitTarget _hoverTarget;
-    private bool      _isDragging;
+    private bool _isDragging;
 
     // ── HSV + alpha ─────────────────────────────────────────────────────────
-    private float    _hue        = 210f;
-    private float    _saturation = 0.86f;
-    private float    _value      = 0.95f;
-    private float    _alphaValue = 1f;
-    private SKColor  _selectedColor   = new(33, 150, 243);
-    private SKColor  _referenceColor  = new(33, 150, 243);
-    private bool     _showAlphaChannel   = true;
-    private bool     _showReferenceSwatch = true;
+    private float _hue = 210f;
+    private float _saturation = 0.86f;
+    private float _value = 0.95f;
+    private float _alphaValue = 1f;
+    private SKColor _selectedColor = new(33, 150, 243);
+    private SKColor _referenceColor = new(33, 150, 243);
+    private bool _showAlphaChannel = true;
+    private bool _showReferenceSwatch = true;
 
     // ── Shader cache ─────────────────────────────────────────────────────────
     private SKShader? _alphaShader;
     private SKShader? _hueShader;
     private SKShader? _svSaturationShader;
     private SKShader? _svValueShader;
-    private SKRect    _cachedAlphaRect         = SKRect.Empty;
-    private SKRect    _cachedHueRect           = SKRect.Empty;
-    private SKRect    _cachedSvRect            = SKRect.Empty;
-    private SKColor   _cachedAlphaShaderColor  = SKColors.Empty;
+    private SKRect _cachedAlphaRect = SKRect.Empty;
+    private SKRect _cachedHueRect = SKRect.Empty;
+    private SKRect _cachedSvRect = SKRect.Empty;
+    private SKColor _cachedAlphaShaderColor = SKColors.Empty;
 
     // ── Paint / font resources ───────────────────────────────────────────────
     private SKPaint? _borderPaint;
@@ -60,10 +60,10 @@ public sealed partial class ColorPicker : ElementBase
     private SKPaint? _markerFillPaint;
     private SKPaint? _markerStrokePaint;
     private SKPaint? _textPaint;
-    private SKFont?  _captionFont;
-    private SKFont?  _detailFont;
-    private SKFont?  _fontSource;
-    private int      _fontDpi;
+    private SKFont? _captionFont;
+    private SKFont? _detailFont;
+    private SKFont? _fontSource;
+    private int _fontDpi;
 
     // ── Layout snapshot (recomputed only when needed) ────────────────────────
     private readonly record struct PickerLayout(
@@ -73,8 +73,8 @@ public sealed partial class ColorPicker : ElementBase
         SKRect CurrentSwatchRect,
         SKRect ReferenceSwatchRect,
         SKRect DetailsRect,
-        float  FooterTop,
-        float  FooterHeight);
+        float FooterTop,
+        float FooterHeight);
 
     // ════════════════════════════════════════════════════════════════════════
     //  Construction
@@ -82,45 +82,18 @@ public sealed partial class ColorPicker : ElementBase
 
     public ColorPicker()
     {
-        CanSelect   = true;
-        TabStop     = true;
+        CanSelect = true;
+        TabStop = true;
         MinimumSize = new SKSize(DefaultMinWidth, DefaultMinHeight);
-        Size        = new SKSize(DefaultWidth, DefaultHeight);
-        Padding     = new Thickness(16);
-        Radius      = new Radius(20);
+        Size = new SKSize(DefaultWidth, DefaultHeight);
+        Padding = new Thickness(16);
+        Radius = new Radius(20);
+        Border = new Thickness(1);
 
-        Border      = new Thickness(1);
-        BorderColor = ColorScheme.Outline.WithAlpha(118);
-        BackColor   = ColorScheme.Surface;
-        ForeColor   = ColorScheme.ForeColor;
-
-        ConfigureVisualStyles(styles => styles
-            .DefaultTransition(TimeSpan.FromMilliseconds(160), AnimationType.CubicEaseOut)
-            .Base(s => s
-                .Background(ColorScheme.Surface)
-                .Foreground(ColorScheme.ForeColor)
-                .Border(1)
-                .BorderColor(ColorScheme.Outline.WithAlpha(118))
-                .Radius(20)
-                .Shadow(new BoxShadow(0f, 6f, 18f, 0, ColorScheme.ShadowColor.WithAlpha(22))))
-            .OnHover(s => s
-                .Background(ColorScheme.SurfaceContainer)
-                .BorderColor(ColorScheme.Primary.WithAlpha(78)))
-            .OnFocused(s => s
-                .Background(ColorScheme.SurfaceContainerHigh)
-                .BorderColor(ColorScheme.Primary.WithAlpha(148)))
-            .OnPressed(s => s
-                .Background(ColorScheme.SurfaceContainerHigh)
-                .BorderColor(ColorScheme.Primary.WithAlpha(164))
-                .Opacity(0.98f))
-            .OnDisabled(s => s
-                .Background(ColorScheme.SurfaceVariant)
-                .Foreground(ColorScheme.ForeColor.WithAlpha(168))
-                .BorderColor(ColorScheme.Outline.WithAlpha(96))
-                .Opacity(0.84f)
-                .Shadow(BoxShadow.None)));
-
+        ApplyTheme();
         SyncFromColor(_selectedColor);
+
+        ColorScheme.ThemeChanged += OnThemeChanged;
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -246,10 +219,10 @@ public sealed partial class ColorPicker : ElementBase
 
     public override SKSize GetPreferredSize(SKSize proposedSize)
     {
-        var w = Math.Max(DefaultWidth,  MinimumSize.Width  > 0 ? MinimumSize.Width  : DefaultMinWidth);
+        var w = Math.Max(DefaultWidth, MinimumSize.Width > 0 ? MinimumSize.Width : DefaultMinWidth);
         var h = Math.Max(DefaultHeight, MinimumSize.Height > 0 ? MinimumSize.Height : DefaultMinHeight);
 
-        if (MaximumSize.Width  > 0) w = Math.Min(w, MaximumSize.Width);
+        if (MaximumSize.Width > 0) w = Math.Min(w, MaximumSize.Width);
         if (MaximumSize.Height > 0) h = Math.Min(h, MaximumSize.Height);
 
         return new SKSize(w, h);
@@ -257,38 +230,38 @@ public sealed partial class ColorPicker : ElementBase
 
     private PickerLayout GetLayout()
     {
-        var sf            = ScaleFactor;
-        var padding       = Scale(PaddingBase,      sf, 12f);
-        var gap           = Scale(GapBase,           sf, 10f);
-        var hueWidth      = Scale(HueWidthBase,      sf, 16f);
-        var alphaHeight   = ShowAlphaChannel ? Scale(AlphaHeightBase, sf, 14f) : 0f;
-        var footerHeight  = Scale(FooterHeightBase,  sf, 68f);
-        var swatchSize    = Scale(SwatchSizeBase,     sf, 34f);
+        var sf = ScaleFactor;
+        var padding = Scale(PaddingBase, sf, 12f);
+        var gap = Scale(GapBase, sf, 10f);
+        var hueWidth = Scale(HueWidthBase, sf, 16f);
+        var alphaHeight = ShowAlphaChannel ? Scale(AlphaHeightBase, sf, 14f) : 0f;
+        var footerHeight = Scale(FooterHeightBase, sf, 68f);
+        var swatchSize = Scale(SwatchSizeBase, sf, 34f);
 
-        var availableW    = Math.Max(88f, Width  - padding * 2f - hueWidth - gap);
-        var availableH    = Math.Max(88f, Height - padding * 2f - footerHeight
+        var availableW = Math.Max(88f, Width - padding * 2f - hueWidth - gap);
+        var availableH = Math.Max(88f, Height - padding * 2f - footerHeight
                                           - (ShowAlphaChannel ? alphaHeight + gap : 0f));
-        var squareSize    = Math.Max(88f, Math.Min(availableW, availableH));
+        var squareSize = Math.Max(88f, Math.Min(availableW, availableH));
 
-        var svRect        = SKRect.Create(padding,           padding,           squareSize, squareSize);
-        var hueRect       = SKRect.Create(svRect.Right + gap, svRect.Top,       hueWidth,   squareSize);
-        var alphaRect     = ShowAlphaChannel
+        var svRect = SKRect.Create(padding, padding, squareSize, squareSize);
+        var hueRect = SKRect.Create(svRect.Right + gap, svRect.Top, hueWidth, squareSize);
+        var alphaRect = ShowAlphaChannel
                             ? SKRect.Create(svRect.Left, svRect.Bottom + gap, svRect.Width, alphaHeight)
                             : SKRect.Empty;
 
-        var footerTop     = ShowAlphaChannel ? alphaRect.Bottom + gap : svRect.Bottom + gap;
+        var footerTop = ShowAlphaChannel ? alphaRect.Bottom + gap : svRect.Bottom + gap;
         var swatchOffsetY = Scale(16f, sf, 14f);
-        var swatchGap     = Scale(12f, sf, 10f);
+        var swatchGap = Scale(12f, sf, 10f);
 
-        var currentSwatch   = SKRect.Create(padding, footerTop + swatchOffsetY, swatchSize, swatchSize);
+        var currentSwatch = SKRect.Create(padding, footerTop + swatchOffsetY, swatchSize, swatchSize);
         var referenceSwatch = ShowReferenceSwatch
                               ? SKRect.Create(currentSwatch.Right + swatchGap, currentSwatch.Top, swatchSize, swatchSize)
                               : SKRect.Empty;
 
-        var detailsLeft     = ShowReferenceSwatch
+        var detailsLeft = ShowReferenceSwatch
                               ? referenceSwatch.Right + gap
                               : currentSwatch.Right + gap;
-        var detailsRect     = SKRect.Create(
+        var detailsRect = SKRect.Create(
                               detailsLeft,
                               footerTop + Scale(8f, sf, 6f),
                               Math.Max(1f, Width - detailsLeft - padding),
@@ -325,14 +298,14 @@ public sealed partial class ColorPicker : ElementBase
     private void DrawSaturationValueSurface(SKCanvas canvas, SKRect rect)
     {
         var radius = Scale(SvRadiusBase, ScaleFactor, 10f);
-        var hot    = _hoverTarget == HitTarget.SaturationValue || _activeTarget == HitTarget.SaturationValue;
+        var hot = _hoverTarget == HitTarget.SaturationValue || _activeTarget == HitTarget.SaturationValue;
         DrawSurfaceFrame(canvas, rect, radius, hot);
 
         var save = canvas.Save();
         canvas.ClipRoundRect(new SKRoundRect(rect, radius), antialias: true);
 
         _fillPaint!.Shader = null;
-        _fillPaint.Color   = HsvToColor(_hue, 1f, 1f, 255);
+        _fillPaint.Color = HsvToColor(_hue, 1f, 1f, 255);
         canvas.DrawRect(rect, _fillPaint);
 
         EnsureSvShaders(rect);
@@ -373,49 +346,52 @@ public sealed partial class ColorPicker : ElementBase
         _fillPaint!.Shader = _alphaShader;
         canvas.DrawRect(rect, _fillPaint);
         _fillPaint.Shader = null;
+
         canvas.RestoreToCount(save);
+
+        // Alpha yüzdesini barın hemen yanına göster (bar içinde değil, sürükleyici topu etkilemez).
+        var alphaText = FormattableString.Invariant($"{Math.Round(_alphaValue * 100f):0}%");
+        var detailFont = GetDetailFont();
+        var textMargin = Scale(10f, ScaleFactor, 8f);
+        var textX = rect.Right + textMargin;
+        var textY = rect.MidY;
+
+        _textPaint!.Color = ForeColor;
+
+        // Sağ tarafa yaslanmış, barın yanındaki boşlukta.
+        var textBounds = SKRect.Create(textX, rect.Top, Scale(54f, ScaleFactor, 36f), rect.Height);
+        DrawControlText(canvas, alphaText, textBounds, _textPaint, detailFont, ContentAlignment.MiddleLeft, false, false);
     }
 
     private void DrawFooter(SKCanvas canvas, PickerLayout layout)
     {
-        var sf            = ScaleFactor;
-        var footerRect    = SKRect.Create(
-                            layout.CurrentSwatchRect.Left,
-                            layout.FooterTop,
-                            Width - layout.CurrentSwatchRect.Left * 2f,
-                            layout.FooterHeight);
-        var footerRadius  = Scale(14f, sf, 12f);
+        var sf = ScaleFactor;
 
-        _fillPaint!.Color  = ColorScheme.SurfaceContainerHigh;
-        _borderPaint!.Color = ColorScheme.Outline.WithAlpha(84);
-        canvas.DrawRoundRect(footerRect, footerRadius, footerRadius, _fillPaint);
-        canvas.DrawRoundRect(footerRect, footerRadius, footerRadius, _borderPaint);
-
-        DrawSwatch(canvas, layout.CurrentSwatchRect,   _selectedColor,  highlighted: true);
+        DrawSwatch(canvas, layout.CurrentSwatchRect, _selectedColor, highlighted: true);
         if (ShowReferenceSwatch)
             DrawSwatch(canvas, layout.ReferenceSwatchRect, _referenceColor, highlighted: _hoverTarget == HitTarget.Reference);
 
         var captionFont = GetCaptionFont();
-        var detailFont  = GetDetailFont();
+        var detailFont = GetDetailFont();
 
-        var lineH    = Math.Max(16f, detailFont.Metrics.Descent  - detailFont.Metrics.Ascent);
+        var lineH = Math.Max(16f, detailFont.Metrics.Descent - detailFont.Metrics.Ascent);
         var captionH = Math.Max(14f, captionFont.Metrics.Descent - captionFont.Metrics.Ascent);
-        var line1    = SKRect.Create(layout.DetailsRect.Left, layout.DetailsRect.Top,                           layout.DetailsRect.Width, captionH + 2f);
-        var line2    = SKRect.Create(layout.DetailsRect.Left, line1.Bottom + 2f * sf,                           layout.DetailsRect.Width, lineH    + 2f);
-        var line3    = SKRect.Create(layout.DetailsRect.Left, line2.Bottom,                                     layout.DetailsRect.Width, lineH    + 2f);
+        var line1 = SKRect.Create(layout.DetailsRect.Left, layout.DetailsRect.Top, layout.DetailsRect.Width, captionH + 2f);
+        var line2 = SKRect.Create(layout.DetailsRect.Left, line1.Bottom + 2f * sf, layout.DetailsRect.Width, lineH + 2f);
+        var line3 = SKRect.Create(layout.DetailsRect.Left, line2.Bottom, layout.DetailsRect.Width, lineH + 2f);
 
         _captionPaint!.Color = ForeColor.WithAlpha(156);
-        _textPaint!.Color    = ForeColor;
+        _textPaint!.Color = ForeColor;
 
-        DrawControlText(canvas, "Selected color",      line1, _captionPaint, captionFont, ContentAlignment.MiddleLeft, false, false);
-        DrawControlText(canvas, HexValue,              line2, _textPaint,    detailFont,  ContentAlignment.MiddleLeft, false, false);
+        DrawControlText(canvas, "Selected color", line1, _captionPaint, captionFont, ContentAlignment.MiddleLeft, false, false);
+        DrawControlText(canvas, HexValue, line2, _textPaint, detailFont, ContentAlignment.MiddleLeft, false, false);
         DrawControlText(canvas, FormatColorMetadata(), line3, _captionPaint, captionFont, ContentAlignment.MiddleLeft, false, false);
     }
 
     /// <summary>Draws a color swatch with a checkerboard background and a rounded border.</summary>
     private void DrawSwatch(SKCanvas canvas, SKRect rect, SKColor color, bool highlighted)
     {
-        var radius     = Scale(10f, ScaleFactor, 8f);
+        var radius = Scale(10f, ScaleFactor, 8f);
         var swatchSave = canvas.Save();
         canvas.ClipRoundRect(new SKRoundRect(rect, radius), antialias: true);
         DrawCheckerboard(canvas, rect, Scale(7f, ScaleFactor, 6f));
@@ -434,9 +410,9 @@ public sealed partial class ColorPicker : ElementBase
         var sf = ScaleFactor;
 
         // ── SV circle handle ────────────────────────────────────────────────
-        var svX      = layout.SaturationValueRect.Left + _saturation * layout.SaturationValueRect.Width;
-        var svY      = layout.SaturationValueRect.Top  + (1f - _value)  * layout.SaturationValueRect.Height;
-        var circleR  = Scale(CircleRadiusBase, sf, 6f);
+        var svX = layout.SaturationValueRect.Left + _saturation * layout.SaturationValueRect.Width;
+        var svY = layout.SaturationValueRect.Top + (1f - _value) * layout.SaturationValueRect.Height;
+        var circleR = Scale(CircleRadiusBase, sf, 6f);
 
         // Outer shadow ring
         _markerStrokePaint!.Color = SKColors.Black.WithAlpha(120);
@@ -483,10 +459,10 @@ public sealed partial class ColorPicker : ElementBase
     /// <summary>Draws a rounded-rectangle slider handle (used for hue and alpha strips).</summary>
     private void DrawBarHandle(SKCanvas canvas, SKRect rect, float sf)
     {
-        var rx = 14f * sf;
+        var rx = 6f * sf;
 
-        _markerFillPaint!.Color    = SKColors.White.WithAlpha(230);
-        _markerStrokePaint!.Color  = SKColors.Black.WithAlpha(140);
+        _markerFillPaint!.Color = SKColors.White.WithAlpha(230);
+        _markerStrokePaint!.Color = SKColors.Black.WithAlpha(140);
         _markerStrokePaint.StrokeWidth = 1f * sf;
 
         canvas.DrawRoundRect(rect, rx, rx, _markerFillPaint);
@@ -495,7 +471,7 @@ public sealed partial class ColorPicker : ElementBase
 
     private void DrawSurfaceFrame(SKCanvas canvas, SKRect rect, float radius, bool hot)
     {
-        _fillPaint!.Color   = ColorScheme.SurfaceContainer;
+        _fillPaint!.Color = ColorScheme.SurfaceContainer;
         _borderPaint!.Color = hot
             ? ColorScheme.Primary.WithAlpha(152)
             : ColorScheme.Outline.WithAlpha(92);
@@ -515,7 +491,7 @@ public sealed partial class ColorPicker : ElementBase
             for (var x = rect.Left; x < rect.Right; x += cellSize, col++)
             {
                 var tile = SKRect.Create(x, y,
-                    Math.Min(cellSize, rect.Right  - x),
+                    Math.Min(cellSize, rect.Right - x),
                     Math.Min(cellSize, rect.Bottom - y));
                 canvas.DrawRect(tile, col % 2 == 0 ? _checkerLightPaint : _checkerDarkPaint);
             }
@@ -534,7 +510,7 @@ public sealed partial class ColorPicker : ElementBase
         if (!Enabled || e.Button != MouseButtons.Left) return;
 
         var layout = GetLayout();
-        var hit    = HitTest(e.Location, layout);
+        var hit = HitTest(e.Location, layout);
 
         if (hit == HitTarget.Reference && ShowReferenceSwatch)
         {
@@ -545,7 +521,7 @@ public sealed partial class ColorPicker : ElementBase
         if (hit == HitTarget.None) return;
 
         _activeTarget = hit;
-        _isDragging   = true;
+        _isDragging = true;
         GetParentWindow()?.SetMouseCapture(this);
         UpdateFromInteraction(e.Location, layout, commit: false);
     }
@@ -565,7 +541,7 @@ public sealed partial class ColorPicker : ElementBase
         if (_hoverTarget == hit) return;
 
         _hoverTarget = hit;
-        Cursor       = _hoverTarget == HitTarget.Reference ? Cursors.Hand : Cursors.Default;
+        Cursor = _hoverTarget == HitTarget.Reference ? Cursors.Hand : Cursors.Default;
         Invalidate();
     }
 
@@ -575,8 +551,8 @@ public sealed partial class ColorPicker : ElementBase
         if (e.Button != MouseButtons.Left) return;
 
         var wasDragging = _isDragging;
-        _isDragging     = false;
-        _activeTarget   = HitTarget.None;
+        _isDragging = false;
+        _activeTarget = HitTarget.None;
         GetParentWindow()?.ReleaseMouseCapture(this);
 
         if (wasDragging)
@@ -591,7 +567,7 @@ public sealed partial class ColorPicker : ElementBase
         if (_hoverTarget != HitTarget.None)
         {
             _hoverTarget = HitTarget.None;
-            Cursor       = Cursors.Default;
+            Cursor = Cursors.Default;
             Invalidate();
         }
     }
@@ -600,7 +576,7 @@ public sealed partial class ColorPicker : ElementBase
     {
         if (_isDragging)
         {
-            _isDragging   = false;
+            _isDragging = false;
             _activeTarget = HitTarget.None;
             GetParentWindow()?.ReleaseMouseCapture(this);
         }
@@ -621,8 +597,8 @@ public sealed partial class ColorPicker : ElementBase
     private HitTarget HitTest(SKPoint point, PickerLayout layout)
     {
         if (layout.SaturationValueRect.Contains(point)) return HitTarget.SaturationValue;
-        if (layout.HueRect.Contains(point))             return HitTarget.Hue;
-        if (ShowAlphaChannel && layout.AlphaRect.Contains(point))          return HitTarget.Alpha;
+        if (layout.HueRect.Contains(point)) return HitTarget.Hue;
+        if (ShowAlphaChannel && layout.AlphaRect.Contains(point)) return HitTarget.Alpha;
         if (ShowReferenceSwatch && layout.ReferenceSwatchRect.Contains(point)) return HitTarget.Reference;
         return HitTarget.None;
     }
@@ -632,26 +608,26 @@ public sealed partial class ColorPicker : ElementBase
         switch (_activeTarget)
         {
             case HitTarget.SaturationValue:
-            {
-                var x = Math.Clamp(point.X, layout.SaturationValueRect.Left, layout.SaturationValueRect.Right);
-                var y = Math.Clamp(point.Y, layout.SaturationValueRect.Top,  layout.SaturationValueRect.Bottom);
-                _saturation = layout.SaturationValueRect.Width  <= 0f ? 0f : (x - layout.SaturationValueRect.Left) / layout.SaturationValueRect.Width;
-                _value      = layout.SaturationValueRect.Height <= 0f ? 0f : 1f - (y - layout.SaturationValueRect.Top) / layout.SaturationValueRect.Height;
-                break;
-            }
+                {
+                    var x = Math.Clamp(point.X, layout.SaturationValueRect.Left, layout.SaturationValueRect.Right);
+                    var y = Math.Clamp(point.Y, layout.SaturationValueRect.Top, layout.SaturationValueRect.Bottom);
+                    _saturation = layout.SaturationValueRect.Width <= 0f ? 0f : (x - layout.SaturationValueRect.Left) / layout.SaturationValueRect.Width;
+                    _value = layout.SaturationValueRect.Height <= 0f ? 0f : 1f - (y - layout.SaturationValueRect.Top) / layout.SaturationValueRect.Height;
+                    break;
+                }
             case HitTarget.Hue:
-            {
-                var y          = Math.Clamp(point.Y, layout.HueRect.Top, layout.HueRect.Bottom);
-                var normalized = layout.HueRect.Height <= 0f ? 0f : (y - layout.HueRect.Top) / layout.HueRect.Height;
-                _hue           = NormalizeHue((1f - normalized) * 360f);
-                break;
-            }
+                {
+                    var y = Math.Clamp(point.Y, layout.HueRect.Top, layout.HueRect.Bottom);
+                    var normalized = layout.HueRect.Height <= 0f ? 0f : (y - layout.HueRect.Top) / layout.HueRect.Height;
+                    _hue = NormalizeHue((1f - normalized) * 360f);
+                    break;
+                }
             case HitTarget.Alpha when ShowAlphaChannel:
-            {
-                var x   = Math.Clamp(point.X, layout.AlphaRect.Left, layout.AlphaRect.Right);
-                _alphaValue = layout.AlphaRect.Width <= 0f ? 1f : (x - layout.AlphaRect.Left) / layout.AlphaRect.Width;
-                break;
-            }
+                {
+                    var x = Math.Clamp(point.X, layout.AlphaRect.Left, layout.AlphaRect.Right);
+                    _alphaValue = layout.AlphaRect.Width <= 0f ? 1f : (x - layout.AlphaRect.Left) / layout.AlphaRect.Width;
+                    break;
+                }
         }
 
         UpdateSelectedColor(raiseChanged: true, raiseCommitted: commit);
@@ -667,6 +643,54 @@ public sealed partial class ColorPicker : ElementBase
     // ════════════════════════════════════════════════════════════════════════
     //  Resource management
     // ════════════════════════════════════════════════════════════════════════
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        BackColor   = ColorScheme.Surface;
+        ForeColor   = ColorScheme.ForeColor;
+        BorderColor = ColorScheme.Outline.WithAlpha(118);
+
+        ConfigureVisualStyles(styles => styles
+            .DefaultTransition(TimeSpan.FromMilliseconds(160), AnimationType.CubicEaseOut)
+            .Base(s => s
+                .Background(ColorScheme.Surface)
+                .Foreground(ColorScheme.ForeColor)
+                .Border(1)
+                .BorderColor(ColorScheme.Outline.WithAlpha(118))
+                .Radius(20)
+                .Shadow(new BoxShadow(0f, 6f, 18f, 0, ColorScheme.ShadowColor.WithAlpha(22))))
+            .OnHover(s => s
+                .Background(ColorScheme.SurfaceContainer)
+                .BorderColor(ColorScheme.Primary.WithAlpha(78)))
+            .OnFocused(s => s
+                .Background(ColorScheme.SurfaceContainerHigh)
+                .BorderColor(ColorScheme.Primary.WithAlpha(148)))
+            .OnPressed(s => s
+                .Background(ColorScheme.SurfaceContainerHigh)
+                .BorderColor(ColorScheme.Primary.WithAlpha(164))
+                .Opacity(0.98f))
+            .OnDisabled(s => s
+                .Background(ColorScheme.SurfaceVariant)
+                .Foreground(ColorScheme.ForeColor.WithAlpha(168))
+                .BorderColor(ColorScheme.Outline.WithAlpha(96))
+                .Opacity(0.84f)
+                .Shadow(BoxShadow.None)), clearExisting: true);
+
+        // Refresh theme-dependent paint colors immediately.
+        if (_checkerLightPaint is not null)
+            _checkerLightPaint.Color = ColorScheme.Surface;
+        if (_checkerDarkPaint is not null)
+            _checkerDarkPaint.Color = ColorScheme.SurfaceVariant.Brightness(-0.04f);
+
+        InvalidateShaderCaches();
+        ReevaluateVisualStyles();
+        Invalidate();
+    }
 
     private void InitializePaints()
     {
@@ -691,12 +715,12 @@ public sealed partial class ColorPicker : ElementBase
         _detailFont?.Dispose();
         _captionFont?.Dispose();
 
-        _detailFont  = CreateRenderFont(Font);
+        _detailFont = CreateRenderFont(Font);
         _captionFont = CreateRenderFont(Font);
         _captionFont.Size = Math.Max(10f, _captionFont.Size * 0.82f);
 
         _fontSource = Font;
-        _fontDpi    = dpi;
+        _fontDpi = dpi;
         return _detailFont;
     }
 
@@ -709,16 +733,17 @@ public sealed partial class ColorPicker : ElementBase
     protected override void InvalidateFontCache()
     {
         base.InvalidateFontCache();
-        _detailFont?.Dispose();  _detailFont  = null;
+        _detailFont?.Dispose(); _detailFont = null;
         _captionFont?.Dispose(); _captionFont = null;
         _fontSource = null;
-        _fontDpi    = 0;
+        _fontDpi = 0;
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            ColorScheme.ThemeChanged -= OnThemeChanged;
             _fillPaint?.Dispose();
             _borderPaint?.Dispose();
             _textPaint?.Dispose();
@@ -791,20 +816,20 @@ public sealed partial class ColorPicker : ElementBase
             new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Top),
             [color.WithAlpha(0), color.WithAlpha(255)], SKShaderTileMode.Clamp);
 
-        _cachedAlphaRect        = rect;
+        _cachedAlphaRect = rect;
         _cachedAlphaShaderColor = color;
     }
 
     private void InvalidateShaderCaches()
     {
         _svSaturationShader?.Dispose(); _svSaturationShader = null;
-        _svValueShader?.Dispose();      _svValueShader      = null;
-        _hueShader?.Dispose();          _hueShader          = null;
-        _alphaShader?.Dispose();        _alphaShader        = null;
+        _svValueShader?.Dispose(); _svValueShader = null;
+        _hueShader?.Dispose(); _hueShader = null;
+        _alphaShader?.Dispose(); _alphaShader = null;
 
-        _cachedSvRect           = SKRect.Empty;
-        _cachedHueRect          = SKRect.Empty;
-        _cachedAlphaRect        = SKRect.Empty;
+        _cachedSvRect = SKRect.Empty;
+        _cachedHueRect = SKRect.Empty;
+        _cachedAlphaRect = SKRect.Empty;
         _cachedAlphaShaderColor = SKColors.Empty;
     }
 
@@ -823,7 +848,7 @@ public sealed partial class ColorPicker : ElementBase
     private void UpdateSelectedColor(bool raiseChanged, bool raiseCommitted)
     {
         var alpha = ShowAlphaChannel ? (byte)Math.Round(_alphaValue * 255f) : (byte)255;
-        var next  = HsvToColor(_hue, _saturation, _value, alpha);
+        var next = HsvToColor(_hue, _saturation, _value, alpha);
 
         if (_selectedColor == next)
         {
@@ -835,7 +860,7 @@ public sealed partial class ColorPicker : ElementBase
         InvalidateShaderCaches();
         Invalidate();
 
-        if (raiseChanged)   SelectedColorChanged?.Invoke(this, EventArgs.Empty);
+        if (raiseChanged) SelectedColorChanged?.Invoke(this, EventArgs.Empty);
         if (raiseCommitted) SelectedColorCommitted?.Invoke(this, EventArgs.Empty);
     }
 
@@ -863,9 +888,9 @@ public sealed partial class ColorPicker : ElementBase
 
     private static SKColor HsvToColor(float hue, float saturation, float value, byte alpha)
     {
-        hue        = NormalizeHue(hue);
+        hue = NormalizeHue(hue);
         saturation = Math.Clamp(saturation, 0f, 1f);
-        value      = Math.Clamp(value,      0f, 1f);
+        value = Math.Clamp(value, 0f, 1f);
 
         if (saturation <= 0.0001f)
         {
@@ -873,8 +898,8 @@ public sealed partial class ColorPicker : ElementBase
             return new SKColor(gray, gray, gray, alpha);
         }
 
-        var sector   = hue / 60f;
-        var index    = (int)Math.Floor(sector);
+        var sector = hue / 60f;
+        var index = (int)Math.Floor(sector);
         var fraction = sector - index;
         var p = value * (1f - saturation);
         var q = value * (1f - saturation * fraction);
@@ -902,22 +927,22 @@ public sealed partial class ColorPicker : ElementBase
     {
         color.ToHsv(out hue, out saturation, out value);
 
-        var r = color.Red   / 255f;
+        var r = color.Red / 255f;
         var g = color.Green / 255f;
-        var b = color.Blue  / 255f;
+        var b = color.Blue / 255f;
 
-        var max   = Math.Max(r, Math.Max(g, b));
-        var min   = Math.Min(r, Math.Min(g, b));
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
         var delta = max - min;
 
-        value      = max;
+        value = max;
         saturation = max <= 0.0001f ? 0f : delta / max;
 
         if (delta <= 0.0001f) { hue = 0f; return; }
 
-        if      (Math.Abs(max - r) < 0.0001f) hue = 60f * (((g - b) / delta) % 6f);
+        if (Math.Abs(max - r) < 0.0001f) hue = 60f * (((g - b) / delta) % 6f);
         else if (Math.Abs(max - g) < 0.0001f) hue = 60f * (((b - r) / delta) + 2f);
-        else                                   hue = 60f * (((r - g) / delta) + 4f);
+        else hue = 60f * (((r - g) / delta) + 4f);
 
         hue = NormalizeHue(hue);
     }
