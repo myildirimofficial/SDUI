@@ -1111,9 +1111,8 @@ internal partial class MainWindow
             Name = "windowPageControl",
             Dock = SDUI.DockStyle.Fill,
             TransitionEffect = WindowPageTransitionEffect.ScaleFade,
-            TransitionAnimationType = AnimationType.QuarticEaseIn,
-            TransitionIncrement = 0.18,
-            TransitionSecondaryIncrement = 0.18,
+            TransitionAnimationType = AnimationType.QuarticEaseOut,
+            TransitionDurationMs = 350,
             LockInputDuringTransition = true,
         };
 
@@ -1232,9 +1231,9 @@ internal partial class MainWindow
     private Button gridListToggleGroupingButton;
     private Button gridListToggleGridLinesButton;
     private Button gridListToggleRowResizeButton;
-    private WindowPageControl windowPageControl;
+
     private MenuStrip menuStrip;
     private ContextMenuStrip extendMenu;
-    
+    private WindowPageControl windowPageControl;
 
 }

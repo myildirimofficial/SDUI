@@ -26,39 +26,37 @@ public class ScrollBar : ElementBase
     // State
     // -------------------------------------------------------------------------
     private double _animatedValue;
-    private bool   _autoHide = true;
+    private bool _autoHide = true;
     private SKPoint _dragStartPoint;
-    private float  _dragStartValue;
-    private int    _hideDelay = 1200;
-    private bool   _isInputStretching;
-    private bool   _isRubberBandAnimating;
-    private bool   _hostHovered;
-    private bool   _isDragging;
-    private bool   _isHovered;
-    private bool   _isThumbHovered;
-    private bool   _isThumbPressed;
-    private float  _largeChange = 10;
-    private float  _maximum = 100;
-    private float  _minimum;
+    private float _dragStartValue;
+    private int _hideDelay = 1200;
+    private bool _isInputStretching;
+    private bool _isRubberBandAnimating;
+    private bool _hostHovered;
+    private bool _isDragging;
+    private bool _isHovered;
+    private bool _isThumbHovered;
+    private bool _isThumbPressed;
+    private float _largeChange = 10;
+    private float _maximum = 100;
+    private float _minimum;
     private Orientation _orientation = Orientation.Vertical;
-    private int    _cornerRadius = 6;
     private double _scrollAnimIncrement = 0.32;
     private AnimationType _scrollAnimType = AnimationType.CubicEaseOut;
-    private float  _scrollAnimationStartValue;
-    private float  _smallChange = 1;
-    private float  _targetValue;
-    private int    _thickness = 2;
+    private float _scrollAnimationStartValue;
+    private float _smallChange = 1;
+    private float _targetValue;
+    private int _thickness = 2;
     private SKRect _thumbRect;
     private SKRect _trackRect;
-    private bool   _useThumbShadow = true;
-    private float  _visualOverflowValue;
-    private float  _value;
+    private float _visualOverflowValue;
+    private float _value;
 
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
-    private const double InputSettleDelay    = 72;
-    private const double RubberBandInterval  = 16;
+    private const double InputSettleDelay = 72;
+    private const double RubberBandInterval = 16;
 
     /// <summary>
     /// Exponential decay factor applied each tick (~60 fps).
@@ -68,45 +66,56 @@ public class ScrollBar : ElementBase
     ///   - single multiply per tick — trivially cheap
     ///   - perceptually indistinguishable from a critically-damped spring
     /// </summary>
-    private const float RubberBandDecay      = 0.82f;
+    private const float RubberBandDecay = 0.82f;
 
     /// <summary>Pixels below which overflow is snapped to zero.</summary>
     private const float RubberBandStopThreshold = 0.5f;
 
-    private double _visibilityAnimIncrement = 0.20;
-    private AnimationType _visibilityAnimType = AnimationType.EaseInOut;
+    private double _visibilityAnimIncrement = 0.07;
+    private AnimationType _visibilityAnimType = AnimationType.EaseOut;
 
     // -------------------------------------------------------------------------
     // Cached paint objects (reused every frame, never recreated)
     // -------------------------------------------------------------------------
-    private readonly SKPaint _trackPaint  = new() { IsAntialias = true };
-    private readonly SKPaint _thumbPaint  = new() { IsAntialias = true };
-    private readonly SKPaint _shadowPaint = new() { IsAntialias = true };
+    private readonly SKPaint _trackPaint = new() { IsAntialias = true };
+    private readonly SKPaint _thumbPaint = new() { IsAntialias = true };
+
+    /// <summary>
+    /// The scrollbar is a transparent overlay; the base renderer must not fill
+    /// any background. All visual elements (thumb, optional track) are drawn
+    /// inside <see cref="OnPaint"/> with visibility-scaled alpha so the
+    /// auto-hide fade animates the complete control to transparent.
+    /// </summary>
+    public override SKColor BackColor
+    {
+        get => SKColors.Transparent;
+        set { }
+    }
 
     // =========================================================================
     // Constructor
     // =========================================================================
     public ScrollBar()
     {
-        BackColor = SKColors.Transparent;
-        Cursor    = Cursors.Default;
+        Cursor = Cursors.Default;
+        Radius = new(6);
         ApplyOrientationSize();
 
         // --- Visibility animation ---
         _visibilityAnim = new AnimationManager(true)
         {
-            Increment         = _visibilityAnimIncrement,
-            AnimationType     = _visibilityAnimType,
+            Increment = _visibilityAnimIncrement,
+            AnimationType = _visibilityAnimType,
             InterruptAnimation = true
         };
         _visibilityAnim.OnAnimationProgress += _ => Invalidate();
-        _visibilityAnim.OnAnimationFinished  += _ => Invalidate();
+        _visibilityAnim.OnAnimationFinished += _ => Invalidate();
 
         // --- Scroll animation ---
         _scrollAnim = new AnimationManager(true)
         {
-            Increment         = _scrollAnimIncrement,
-            AnimationType     = _scrollAnimType,
+            Increment = _scrollAnimIncrement,
+            AnimationType = _scrollAnimType,
             InterruptAnimation = true
         };
         _scrollAnim.OnAnimationProgress += _ =>
@@ -142,9 +151,9 @@ public class ScrollBar : ElementBase
 
         // --- Initial state ---
         _visibilityAnim.SetProgress(_autoHide ? 0 : 1);
-        _animatedValue            = _value;
+        _animatedValue = _value;
         _scrollAnimationStartValue = _value;
-        _targetValue              = _value;
+        _targetValue = _value;
 
         UpdateThumbRect();
     }
@@ -165,20 +174,6 @@ public class ScrollBar : ElementBase
             _thickness = value;
             ApplyOrientationSize();
             UpdateThumbRect();
-            Invalidate();
-        }
-    }
-
-    [DefaultValue(6)]
-    [Description("Corner radius applied to both track and thumb.")]
-    public int CornerRadius
-    {
-        get => _cornerRadius;
-        set
-        {
-            value = Math.Clamp(value, 0, 64);
-            if (_cornerRadius == value) return;
-            _cornerRadius = value;
             Invalidate();
         }
     }
@@ -216,14 +211,6 @@ public class ScrollBar : ElementBase
             _hideDelay = Math.Clamp(value, 250, 10_000);
             _hideTimer.Interval = _hideDelay;
         }
-    }
-
-    [DefaultValue(true)]
-    [Description("Render a soft drop-shadow beneath the thumb.")]
-    public bool UseThumbShadow
-    {
-        get => _useThumbShadow;
-        set { _useThumbShadow = value; Invalidate(); }
     }
 
     [DefaultValue(Orientation.Vertical)]
@@ -352,8 +339,8 @@ public class ScrollBar : ElementBase
     internal float DisplayValue => (float)Math.Round(_animatedValue + _visualOverflowValue);
 
     internal event EventHandler? DisplayValueChanged;
-    public  event EventHandler? ValueChanged;
-    public  event EventHandler? Scroll;
+    public event EventHandler? ValueChanged;
+    public event EventHandler? Scroll;
 
     // =========================================================================
     // Dispose
@@ -367,13 +354,13 @@ public class ScrollBar : ElementBase
         {
             // Unsubscribe events before stopping — prevents a final Elapsed
             // firing after Dispose if the OS thread-pool beat us to it.
-            _hideTimer.Elapsed        -= HideTimer_Tick;
+            _hideTimer.Elapsed -= HideTimer_Tick;
             _inputSettleTimer.Elapsed -= InputSettleTimer_Tick;
-            _rubberBandTimer.Elapsed  -= RubberBandTimer_Tick;
+            _rubberBandTimer.Elapsed -= RubberBandTimer_Tick;
 
-            _hideTimer.Stop();        _hideTimer.Dispose();
+            _hideTimer.Stop(); _hideTimer.Dispose();
             _inputSettleTimer.Stop(); _inputSettleTimer.Dispose();
-            _rubberBandTimer.Stop();  _rubberBandTimer.Dispose();
+            _rubberBandTimer.Stop(); _rubberBandTimer.Dispose();
 
             _visibilityAnim.Dispose();
             _scrollAnim.Dispose();
@@ -381,7 +368,6 @@ public class ScrollBar : ElementBase
             // Cached paints
             _trackPaint.Dispose();
             _thumbPaint.Dispose();
-            _shadowPaint.Dispose();
         }
 
         base.Dispose(disposing);
@@ -409,30 +395,30 @@ public class ScrollBar : ElementBase
         }
 
         float trackLength = MathF.Max(1f, IsVertical ? Height : Width);
-        float range       = MathF.Max(0.0001f, _maximum - _minimum);
+        float range = MathF.Max(0.0001f, _maximum - _minimum);
 
         // Thumb length proportional to the visible page
         float thumbLength = MathF.Max(20f, _largeChange / (_maximum - _minimum + _largeChange) * trackLength);
         thumbLength = MathF.Min(trackLength, thumbLength);
 
-        float trackTravel  = MathF.Max(0f, trackLength - thumbLength);
+        float trackTravel = MathF.Max(0f, trackLength - thumbLength);
         float currentValue = DisplayValue;
-        float bounded      = Math.Clamp(currentValue, _minimum, _maximum);
-        float normalized   = Math.Clamp((bounded - _minimum) / range, 0f, 1f);
-        float thumbPos     = normalized * trackTravel;
+        float bounded = Math.Clamp(currentValue, _minimum, _maximum);
+        float normalized = Math.Clamp((bounded - _minimum) / range, 0f, 1f);
+        float thumbPos = normalized * trackTravel;
 
         // Rubber-band: compress thumb when pulled past the limits
         float overflow = currentValue - bounded;
         if (MathF.Abs(overflow) > 0.001f)
         {
-            float valuePerPixel  = range / MathF.Max(1f, trackTravel);
+            float valuePerPixel = range / MathF.Max(1f, trackTravel);
             float overflowPixels = valuePerPixel <= 0f
                 ? 0f
                 : MathF.Min(trackLength * 0.22f, MathF.Abs(overflow) / valuePerPixel * 0.22f);
 
             float minThumbLength = MathF.Max(16f, thumbLength * 0.62f);
             thumbLength = MathF.Max(minThumbLength, thumbLength - overflowPixels);
-            thumbPos    = overflow < 0f ? 0f : trackLength - thumbLength;
+            thumbPos = overflow < 0f ? 0f : trackLength - thumbLength;
         }
 
         _thumbRect = IsVertical
@@ -455,15 +441,11 @@ public class ScrollBar : ElementBase
         float visibility = _autoHide ? (float)_visibilityAnim.GetProgress() : 1f;
         if (visibility <= 0f || _maximum <= _minimum) return;
 
-        float sf     = MathF.Max(ScaleFactor, 1f);
-        float radius = MathF.Max(0f, _cornerRadius * sf);
+        SKColor trackBase = TrackColor == SKColors.Transparent ? ColorScheme.BorderColor : TrackColor;
+        byte trackAlpha = _autoHide ? (byte)(38 * visibility) : (byte)255;
+        _trackPaint.Color = trackBase.WithAlpha(trackAlpha);
 
-        // --- Track ---
-        SKColor trackBase   = TrackColor == SKColors.Transparent ? ColorScheme.Surface : TrackColor;
-        SKColor blendedTrack = trackBase.BlendWith(ColorScheme.ForeColor, 0.18f);
-        _trackPaint.Color   = blendedTrack.WithAlpha((byte)(50 * visibility));
-
-        using var trackRR = new SKRoundRect(_trackRect, radius);
+        using var trackRR = new SKRoundRect(_trackRect, Radius.All);
         canvas.DrawRoundRect(trackRR, _trackPaint);
 
         if (_thumbRect.IsEmpty) return;
@@ -474,31 +456,17 @@ public class ScrollBar : ElementBase
 
         SKColor stateColor = _isThumbPressed
             ? schemeBase.BlendWith(ColorScheme.ForeColor, 0.35f)
-            : (_isThumbHovered || _isHovered || _hostHovered)
+            : (/*_isThumbHovered || */_isHovered || _hostHovered)
                 ? schemeBase.BlendWith(ColorScheme.ForeColor, 0.25f)
                 : schemeBase.BlendWith(ColorScheme.Surface, 0.15f);
 
         byte thumbAlpha = (byte)(220 * Math.Clamp(visibility, 0f, 1f));
         SKColor thumbColor = stateColor.WithAlpha(thumbAlpha);
 
-        using var thumbRR = new SKRoundRect(_thumbRect, radius);
+        using var thumbRR = new SKRoundRect(_thumbRect, Radius.All);
 
-        // --- Optional shadow (single paint, filter reused via property) ---
-        if (_useThumbShadow)
-        {
-            using var shadowFilter = SKImageFilter.CreateDropShadow(
-                0, 1, 3, 3, SKColors.Black.WithAlpha((byte)(60 * visibility)));
-
-            _shadowPaint.Color       = thumbColor;
-            _shadowPaint.ImageFilter = shadowFilter;
-            canvas.DrawRoundRect(thumbRR, _shadowPaint);
-            _shadowPaint.ImageFilter = null; // reset so it doesn't leak
-        }
-        else
-        {
-            _thumbPaint.Color = thumbColor;
-            canvas.DrawRoundRect(thumbRR, _thumbPaint);
-        }
+        _thumbPaint.Color = thumbColor;
+        canvas.DrawRoundRect(thumbRR, _thumbPaint);
     }
 
     // =========================================================================
@@ -528,7 +496,7 @@ public class ScrollBar : ElementBase
     private void HideNow()
     {
         if (!_autoHide) return;
-        if (_hostHovered || _isHovered || _isDragging || _isThumbHovered || _isInputStretching) return;
+        if (_isHovered || _isDragging || _isThumbHovered || _isInputStretching) return;
 
         _hideTimer.Stop();
         _visibilityAnim.StartNewAnimation(AnimationDirection.Out);
@@ -548,11 +516,11 @@ public class ScrollBar : ElementBase
     {
         if (MathF.Abs(overflow) <= 0.001f) return 0f;
 
-        float viewport    = MathF.Max(1f, IsVertical ? Height : Width);
+        float viewport = MathF.Max(1f, IsVertical ? Height : Width);
         float maxOverflow = MathF.Max(18f, viewport * 0.12f);
-        float resistance  = MathF.Max(1f,  viewport * 0.24f);
-        float normalized  = MathF.Abs(overflow) / resistance;
-        float magnitude   = maxOverflow * (1f - MathF.Exp(-normalized * 0.75f));
+        float resistance = MathF.Max(1f, viewport * 0.24f);
+        float normalized = MathF.Abs(overflow) / resistance;
+        float magnitude = maxOverflow * (1f - MathF.Exp(-normalized * 0.75f));
         return MathF.CopySign(magnitude, overflow);
     }
 
@@ -568,10 +536,10 @@ public class ScrollBar : ElementBase
     /// </summary>
     private float WheelStretchDelta(float delta)
     {
-        float max          = MaxVisualOverflow();
+        float max = MaxVisualOverflow();
         float currentRatio = MathF.Min(1f, MathF.Abs(_visualOverflowValue) / max);
-        float resistance   = MathF.Max(0.08f, 1f - currentRatio * 0.92f);
-        float stretch      = MathF.Max(0.35f, MathF.Abs(delta) * 0.18f * resistance);
+        float resistance = MathF.Max(0.08f, 1f - currentRatio * 0.92f);
+        float stretch = MathF.Max(0.35f, MathF.Abs(delta) * 0.18f * resistance);
         return MathF.CopySign(stretch, delta);
     }
 
@@ -677,8 +645,8 @@ public class ScrollBar : ElementBase
             {
                 _scrollAnim.Stop();
                 _scrollAnimationStartValue = value;
-                _animatedValue             = value;
-                _targetValue               = value;
+                _animatedValue = value;
+                _targetValue = value;
                 UpdateThumbRect();
                 NotifyDisplayValueChanged();
                 Invalidate();
@@ -695,15 +663,15 @@ public class ScrollBar : ElementBase
         {
             _scrollAnim.Stop();
             _scrollAnimationStartValue = value;
-            _animatedValue             = value;
-            _targetValue               = value;
+            _animatedValue = value;
+            _targetValue = value;
             UpdateThumbRect();
             NotifyDisplayValueChanged();
         }
         else
         {
             _scrollAnimationStartValue = startValue;
-            _targetValue               = value;
+            _targetValue = value;
             _scrollAnim.StartNewAnimation(AnimationDirection.In);
         }
 
@@ -737,7 +705,7 @@ public class ScrollBar : ElementBase
 
         StopRubberBand();
 
-        float raw     = MathF.Abs(_visualOverflowValue) > 0.001f ? DisplayValue + delta : _value + delta;
+        float raw = MathF.Abs(_visualOverflowValue) > 0.001f ? DisplayValue + delta : _value + delta;
         float bounded = Math.Clamp(raw, _minimum, _maximum);
         SetValueCore(bounded, animate: false);
 
@@ -750,7 +718,7 @@ public class ScrollBar : ElementBase
         }
 
         float targetOverflow = ComputeVisualOverflow(overflow);
-        bool  sameDir = MathF.Abs(_visualOverflowValue) > 0.001f
+        bool sameDir = MathF.Abs(_visualOverflowValue) > 0.001f
                      && MathF.Sign(_visualOverflowValue) == MathF.Sign(delta);
 
         float next = sameDir
@@ -765,7 +733,7 @@ public class ScrollBar : ElementBase
     /// <summary>Applies an absolute value with optional rubber-band stretch.</summary>
     internal void ApplyInputValue(float value, bool keepStretchActive = false)
     {
-        float bounded  = Math.Clamp(value, _minimum, _maximum);
+        float bounded = Math.Clamp(value, _minimum, _maximum);
         SetValueCore(bounded, animate: !keepStretchActive && !_isDragging);
 
         float overflow = value - bounded;
@@ -796,26 +764,29 @@ public class ScrollBar : ElementBase
 
     internal void SetHostHover(bool hovered)
     {
+        if (_hostHovered == hovered) return;
         _hostHovered = hovered;
+
         if (_autoHide)
         {
             if (hovered)
             {
-                if (_visibilityAnim.Direction != AnimationDirection.In
-                    || _visibilityAnim.GetProgress() < 1.0)
-                    _visibilityAnim.StartNewAnimation(AnimationDirection.In);
+                // Mouse entered the host: pause the hide countdown so the scrollbar
+                // stays visible while the user can interact with the content.
                 _hideTimer.Stop();
             }
             else
             {
-                _hideTimer.Stop();
+                // Mouse left the host: start the hide countdown if not actively used.
                 if (!_isHovered && !_isDragging && !_isThumbHovered)
                 {
+                    _hideTimer.Stop();
                     _hideTimer.Interval = _hideDelay;
                     _hideTimer.Start();
                 }
             }
         }
+
         Invalidate();
     }
 
@@ -833,10 +804,10 @@ public class ScrollBar : ElementBase
 
         if (_thumbRect.Contains(e.Location))
         {
-            _isDragging      = true;
-            _isThumbPressed  = true;
-            _dragStartPoint  = e.Location;
-            _dragStartValue  = _value;
+            _isDragging = true;
+            _isThumbPressed = true;
+            _dragStartPoint = e.Location;
+            _dragStartValue = _value;
             ((IElement)this).GetParentWindow()?.SetMouseCapture(this);
         }
         else
@@ -844,12 +815,12 @@ public class ScrollBar : ElementBase
             // Click on track: jump by one page
             if (IsVertical)
             {
-                if      (e.Y < _thumbRect.Top)    Value -= _largeChange;
+                if (e.Y < _thumbRect.Top) Value -= _largeChange;
                 else if (e.Y > _thumbRect.Bottom) Value += _largeChange;
             }
             else
             {
-                if      (e.X < _thumbRect.Left)  Value -= _largeChange;
+                if (e.X < _thumbRect.Left) Value -= _largeChange;
                 else if (e.X > _thumbRect.Right) Value += _largeChange;
             }
         }
@@ -864,13 +835,13 @@ public class ScrollBar : ElementBase
 
         bool oldThumbHovered = _isThumbHovered;
         _isThumbHovered = _thumbRect.Contains(e.Location);
-        _isHovered      = _trackRect.Contains(e.Location);
+        _isHovered = _trackRect.Contains(e.Location);
 
         if (oldThumbHovered != _isThumbHovered) Invalidate();
 
         if (_isDragging)
         {
-            float delta       = IsVertical ? e.Y - _dragStartPoint.Y : e.X - _dragStartPoint.X;
+            float delta = IsVertical ? e.Y - _dragStartPoint.Y : e.X - _dragStartPoint.X;
             float trackTravel = IsVertical ? Height - _thumbRect.Height : Width - _thumbRect.Width;
 
             if (trackTravel > 0f)
@@ -889,7 +860,7 @@ public class ScrollBar : ElementBase
         base.OnMouseUp(e);
         if (e.Button != MouseButtons.Left) return;
 
-        _isDragging     = false;
+        _isDragging = false;
         _isThumbPressed = false;
 
         ReleaseVisualOverflow();
@@ -904,7 +875,7 @@ public class ScrollBar : ElementBase
         base.OnMouseWheel(e);
 
         float scrollLines = SystemInformation.MouseWheelScrollLines;
-        float delta       = e.Delta / 120f * scrollLines * _smallChange;
+        float delta = e.Delta / 120f * scrollLines * _smallChange;
         ApplyWheelDelta(-delta);
         OnScroll(EventArgs.Empty);
         ShowWithAutoHide();
@@ -920,7 +891,7 @@ public class ScrollBar : ElementBase
     internal override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        _isHovered      = false;
+        _isHovered = false;
         _isThumbHovered = false;
         Invalidate();
 

@@ -106,15 +106,32 @@ public static class ColorExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SKColor BlendWith(this SKColor bg, SKColor fg, double blend)
     {
-        double alpha = blend * (fg.Alpha / 255.0);
+        double fgA = (fg.Alpha / 255.0) * blend;
+        double bgA = bg.Alpha / 255.0;
 
-        double inv = 1 - alpha;
+        double outA = fgA + bgA * (1 - fgA);
 
-        byte r = (byte)(bg.Red * inv + fg.Red * alpha);
-        byte g = (byte)(bg.Green * inv + fg.Green * alpha);
-        byte b = (byte)(bg.Blue * inv + fg.Blue * alpha);
-        byte a = (byte)(bg.Alpha * inv + fg.Alpha * alpha);
+        if (outA <= 0)
+            return new SKColor(0, 0, 0, 0);
 
-        return new SKColor(r, g, b, a);
+        // normalize RGB
+        double fgR = fg.Red / 255.0;
+        double fgG = fg.Green / 255.0;
+        double fgB = fg.Blue / 255.0;
+
+        double bgR = bg.Red / 255.0;
+        double bgG = bg.Green / 255.0;
+        double bgB = bg.Blue / 255.0;
+
+        double outR = (fgR * fgA + bgR * bgA * (1 - fgA)) / outA;
+        double outG = (fgG * fgA + bgG * bgA * (1 - fgA)) / outA;
+        double outB = (fgB * fgA + bgB * bgA * (1 - fgA)) / outA;
+
+        return new SKColor(
+            (byte)(outR * 255),
+            (byte)(outG * 255),
+            (byte)(outB * 255),
+            (byte)(outA * 255)
+        );
     }
 }

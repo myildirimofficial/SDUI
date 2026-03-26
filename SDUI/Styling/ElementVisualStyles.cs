@@ -573,7 +573,15 @@ public sealed class ElementVisualStyleBuilder
 
     public ElementVisualStyleBuilder OnHover(Action<ElementVisualStyleRuleBuilder> configure)
     {
-        return When(ElementVisualStates.PointerOver, configure);
+        ArgumentNullException.ThrowIfNull(configure);
+        var rule = new ElementVisualStyleRule(new ElementVisualStyle())
+        {
+            RequiredStates = ElementVisualStates.PointerOver,
+            ExcludedStates = ElementVisualStates.Pressed
+        };
+        configure(new ElementVisualStyleRuleBuilder(rule));
+        _owner.VisualStyles.Add(rule);
+        return this;
     }
 
     public ElementVisualStyleBuilder OnPressed(Action<ElementVisualStyleRuleBuilder> configure)

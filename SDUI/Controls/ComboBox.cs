@@ -1611,8 +1611,6 @@ public class ComboBox : ElementBase
         {
             BackColor = ColorScheme.Surface;
             ForeColor = ColorScheme.ForeColor;
-            MenuBackColor = ColorScheme.Surface;
-            MenuForeColor = ColorScheme.ForeColor;
             HoverBackColor = ColorScheme.Primary.WithAlpha(24);
             BorderColor = _owner.DroppedDown
                 ? ColorScheme.Primary.WithAlpha(84)

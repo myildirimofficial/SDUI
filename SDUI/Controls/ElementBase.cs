@@ -220,7 +220,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     /// Represents the thickness of the border. This field is initialized to zero thickness by default.
     /// </summary>
     public Thickness _border = new(0);
-    public Thickness Border
+    public virtual Thickness Border
     {
         get => _border;
         set
@@ -275,7 +275,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     private BoxShadow[] _shadows = Array.Empty<BoxShadow>();
 
     /// <summary>
-    /// CSS-like box shadows. Supports multiple shadows rendered back-to-front.
+    /// Supports multiple shadows rendered back-to-front.
     /// Outer shadows render outside the element bounds; inset shadows render inside.
     /// </summary>
     [Browsable(false)]

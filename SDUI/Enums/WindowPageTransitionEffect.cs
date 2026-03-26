@@ -8,5 +8,9 @@ public enum WindowPageTransitionEffect
     SlideVertical,
     ScaleFade,
     Push,
-    Cover
+    Cover,
+    Reveal,
+    Uncover,
+    Flip,
+    Iris
 }

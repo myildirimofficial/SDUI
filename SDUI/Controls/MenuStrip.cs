@@ -8,6 +8,13 @@ using System.Timers;
 
 namespace SDUI.Controls;
 
+public enum MenuHoverTransitionMode
+{
+    Slide,
+    Fade,
+    SlideFade
+}
+
 public class MenuStrip : ElementBase
 {
     private const Keys ShortcutModifierMask = Keys.Shift | Keys.Control | Keys.Alt;
@@ -39,6 +46,10 @@ public class MenuStrip : ElementBase
     private SKPaint? _hoverBgPaint;
     private MenuItem? _hoveredItem;
     private SKColor _hoverForeColor = SKColor.Empty;
+    private SKRect _hoverSlideFrom = SKRect.Empty;
+    private SKRect _hoverSlideTo = SKRect.Empty;
+    private AnimationManager _hoverSlideAnim = null!;
+    private MenuHoverTransitionMode _hoverTransitionMode = MenuHoverTransitionMode.Slide;
     private float _iconSize = 16f;
     private SKSize _imageScalingSize = new(20, 20);
     private SKPaint? _imgPaint;
@@ -240,6 +251,27 @@ public class MenuStrip : ElementBase
         }
     }
 
+    [Category("Behavior")]
+    [DefaultValue(MenuHoverTransitionMode.Slide)]
+    public MenuHoverTransitionMode HoverTransitionMode
+    {
+        get => _hoverTransitionMode;
+        set
+        {
+            if (_hoverTransitionMode == value) return;
+            _hoverTransitionMode = value;
+            Invalidate();
+        }
+    }
+
+    [Category("Behavior")]
+    [DefaultValue(0.22d)]
+    public double HoverTransitionSpeed
+    {
+        get => _hoverSlideAnim.Increment;
+        set => _hoverSlideAnim.Increment = value <= 0 ? 0.01 : value;
+    }
+
     [Category("Layout")]
     [DefaultValue(true)]
     public bool ShowCheckMargin
@@ -435,6 +467,10 @@ public class MenuStrip : ElementBase
 
         _submenuCloseTimer = new Timer { Interval = DefaultSubmenuCloseDelayMs, AutoReset = false };
         _submenuCloseTimer.Elapsed += SubmenuCloseTimer_Tick;
+
+        _hoverSlideAnim = new AnimationManager
+            { Increment = 0.22, AnimationType = AnimationType.EaseOut, InterruptAnimation = true };
+        _hoverSlideAnim.OnAnimationProgress += _ => Invalidate();
     }
 
     private void AnimationTimer_Tick(object? sender, ElapsedEventArgs e)
@@ -457,7 +493,7 @@ public class MenuStrip : ElementBase
     {
         ExecuteOnMenuThread(() =>
         {
-            if (_openedItem == null || _hoveredItem?.HasDropDown == true)
+            if (_openedItem == null || _hoveredItem?.HasDropDown == true || _activeDropDown?.IsPointerOver == true)
                 return;
 
             CloseSubmenu();
@@ -502,6 +538,8 @@ public class MenuStrip : ElementBase
 
     private void OnThemeChanged(object? sender, EventArgs e)
     {
+        BackColor = ColorScheme.Surface;
+        ForeColor = ColorScheme.ForeColor;
         SyncDropDownAppearance();
         Invalidate();
     }
@@ -544,7 +582,7 @@ public class MenuStrip : ElementBase
 
         // Flat modern background
         _bgPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        _bgPaint.Color = SKColors.Red.WithAlpha(20); // Light red tint for debugging
+        _bgPaint.Color = BackColor;
         canvas.DrawRect(new SkiaSharp.SKRect(0, 0, bounds.Width, bounds.Height), _bgPaint);
 
         // Subtle bottom border
@@ -552,25 +590,20 @@ public class MenuStrip : ElementBase
         _bottomBorderPaint.Color = SeparatorColor.WithAlpha(72);
         canvas.DrawLine(0, bounds.Height - 1, bounds.Width, bounds.Height - 1, _bottomBorderPaint);
 
-        if (Orientation == Orientation.Horizontal)
+        // Draw sliding hover rect before items so text renders on top
+        if (ShowHoverEffect && _hoveredItem != null && !_hoverSlideTo.IsEmpty
+            && _hoverTransitionMode != MenuHoverTransitionMode.Fade)
         {
-            // Use ComputeItemRects to respect visibility and spacing logic
-            var entries = GetItemEntries();
-            for (var i = 0; i < entries.Count; i++)
-            {
-                var entry = entries[i];
-                DrawMenuItem(canvas, entry.Item, entry.Rect);
-            }
+            var slideP = (float)_hoverSlideAnim.GetProgress();
+            var slideRect = slideP >= 1f ? _hoverSlideTo : LerpRect(_hoverSlideFrom, _hoverSlideTo, slideP);
+            _hoverBgPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+            _hoverBgPaint.Color = HoverBackColor.WithAlpha(150);
+            canvas.DrawRoundRect(new SKRoundRect(slideRect, 7 * ScaleFactor), _hoverBgPaint);
         }
-        else
-        {
-            var entries = GetItemEntries();
-            for (var i = 0; i < entries.Count; i++)
-            {
-                var entry = entries[i];
-                DrawMenuItem(canvas, entry.Item, entry.Rect);
-            }
-        }
+
+        var drawEntries = GetItemEntries();
+        for (var i = 0; i < drawEntries.Count; i++)
+            DrawMenuItem(canvas, drawEntries[i].Item, drawEntries[i].Rect);
 
         if (_activeDropDown == null || !_activeDropDown.IsOpen) _activeDropDownOwner = null;
     }
@@ -579,30 +612,34 @@ public class MenuStrip : ElementBase
     {
         var hover = item == _hoveredItem || item == _openedItem;
         var anim = EnsureHoverAnim(item);
-
-        if (hover)
-            anim.StartNewAnimation(AnimationDirection.In);
-        else
-            anim.StartNewAnimation(AnimationDirection.Out);
-
         var prog = (float)anim.GetProgress();
         var scale = ScaleFactor;
         var vertical = Orientation == Orientation.Vertical || this is ContextMenuStrip;
 
-        // High-quality hover background with proper anti-aliasing
-        if (ShowHoverEffect && hover)
+        // Per-item background — behaviour depends on HoverTransitionMode
+        bool drawItemBg;
+        byte itemBgAlpha;
+        switch (_hoverTransitionMode)
         {
-            var blend = HoverBackColor;
-            var alpha = (byte)(150 * prog);
-            _hoverBgPaint ??= new SKPaint
-            {
-                IsAntialias = true,
-                Style = SKPaintStyle.Fill
-            };
-            _hoverBgPaint.Color = blend.WithAlpha(alpha);
+            case MenuHoverTransitionMode.Fade:
+                drawItemBg = ShowHoverEffect && prog > 0.001f;
+                itemBgAlpha = (byte)(150 * prog);
+                break;
+            case MenuHoverTransitionMode.SlideFade:
+                drawItemBg = ShowHoverEffect && prog > 0.001f;
+                itemBgAlpha = hover ? (byte)(75 * prog) : (byte)(150 * prog);
+                break;
+            default: // Slide
+                drawItemBg = ShowHoverEffect && !hover && prog > 0.001f;
+                itemBgAlpha = (byte)(150 * prog);
+                break;
+        }
+        if (drawItemBg)
+        {
+            _hoverBgPaint ??= new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+            _hoverBgPaint.Color = HoverBackColor.WithAlpha(itemBgAlpha);
             var hoverBounds = GetHoverBounds(bounds, vertical, scale);
-            var rr = new SKRoundRect(hoverBounds, 7 * scale);
-            c.DrawRoundRect(rr, _hoverBgPaint);
+            c.DrawRoundRect(new SKRoundRect(hoverBounds, 7 * scale), _hoverBgPaint);
         }
 
         var contentLeftInset = GetPrimaryTextInset(item, vertical);
@@ -682,7 +719,7 @@ public class MenuStrip : ElementBase
             : HoverBackColor.IsEmpty()
                 ? ForeColor
                 : HoverBackColor.Determine();
-        var textColor = hover ? hoverFore : ForeColor;
+        var textColor = BlendColors(ForeColor, hoverFore, prog);
         var shortcutText = GetShortcutText(item, vertical);
         var shouldDrawShortcut = shortcutText.Length > 0;
 
@@ -730,10 +767,8 @@ public class MenuStrip : ElementBase
                 Style = SKPaintStyle.Fill
             };
 
-            // Opacity logic: 0.4 (approx 102) constant when resting, Full opacity when hovered
-            var arrowAlpha = hover ? (byte)255 : (byte)102; 
-            var arrowColor = hover ? textColor : ForeColor; // Use active text color on hover
-            _arrowPaint.Color = arrowColor.WithAlpha(arrowAlpha);
+            var arrowAlpha = (byte)(102 + 153 * prog);
+            _arrowPaint.Color = textColor.WithAlpha(arrowAlpha);
 
             var chevronSize = 5f * scale;
             float arrowX;
@@ -875,8 +910,30 @@ public class MenuStrip : ElementBase
 
         if (_hoveredItem != hovered)
         {
+            var previousHovered = _hoveredItem;
             _hoveredItem = hovered;
-            
+
+            if (previousHovered != null)
+                EnsureHoverAnim(previousHovered).StartNewAnimation(AnimationDirection.Out);
+            if (hovered != null)
+                EnsureHoverAnim(hovered).StartNewAnimation(AnimationDirection.In);
+
+            // Update sliding highlight
+            var scale = ScaleFactor;
+            var vertical = Orientation == Orientation.Vertical;
+            if (hovered != null)
+            {
+                var slideProg = (float)_hoverSlideAnim.GetProgress();
+                _hoverSlideFrom = slideProg > 0f && slideProg < 1f && !_hoverSlideFrom.IsEmpty
+                    ? LerpRect(_hoverSlideFrom, _hoverSlideTo, slideProg)
+                    : previousHovered != null
+                        ? GetHoverBounds(GetItemBounds(previousHovered), vertical, scale)
+                        : GetHoverBounds(GetItemBounds(hovered), vertical, scale);
+                _hoverSlideTo = GetHoverBounds(GetItemBounds(hovered), vertical, scale);
+                _hoverSlideAnim.SetProgress(0);
+                _hoverSlideAnim.StartNewAnimation(AnimationDirection.In);
+            }
+
             // If hovering over a different item with dropdown, switch to it
             if (_hoveredItem?.HasDropDown == true && _openedItem != _hoveredItem)
             {
@@ -941,7 +998,13 @@ public class MenuStrip : ElementBase
     internal override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        _hoveredItem = null;
+        if (_hoveredItem != null)
+        {
+            EnsureHoverAnim(_hoveredItem).StartNewAnimation(AnimationDirection.Out);
+            _hoveredItem = null;
+        }
+        _hoverSlideFrom = SKRect.Empty;
+        _hoverSlideTo = SKRect.Empty;
         ScheduleSubmenuClose();
         Invalidate();
     }
@@ -1238,6 +1301,26 @@ public class MenuStrip : ElementBase
             bounds.Bottom - insetY);
     }
 
+    protected static SkiaSharp.SKRect LerpRect(SkiaSharp.SKRect from, SkiaSharp.SKRect to, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        return new SkiaSharp.SKRect(
+            from.Left + (to.Left - from.Left) * t,
+            from.Top + (to.Top - from.Top) * t,
+            from.Right + (to.Right - from.Right) * t,
+            from.Bottom + (to.Bottom - from.Bottom) * t);
+    }
+
+    protected static SKColor BlendColors(SKColor from, SKColor to, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        return new SKColor(
+            (byte)(from.Red + (to.Red - from.Red) * t),
+            (byte)(from.Green + (to.Green - from.Green) * t),
+            (byte)(from.Blue + (to.Blue - from.Blue) * t),
+            (byte)(from.Alpha + (to.Alpha - from.Alpha) * t));
+    }
+
     private float GetHorizontalArrowReserve()
     {
         return GetHorizontalArrowGap() + GetHorizontalArrowSlotWidth() + GetHorizontalArrowEndPadding();
@@ -1314,6 +1397,7 @@ public class MenuStrip : ElementBase
             _bgPaint?.Dispose();
             _bottomBorderPaint?.Dispose();
             _hoverBgPaint?.Dispose();
+            _hoverSlideAnim?.Dispose();
             _checkPaint?.Dispose();
             _imgPaint?.Dispose();
             _textPaint?.Dispose();
@@ -1333,7 +1417,7 @@ public class MenuStrip : ElementBase
         if (!_itemHoverAnims.TryGetValue(item, out var engine))
         {
             engine = new AnimationManager()
-                { Increment = 0.28, AnimationType = AnimationType.EaseOut, InterruptAnimation = true };
+                { Increment = 0.6, AnimationType = AnimationType.EaseOut, InterruptAnimation = true };
             engine.OnAnimationProgress += _ => Invalidate();
             _itemHoverAnims[item] = engine;
         }
