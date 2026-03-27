@@ -33,9 +33,11 @@ public sealed class BindingTargetBuilder<TTarget, TValue>
         return new BindingSourceBuilder<TTarget, TSource, TValue, TSourceValue>(_target, _targetProperty, null, sourceProperty, usesDataContext: true);
     }
 
-    public BindingHandle FromData<TSource, TSourceCollection>(Expression<Func<TSource, TSourceCollection>> sourceProperty, Func<object, object> itemFactory)
+    public BindingHandle FromData<TSource, TSourceCollection, TSourceItem>(
+        Expression<Func<TSource, TSourceCollection>> sourceProperty,
+        Func<TSourceItem, object> itemFactory)
         where TSource : class
-        where TSourceCollection : IEnumerable
+        where TSourceCollection : IEnumerable<TSourceItem>
     {
         ArgumentNullException.ThrowIfNull(sourceProperty);
         ArgumentNullException.ThrowIfNull(itemFactory);
@@ -44,12 +46,12 @@ public sealed class BindingTargetBuilder<TTarget, TValue>
             _targetProperty,
             sourceProperty,
             BindingMode.OneWay,
-            (object? sourceValue) => sourceValue is IEnumerable enumerable
+            (object? sourceValue) => sourceValue is IEnumerable<TSourceItem> enumerable
                 ? ReplaceCollectionItems(enumerable, itemFactory)
                 : null);
     }
 
-    private static object? ReplaceCollectionItems(IEnumerable sourceValues, Func<object, object> itemFactory)
+    private static object? ReplaceCollectionItems<TSourceItem>(IEnumerable<TSourceItem> sourceValues, Func<TSourceItem, object> itemFactory)
     {
         var result = new System.Collections.ArrayList();
         foreach (var sourceItem in sourceValues)

@@ -1,8 +1,10 @@
 using SDUI.Controls;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -242,11 +244,100 @@ public static class BindingExtensions
         if (values == null)
             return;
 
+        var listElementType = GetCollectionElementType(list);
+
         foreach (var value in values)
         {
-            var item = itemConverter != null ? itemConverter(value) : value;
+            object? item;
+
+            if (itemConverter != null)
+            {
+                item = itemConverter(value);
+            }
+            else if (list is GridListItemCollection)
+            {
+                item = ConvertToGridListItem(value);
+            }
+            else
+            {
+                item = ConvertCollectionItem(value, listElementType);
+            }
+
+            if (item == null)
+                throw new InvalidOperationException("Null item mapped for target collection; converter must not return null.");
+
             list.Add(item);
         }
+    }
+
+    private static object? ConvertCollectionItem(object? value, Type? targetElementType)
+    {
+        if (value == null)
+            return null;
+
+        if (targetElementType == null || targetElementType.IsInstanceOfType(value))
+            return value;
+
+        if (targetElementType == typeof(GridListItem))
+            return ConvertToGridListItem(value);
+
+        try
+        {
+            // Support primitive conversions where possible.
+            return Convert.ChangeType(value, targetElementType);
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Collection binding cannot convert item of type '{value.GetType().Name}' to '{targetElementType.Name}'. Provide an explicit converter for this path.");
+        }
+    }
+
+    private static Type? GetCollectionElementType(IList list)
+    {
+        var collectionType = list.GetType();
+
+        Type? elementType = collectionType.IsGenericType
+            ? collectionType.GetGenericArguments().FirstOrDefault()
+            : null;
+
+        if (elementType != null)
+            return elementType;
+
+        var collectionInterface = collectionType.GetInterfaces()
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICollection<>));
+
+        return collectionInterface?.GetGenericArguments().FirstOrDefault();
+    }
+
+    private static GridListItem ConvertToGridListItem(object model)
+    {
+        if (model is GridListItem existingItem)
+            return existingItem;
+
+        // Allow types to provide explicit conversion path via ToGridListItem() helper.
+        var toGridListItemMethod = model.GetType().GetMethod("ToGridListItem", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+        if (toGridListItemMethod != null && toGridListItemMethod.ReturnType == typeof(GridListItem))
+            return (GridListItem)toGridListItemMethod.Invoke(model, null)!;
+
+        var row = new GridListItem { Tag = model };
+
+        var properties = model.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        if (properties.Length == 0)
+        {
+            row.Cells.Add(new GridListCell { Text = model.ToString() ?? string.Empty });
+            return row;
+        }
+
+        foreach (var prop in properties)
+        {
+            if (!prop.CanRead || prop.GetIndexParameters().Length > 0)
+                continue;
+
+            var value = prop.GetValue(model);
+            row.Cells.Add(new GridListCell { Text = value?.ToString() ?? string.Empty });
+        }
+
+        return row;
     }
 
     private static TValue ConvertValue<TValue>(object? value)

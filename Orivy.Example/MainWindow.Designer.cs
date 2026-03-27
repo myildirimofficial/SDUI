@@ -1260,7 +1260,7 @@ internal partial class MainWindow
             Height = 52,
             Margin = new Thickness(0, 0, 0, 14),
             Padding = new Thickness(0),
-            BackColor = SKColors.Transparent,
+            BackColor = SKColors.Black.WithAlpha(12),
             Border = new Thickness(0)
         };
 
@@ -1340,7 +1340,7 @@ internal partial class MainWindow
             Height = 266,
             Margin = new Thickness(0, 0, 0, 14),
             Padding = new Thickness(0),
-            BackColor = SKColors.Transparent,
+            BackColor = SKColors.Black.WithAlpha(12),
             Border = new Thickness(0)
         };
 
@@ -1355,21 +1355,18 @@ internal partial class MainWindow
         {
             Name = "bindingTaskGrid",
             Dock = DockStyle.Fill,
-            Radius = new Radius(16),
-            Border = new Thickness(1),
-            BorderColor = ColorScheme.Outline.WithAlpha(120),
-            BackColor = ColorScheme.SurfaceContainer,
             HeaderVisible = true,
             StickyHeader = true,
             ShowGridLines = true,
             GroupingEnabled = false,
-            MultiSelect = false
+            MultiSelect = true,
+            AutoScroll = false
         };
         taskGrid.Columns.Add(new GridListColumn { Name = "name", HeaderText = "Task", Width = 180f, MinWidth = 120f, SizeMode = GridListColumnSizeMode.Auto });
         taskGrid.Columns.Add(new GridListColumn { Name = "state", HeaderText = "State", Width = 92f, MinWidth = 72f, CellTextAlign = ContentAlignment.MiddleCenter, SizeMode = GridListColumnSizeMode.Auto });
         taskGrid.Columns.Add(new GridListColumn { Name = "lane", HeaderText = "Lane", Width = 110f, MinWidth = 84f, SizeMode = GridListColumnSizeMode.Auto });
         taskGrid.Columns.Add(new GridListColumn { Name = "summary", HeaderText = "Summary", Width = 260f, MinWidth = 180f, SizeMode = GridListColumnSizeMode.Fill, FillWeight = 1.5f, Sortable = false });
-        taskGrid.Link(view => view.Items).FromData((BindingDemoViewModel vm) => vm.Tasks, item => CreateBindingTaskItem((BindingTaskRow)item));
+        taskGrid.Link(view => view.Items).FromData((BindingDemoViewModel vm) => vm.Tasks).OneWay();
         taskGrid.Link(view => view.SelectedIndex).FromData((BindingDemoViewModel vm) => vm.SelectedTaskIndex).TwoWay();
 
         taskShell.Controls.Add(taskDetail);
