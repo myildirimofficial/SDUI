@@ -1,5 +1,6 @@
 ﻿using SDUI;
 using SDUI.Animation;
+using SDUI.Binding;
 using SDUI.Controls;
 using SkiaSharp;
 using System;
@@ -20,7 +21,9 @@ namespace Orivy.Example
         private readonly Dictionary<WindowPageTransitionEffect, List<MenuItem>> _transitionMenuItems = new();
         private readonly Dictionary<AnimationType, List<MenuItem>> _transitionEasingMenuItems = new();
         private readonly Dictionary<int, List<MenuItem>> _transitionSpeedMenuItems = new();
+        private readonly BindingDemoViewModel _bindingDemoViewModel = new();
         private readonly List<SKImage> _gridListImages = new();
+        private Container? _bindingPanel;
         private bool _dangerModeEnabled;
         private int _transitionDurationPreset = 350;
 
@@ -425,6 +428,21 @@ namespace Orivy.Example
         private void UpdateGridListStatus(string title, string body)
         {
             gridListStatus.Text = $"{title}\n{body}";
+        }
+
+        private void BindingValidationSubmitButton_Click(object? sender, EventArgs e)
+        {
+            var isTeamValid = bindingValidationTeamCombo.ValidateNow();
+            var isPresetValid = bindingValidationPresetCombo.ValidateNow();
+
+            bindingValidationStatusCard.Text = isTeamValid && isPresetValid
+                ? "Validation Submit\nAll rules passed. Existing ValidationRule infrastructure is now gating this small workflow."
+                : "Validation Submit\nFix the highlighted rule breaches before continuing. The cards above are bound directly to ValidationText and HasValidationError.";
+
+            bindingValidationStatusCard.BackColor = isTeamValid && isPresetValid
+                ? ColorScheme.Primary.WithAlpha(196)
+                : new SKColor(185, 28, 28);
+            bindingValidationStatusCard.ForeColor = SKColors.White;
         }
 
         protected override void Dispose(bool disposing)

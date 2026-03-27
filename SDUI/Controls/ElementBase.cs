@@ -1,3 +1,4 @@
+using SDUI.Binding;
 using SDUI.Collections;
 using SDUI.Helpers;
 using SDUI.Layout;
@@ -35,6 +36,8 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     // Use a counter to support nested SuspendLayout/ResumeLayout like WinForms.
     // When > 0 layout is suspended; when it reaches 0 we allow layouts again.
     protected int _layoutSuspendCount;
+    private object? _dataContext;
+    private List<BindingHandle>? _ownedBindingHandles;
 
     public int LayoutSuspendCount { get => _layoutSuspendCount; set => _layoutSuspendCount = value; }
 
@@ -202,6 +205,24 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     public bool HasParent => _parent != null;
     public object Tag { get; set; }
 
+    [Browsable(false)]
+    public object? DataContext
+    {
+        get => _dataContext ?? _parent?.DataContext;
+        set
+        {
+            var previousContext = DataContext;
+            if (ReferenceEquals(_dataContext, value))
+                return;
+
+            _dataContext = value;
+            NeedsRedraw = true;
+
+            if (!ReferenceEquals(previousContext, DataContext))
+                OnDataContextChanged(EventArgs.Empty);
+        }
+    }
+
     public ElementBase Parent
     {
         get => _parent;
@@ -210,10 +231,22 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             if (_parent == value)
                 return;
 
+            var previousContext = DataContext;
             _parent = value;
             UpdateCurrentDpiFromParent();
             NeedsRedraw = true;
+
+            if (!ReferenceEquals(previousContext, DataContext))
+                OnDataContextChanged(EventArgs.Empty);
         }
+    }
+
+    internal BindingHandle TrackBinding(BindingHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        _ownedBindingHandles ??= [];
+        _ownedBindingHandles.Add(handle);
+        return handle;
     }
 
     /// <summary>
@@ -1285,6 +1318,7 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         {
             if (_validationText == value) return;
             _validationText = value;
+            ValidationTextChanged?.Invoke(this, EventArgs.Empty);
             Invalidate();
         }
     }
@@ -1299,9 +1333,14 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         {
             if (_isValid == value) return;
             _isValid = value;
+            IsValidChanged?.Invoke(this, EventArgs.Empty);
+            HasValidationErrorChanged?.Invoke(this, EventArgs.Empty);
             Invalidate();
         }
     }
+
+    [Browsable(false)]
+    public bool HasValidationError => !IsValid;
 
     public bool NeedsRedraw { get; set; } = true;
 
@@ -1392,6 +1431,10 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
     public event CancelEventHandler? Validating;
 
     public event EventHandler? CursorChanged;
+    public event EventHandler? DataContextChanged;
+    public event EventHandler? ValidationTextChanged;
+    public event EventHandler? IsValidChanged;
+    public event EventHandler? HasValidationErrorChanged;
 
     public event UILayoutEventHandler? Layout;
 
@@ -2944,6 +2987,19 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
             ValidateElement();
     }
 
+    internal virtual void OnDataContextChanged(EventArgs e)
+    {
+        DataContextChanged?.Invoke(this, e);
+
+        for (var i = 0; i < Controls.Count; i++)
+        {
+            if (Controls[i] is not ElementBase child || child._dataContext != null)
+                continue;
+
+            child.OnDataContextChanged(EventArgs.Empty);
+        }
+    }
+
     internal virtual void OnBackColorChanged(EventArgs e)
     {
         BackColorChanged?.Invoke(this, e);
@@ -3235,6 +3291,12 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         ValidationText = string.Empty;
     }
 
+    public bool ValidateNow()
+    {
+        ValidateElement();
+        return IsValid;
+    }
+
     protected virtual void ValidateElement()
     {
         if (!CausesValidation)
@@ -3365,6 +3427,14 @@ public abstract partial class ElementBase : IElement, IArrangedElement, IDisposa
         if (disposing)
         {
             // Dispose managed resources.
+            if (_ownedBindingHandles != null)
+            {
+                for (var i = 0; i < _ownedBindingHandles.Count; i++)
+                    _ownedBindingHandles[i].Dispose();
+
+                _ownedBindingHandles.Clear();
+            }
+
             DisposeMotionEffectsSystem();
             DisposeVisualStyleSystem();
             _font?.Dispose();
