@@ -1,4 +1,5 @@
 ﻿using SDUI.Animation;
+using SDUI.Binding;
 using SDUI.Helpers;
 using SkiaSharp;
 using System;
@@ -259,6 +260,7 @@ public class ContextMenuStrip : MenuStrip
     public bool IsClosing => _isClosing;
 
     public event CancelEventHandler? Opening;
+    public event EventHandler? Opened;
     public event CancelEventHandler? Closing;
     public event EventHandler? Closed;
 
@@ -361,6 +363,8 @@ public class ContextMenuStrip : MenuStrip
 
         _ownerWindow.Invalidate();
         IsOpen = true;
+
+        Opened?.Invoke(this, EventArgs.Empty);
     }
 
     public void Show(SKPoint location)
