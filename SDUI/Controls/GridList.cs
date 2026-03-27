@@ -308,7 +308,11 @@ public class GridList : ElementBase
     }
 
     [Browsable(false)]
-    public GridListItem? SelectedItem => _selectedIndex >= 0 && _selectedIndex < Items.Count ? Items[_selectedIndex] : null;
+    public GridListItem? SelectedItem
+    {
+        get => _selectedIndex >= 0 && _selectedIndex < Items.Count ? Items[_selectedIndex] : null;
+        set => SelectedIndex = value != null ? Items.IndexOf(value) : -1;
+    }
 
     [Browsable(false)]
     public IReadOnlyCollection<int> SelectedIndices => _selectedIndices;
