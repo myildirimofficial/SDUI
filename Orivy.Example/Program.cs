@@ -1,5 +1,5 @@
-﻿using SDUI;
-using SDUI.Controls;
+﻿using Orivy;
+using Orivy.Controls;
 using SkiaSharp;
 
 namespace Orivy.Example;

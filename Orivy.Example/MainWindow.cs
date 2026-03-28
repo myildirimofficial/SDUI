@@ -1,7 +1,7 @@
-﻿using SDUI;
-using SDUI.Animation;
-using SDUI.Binding;
-using SDUI.Controls;
+﻿using Orivy;
+using Orivy.Animation;
+using Orivy.Binding;
+using Orivy.Controls;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
@@ -150,17 +150,17 @@ namespace Orivy.Example
 
         private void ButtonDirectX_Click(object sender, EventArgs e)
         {
-            this.RenderBackend = SDUI.Rendering.RenderBackend.DirectX11;
+            this.RenderBackend = Orivy.Rendering.RenderBackend.DirectX11;
         }
 
         private void ButtonSoftware_Click(object sender, EventArgs e)
         {
-            this.RenderBackend = SDUI.Rendering.RenderBackend.Software;
+            this.RenderBackend = Orivy.Rendering.RenderBackend.Software;
         }
 
         private void ButtonOpenGL_Click(object sender, EventArgs e)
         {
-            this.RenderBackend = SDUI.Rendering.RenderBackend.OpenGL;
+            this.RenderBackend = Orivy.Rendering.RenderBackend.OpenGL;
         }
 
         private void ButtonDarkMode_Click(object sender, EventArgs e)

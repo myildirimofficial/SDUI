@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SDUI will be documented in this file.
+All notable changes to Orivy will be documented in this file.
 
 ## [Unreleased]
 

@@ -143,7 +143,7 @@ Motion is also opt-in. A control without effects does not run the motion timer.
 
 ## New Button Control
 
-`SDUI.Controls.Button` inherits from ElementBase and ships with a default visual-style profile.
+`Orivy.Controls.Button` inherits from ElementBase and ships with a default visual-style profile.
 
 Characteristics:
 

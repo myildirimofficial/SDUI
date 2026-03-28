@@ -2,56 +2,56 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Build SDUI solution",
+			"label": "Build Orivy solution",
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
 				"build",
-				"SDUI.sln"
+				"Orivy.sln"
 			],
 			"isBackground": false,
 			"group": "build"
 		},
 		{
-			"label": "Build SDUI solution",
+			"label": "Build Orivy solution",
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
 				"build",
-				"SDUI.sln"
+				"Orivy.sln"
 			],
 			"isBackground": false,
 			"group": "build"
 		},
 		{
-			"label": "Build SDUI solution",
+			"label": "Build Orivy solution",
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
 				"build",
-				"SDUI.sln"
+				"Orivy.sln"
 			],
 			"isBackground": false,
 			"group": "build"
 		},
 		{
-			"label": "Build SDUI solution",
+			"label": "Build Orivy solution",
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
 				"build",
-				"SDUI.sln"
+				"Orivy.sln"
 			],
 			"isBackground": false,
 			"group": "build"
 		},
 		{
-			"label": "Build SDUI solution",
+			"label": "Build Orivy solution",
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
 				"build",
-				"SDUI.sln"
+				"Orivy.sln"
 			],
 			"isBackground": false,
 			"group": "build"

@@ -4,27 +4,27 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-SDUI is a **custom Skia-based UI framework** for .NET that implements a retained-mode UI system with WinForms-like semantics. It is NOT a WinForms wrapper — all layout, input, animation, and rendering is custom-built on SkiaSharp. The rendering pipeline supports DirectX11 (with Vortice) with fallback to CPU rendering.
+Orivy is a **custom Skia-based UI framework** for .NET that implements a retained-mode UI system with WinForms-like semantics. It is NOT a WinForms wrapper — all layout, input, animation, and rendering is custom-built on SkiaSharp. The rendering pipeline supports DirectX11 (with Vortice) with fallback to CPU rendering.
 
 ## Build Commands
 
 ```powershell
 # Build entire solution
-dotnet build SDUI.sln
+dotnet build Orivy.sln
 
 # Build specific project
-dotnet build SDUI/SDUI.csproj
-dotnet build SDUI.Test/SDUI.Demo.csproj
-dotnet build SDUI.Designer/SDUI.Designer.csproj
+dotnet build Orivy/Orivy.csproj
+dotnet build Orivy.Test/Orivy.Demo.csproj
+dotnet build Orivy.Designer/Orivy.Designer.csproj
 
 # Build for release
-dotnet build SDUI.sln -c Release
+dotnet build Orivy.sln -c Release
 ```
 
 ## Run the Demo App
 
 ```powershell
-dotnet run --project SDUI.Test/SDUI.Demo.csproj
+dotnet run --project Orivy.Test/Orivy.Demo.csproj
 ```
 
 The demo app contains interactive test pages for Dock, Anchor, AutoSize, TreeView, and the Measure/Arrange API.
@@ -33,7 +33,7 @@ The demo app contains interactive test pages for Dock, Anchor, AutoSize, TreeVie
 
 ### Core Components
 
-- **SDUI/** — Main library with all UI controls and framework code
+- **Orivy/** — Main library with all UI controls and framework code
   - `Controls/UIElementBase.cs` — Base class for all UI elements; implements `IArrangedElement`
   - `Controls/UIWindowBase.cs` — Base class for windows; handles Win32 message loop via `WndProc`
   - `Layout/LayoutEngine.cs` — Abstract layout engine; `DefaultLayout.cs` implements WinForms-like Dock/Anchor/AutoSize
@@ -41,8 +41,8 @@ The demo app contains interactive test pages for Dock, Anchor, AutoSize, TreeVie
   - `ColorScheme.cs` — Centralized theme system with light/dark mode and animated transitions
   - `Animation/` — Delta-time driven animation system with easing functions
 
-- **SDUI.Test/** (SDUI.Demo) — Demo/test application showcasing controls and layout
-- **SDUI.Designer/** — Visual designer tool (WIP)
+- **Orivy.Test/** (Orivy.Demo) — Demo/test application showcasing controls and layout
+- **Orivy.Designer/** — Visual designer tool (WIP)
 
 ### Layout System (Two-Phase Pipeline)
 
@@ -51,7 +51,7 @@ The layout follows WinForms semantics with a WPF-like Measure/Arrange API:
 1. **Measure phase**: `control.Measure(availableSize)` calculates desired size (cached per layout pass)
 2. **Arrange phase**: `control.Arrange(finalRect)` positions and sizes control to final bounds
 
-Key files: `SDUI/Layout/DefaultLayout.cs`, `SDUI/Controls/UIElementBase.Layout.cs`
+Key files: `Orivy/Layout/DefaultLayout.cs`, `Orivy/Controls/UIElementBase.Layout.cs`
 
 Child controls are laid out in **z-order** (Controls.Add order) matching WinForms behavior.
 

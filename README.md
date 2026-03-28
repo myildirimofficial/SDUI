@@ -1,10 +1,10 @@
-# SDUI
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSDClowen%2FSDUI.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FSDClowen%2FSDUI?ref=badge_shield)
+# Orivy
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSDClowen%2FOrivy.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FSDClowen%2FOrivy?ref=badge_shield)
 
 A fluently windows forms theme library.
 
 ## New: TreeView Control
-A simple, stylish `TreeView` control has been added under `SDUI/Controls/TreeView.cs` with a supporting `TreeNode` model. It supports:
+A simple, stylish `TreeView` control has been added under `Orivy/Controls/TreeView.cs` with a supporting `TreeNode` model. It supports:
 
 - Expand/collapse with a clean chevron triangle UI ✅
 - Selection with keyboard support (arrow keys) and mouse clicks ✅
@@ -13,20 +13,20 @@ A simple, stylish `TreeView` control has been added under `SDUI/Controls/TreeVie
 - Icons: nodes support an optional `IconColor` for a small color icon in the tree ✅
 - Multi-selection: select multiple nodes with Ctrl/Shift; use `SelectedNodes` and `SelectedNodesChanged` ✅
 - Simple chevron rotation animation for expand/collapse is added ✅
-- Demo page with sample data: `SDUI.Test/TreeViewPage.cs` (accessible from the main demo window) ✅
+- Demo page with sample data: `Orivy.Test/TreeViewPage.cs` (accessible from the main demo window) ✅
 
 Usage example:
 ```csharp
-var tv = new SDUI.Controls.TreeView();
-var root = new SDUI.Controls.TreeNode("Root");
-root.Nodes.Add(new SDUI.Controls.TreeNode("Child 1"));
-root.Nodes.Add(new SDUI.Controls.TreeNode("Child 2"));
+var tv = new Orivy.Controls.TreeView();
+var root = new Orivy.Controls.TreeNode("Root");
+root.Nodes.Add(new Orivy.Controls.TreeNode("Child 1"));
+root.Nodes.Add(new Orivy.Controls.TreeNode("Child 2"));
 tv.Nodes.Add(root);
 tv.SetSelectedNode(root);
 ```
 
 ## Layout compatibility (WinForms) ⚖️
-SDUI's layout engine tries to mimic WinForms Dock/AutoSize/Anchor behavior to make porting easier. Key points:
+Orivy's layout engine tries to mimic WinForms Dock/AutoSize/Anchor behavior to make porting easier. Key points:
 
 - **Child controls are laid out in the same order they appear in the container's `Controls` collection (the Controls.Add / z-order), matching WinForms behavior**. This ensures controls that rely on add-order docking reproduce WinForms layouts.
 - AutoSize controls docked to Top/Bottom/Left/Right use `GetPreferredSize` and respect `AutoSizeMode`, `MinimumSize` and `MaximumSize` when sizing.
@@ -34,7 +34,7 @@ SDUI's layout engine tries to mimic WinForms Dock/AutoSize/Anchor behavior to ma
 
 ## NEW: Measure/Arrange Layout API 📐
 
-SDUI now implements a **two-phase layout pipeline** similar to WPF/Avalonia for improved layout performance and predictability:
+Orivy now implements a **two-phase layout pipeline** similar to WPF/Avalonia for improved layout performance and predictability:
 
 ### How It Works
 
@@ -92,4 +92,4 @@ If you rely on unit tests, please note: we run layout verification through the d
 
 
 ## License
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSDClowen%2FSDUI.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FSDClowen%2FSDUI?ref=badge_large)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSDClowen%2FOrivy.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FSDClowen%2FOrivy?ref=badge_large)

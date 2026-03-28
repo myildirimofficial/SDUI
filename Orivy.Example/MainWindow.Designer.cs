@@ -1,8 +1,8 @@
-﻿using SDUI;
-using SDUI.Animation;
-using SDUI.Binding;
-using SDUI.Controls;
-using SDUI.Validations;
+﻿using Orivy;
+using Orivy.Animation;
+using Orivy.Binding;
+using Orivy.Controls;
+using Orivy.Validations;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
@@ -26,7 +26,7 @@ internal partial class MainWindow
             Text = "Backend Renderer",
             Name = "panel",
             Padding = new(5),
-            Dock = SDUI.DockStyle.Fill
+            Dock = Orivy.DockStyle.Fill
         };
 
         
@@ -35,7 +35,7 @@ internal partial class MainWindow
             Text = "Config",
             Name = "panel2",
             Padding = new(5),
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(0),
             Border = new(0)
         };
@@ -45,7 +45,7 @@ internal partial class MainWindow
             Text = "Designer",
             Name = "panel3",
             Padding = new(24),
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(0),
             Border = new(0),
             AutoScroll = true,
@@ -57,7 +57,7 @@ internal partial class MainWindow
             Text = "Visual Styles",
             Name = "panel4",
             Padding = new(24),
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(0),
             Border = new(0),
             AutoScroll = true,
@@ -69,7 +69,7 @@ internal partial class MainWindow
             Text = "Scroll Lab",
             Name = "panel5",
             Padding = new(24),
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(0),
             Border = new(0),
             AutoScroll = true,
@@ -81,7 +81,7 @@ internal partial class MainWindow
             Text = "Grid List",
             Name = "panel6",
             Padding = new(20),
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(0),
             Border = new(0),
             AutoScroll = true,
@@ -93,7 +93,7 @@ internal partial class MainWindow
             Name = "buttonOpenGL",
             Text = "OpenGL",
             BackColor = SKColors.Red,
-            Dock = SDUI.DockStyle.Bottom,
+            Dock = Orivy.DockStyle.Bottom,
             Size = new(100, 32),
             Radius = new(6),
         };
@@ -106,7 +106,7 @@ internal partial class MainWindow
             Text = "Software",
             BackColor = SKColors.Green,
             Size = new(100, 32),
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Radius = new(4),
             Border = new(1)
         };
@@ -119,7 +119,7 @@ internal partial class MainWindow
             Text = "DirectX",
             BackColor = SKColors.Green,
             Size = new(100, 32),
-            Dock = SDUI.DockStyle.Right,
+            Dock = Orivy.DockStyle.Right,
             Radius = new(4),
             Border = new(1),
             Shadows = new[] {
@@ -136,7 +136,7 @@ internal partial class MainWindow
             Name = "buttonDarkMode",
             Text = "Toggle Mode",
             BackColor = SKColors.Blue,
-            Dock = SDUI.DockStyle.Bottom,
+            Dock = Orivy.DockStyle.Bottom,
             Size = new(100, 32),
             Radius = new(6),
         };
@@ -147,7 +147,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleHeader",
             Text = "Visual Style Builder\nOpt-in only: state refresh and transitions start when a control explicitly configures visual styles.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 84,
             Padding = new(14),
             Margin = new(0, 0, 0, 16),
@@ -161,7 +161,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleInteractiveCard",
             Text = "Interactive Card\nHover, press or focus this element to see layered transitions and subtle rectangle drift.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
@@ -175,7 +175,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleMotionHero",
             Text = "Motion Builder\nFloating circles, orbiting shapes and bezier path motion are rendered through ConfigureMotionEffects(...).",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 196,
             Padding = new(18),
             Margin = new(0, 0, 0, 14),
@@ -189,7 +189,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleDangerCard",
             Text = "Predicate Card\nClick to toggle a custom predicate state.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
@@ -204,7 +204,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleDisabledCard",
             Text = "Disabled State Card\nThis card is disabled and styled by OnDisabled.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 92,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
@@ -218,7 +218,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleFooterAction",
             Text = "Toggle Disabled Card",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 54,
             Padding = new(12),
             Margin = new(0, 0, 0, 14),
@@ -232,7 +232,7 @@ internal partial class MainWindow
         {
             Name = "visualStylePrimaryButton",
             Text = "Primary Button - Accent Motion On",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 46,
             Margin = new(0, 0, 0, 12),
             AccentMotionEnabled = true
@@ -242,7 +242,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleGhostButton",
             Text = "Secondary Button - Accent Motion Off",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 46,
             Margin = new(0, 0, 0, 14),
             AccentMotionEnabled = false
@@ -252,7 +252,7 @@ internal partial class MainWindow
         {
             Name = "visualStyleScrollProbe",
             Text = "Scroll Probe\nIf you can reach this block, AutoScroll is now measuring content after dock layout. The two Button controls above also prove the new control works inside the example page.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 240,
             Padding = new(18),
             Margin = new(0, 0, 0, 14),
@@ -464,7 +464,7 @@ internal partial class MainWindow
         {
             Name = "designerControlHeader",
             Text = "Designer Controls\nComboBox demos live only on this page now. Use the motion preset, multi-select dropdown and inline color picker together.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 102,
             Padding = new(18),
             Margin = new(0, 0, 0, 16),
@@ -479,7 +479,7 @@ internal partial class MainWindow
         var designerControlShell = new Element
         {
             Name = "designerControlShell",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 628,
             Padding = new(18),
             Margin = new(0, 0, 0, 16),
@@ -495,7 +495,7 @@ internal partial class MainWindow
         var designerControlStatus = new Element
         {
             Name = "designerControlStatus",
-            Dock = SDUI.DockStyle.Bottom,
+            Dock = Orivy.DockStyle.Bottom,
             Height = 72,
             Padding = new(14),
             Margin = new(0, 14, 0, 0),
@@ -511,7 +511,7 @@ internal partial class MainWindow
         var designerSurfaceCombo = new ComboBox
         {
             Name = "designerSurfaceCombo",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 42,
             Margin = new(0, 0, 0, 12),
             PlaceholderText = "Inspector surface",
@@ -532,7 +532,7 @@ internal partial class MainWindow
         var designerMotionCombo = new ComboBox
         {
             Name = "designerMotionCombo",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 42,
             Margin = new(0, 0, 0, 12),
             PlaceholderText = "Popup motion preset",
@@ -552,7 +552,7 @@ internal partial class MainWindow
         var designerModulesCombo = new ComboBox
         {
             Name = "designerModulesCombo",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 42,
             Margin = new(0, 0, 0, 12),
             PlaceholderText = "Inspector modules",
@@ -577,7 +577,7 @@ internal partial class MainWindow
         var designerAccentPicker = new ColorPicker
         {
             Name = "designerAccentPicker",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 346,
             Margin = new(0, 0, 0, 14),
             ReferenceColor = ColorScheme.Primary,
@@ -628,7 +628,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabHeader",
             Text = "Scroll Lab\nUse this page to test thumb drag, track click, wheel scroll, nested scroll hosts, and wheel routing while hovering child controls.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 96,
             Padding = new(16),
             Margin = new(0, 0, 0, 16),
@@ -644,7 +644,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabWheelCards",
             Text = "Scenario A\nWheel over these cards. If wheel routing is correct, the page should still move even when the pointer is on child content.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 180,
             Padding = new(16),
             Margin = new(0, 0, 0, 16),
@@ -660,7 +660,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabActionA",
             Text = "Action Button In Scroll Flow",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 46,
             Margin = new(0, 0, 0, 12),
             AccentMotionEnabled = true
@@ -670,7 +670,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabActionB",
             Text = "Second Button - Hover Then Wheel",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 46,
             Margin = new(0, 0, 0, 16),
             AccentMotionEnabled = false
@@ -680,7 +680,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedShell",
             Text = "Scenario B\nNested scroll host. Test outer wheel on shell, then move over inner cards and wheel again.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 336,
             Padding = new(16),
             Margin = new(0, 0, 0, 16),
@@ -695,7 +695,7 @@ internal partial class MainWindow
         var scrollLabNestedHost = new Element
         {
             Name = "scrollLabNestedHost",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Padding = new(12),
             Margin = new(0),
             Radius = new(14),
@@ -709,7 +709,7 @@ internal partial class MainWindow
         var scrollLabNestedTopGap = new Element
         {
             Name = "scrollLabNestedTopGap",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 44,
             Margin = new(0, 0, 0, 10),
             BackColor = ColorScheme.Surface.WithAlpha(20),
@@ -724,7 +724,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedCard1",
             Text = "Nested Card 1\nWheel here and verify the inner host moves.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
@@ -740,7 +740,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedCard2",
             Text = "Nested Card 2\nDrag the inner scrollbar thumb here.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
@@ -756,7 +756,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedButton",
             Text = "Nested Button - Hover Then Wheel",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 44,
             Margin = new(0, 0, 0, 12),
             AccentMotionEnabled = true
@@ -766,7 +766,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedCard3",
             Text = "Nested Card 3\nTrack click should jump inside the inner host.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 104,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
@@ -782,7 +782,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabNestedCard4",
             Text = "Nested Card 4\nBottom probe for inner scrolling.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 132,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
@@ -798,7 +798,7 @@ internal partial class MainWindow
         {
             Name = "scrollLabLongTail",
             Text = "Scenario C\nLong tail content. Use outer wheel, outer thumb drag, and track click while hovering this large block and the two buttons above.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 320,
             Padding = new(18),
             Margin = new(0, 0, 0, 16),
@@ -846,7 +846,7 @@ internal partial class MainWindow
         {
             Name = "gridListHeader",
             Text = "Grid List Surface\nAnimated groups, sticky header, column resize, optional row resize and denser typography are all visible without leaving this page.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 124,
             Padding = new(24),
             Margin = new(0, 0, 0, 16),
@@ -862,7 +862,7 @@ internal partial class MainWindow
         var gridListToolbar = new Element
         {
             Name = "gridListToolbar",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 72,
             Padding = new(10),
             Margin = new(0, 0, 0, 16),
@@ -876,7 +876,7 @@ internal partial class MainWindow
         {
             Name = "gridListToggleHeaderButton",
             Text = "Header: On",
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Width = 128,
             Margin = new(0, 0, 10, 0),
             AccentMotionEnabled = true
@@ -886,7 +886,7 @@ internal partial class MainWindow
         {
             Name = "gridListToggleStickyButton",
             Text = "Sticky: On",
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Width = 128,
             Margin = new(0, 0, 10, 0),
             AccentMotionEnabled = false
@@ -896,7 +896,7 @@ internal partial class MainWindow
         {
             Name = "gridListToggleGroupingButton",
             Text = "Grouping: On",
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Width = 144,
             Margin = new(0, 0, 10, 0),
             AccentMotionEnabled = false
@@ -906,7 +906,7 @@ internal partial class MainWindow
         {
             Name = "gridListToggleGridLinesButton",
             Text = "Grid Lines: On",
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Width = 152,
             Margin = new(0, 0, 0, 0),
             AccentMotionEnabled = false
@@ -916,7 +916,7 @@ internal partial class MainWindow
         {
             Name = "gridListToggleRowResizeButton",
             Text = "Row Resize: Off",
-            Dock = SDUI.DockStyle.Left,
+            Dock = Orivy.DockStyle.Left,
             Width = 164,
             Margin = new(0, 0, 10, 0),
             AccentMotionEnabled = false
@@ -931,7 +931,7 @@ internal partial class MainWindow
         var gridListWorkspace = new Element
         {
             Name = "gridListWorkspace",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 860,
             BackColor = SKColors.Transparent,
             Border = new(0),
@@ -943,7 +943,7 @@ internal partial class MainWindow
         var gridListInspectorRail = new Element
         {
             Name = "gridListInspectorRail",
-            Dock = SDUI.DockStyle.Right,
+            Dock = Orivy.DockStyle.Right,
             Width = 328,
             Padding = new(0),
             Margin = new(16, 0, 0, 0),
@@ -956,7 +956,7 @@ internal partial class MainWindow
         {
             Name = "gridListStatus",
             Text = "Status\nReady",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 110,
             Padding = new(18),
             Margin = new(0, 0, 0, 14),
@@ -972,7 +972,7 @@ internal partial class MainWindow
         var gridListPrimaryShell = new Element
         {
             Name = "gridListPrimaryShell",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Padding = new(16),
             Margin = new(0),
             BackColor = ColorScheme.Surface,
@@ -986,7 +986,7 @@ internal partial class MainWindow
         {
             Name = "gridListPrimaryIntro",
             Text = "Operations Board\nScroll inside the grid to verify sticky header. Resize columns from the header edge, then enable row resize from the toolbar to stretch the body rhythm.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 84,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
@@ -1002,7 +1002,7 @@ internal partial class MainWindow
         this.gridListPrimary = new GridList
         {
             Name = "gridListPrimary",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Margin = new(0),
             Radius = new(14),
             Border = new(1),
@@ -1027,7 +1027,7 @@ internal partial class MainWindow
         var gridListCompactShell = new Element
         {
             Name = "gridListCompactShell",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 286,
             Padding = new(16),
             Margin = new(0, 0, 0, 14),
@@ -1042,7 +1042,7 @@ internal partial class MainWindow
         {
             Name = "gridListCompactHeader",
             Text = "Compact Feed\nHeaderless mode for icon-first rows and faster scanning.",
-            Dock = SDUI.DockStyle.Top,
+            Dock = Orivy.DockStyle.Top,
             Height = 72,
             Padding = new(16),
             Margin = new(0, 0, 0, 12),
@@ -1058,7 +1058,7 @@ internal partial class MainWindow
         this.gridListCompact = new GridList
         {
             Name = "gridListCompact",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Radius = new(14),
             Border = new(1),
             HeaderVisible = false,
@@ -1079,7 +1079,7 @@ internal partial class MainWindow
         {
             Name = "gridListFooter",
             Text = "Guide\n1. Scroll inside the primary grid to verify sticky header.\n2. Collapse a group and watch the rows animate.\n3. Enable row resize only when you want variable density.",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             Padding = new(18),
             Margin = new(0),
             BackColor = ColorScheme.Surface,
@@ -1111,7 +1111,7 @@ internal partial class MainWindow
         windowPageControl = new()
         {
             Name = "windowPageControl",
-            Dock = SDUI.DockStyle.Fill,
+            Dock = Orivy.DockStyle.Fill,
             TransitionEffect = WindowPageTransitionEffect.ScaleFade,
             TransitionAnimationType = AnimationType.QuarticEaseOut,
             TransitionDurationMs = 350,
@@ -1199,8 +1199,8 @@ internal partial class MainWindow
         this.WindowThemeType = WindowThemeType.Tabbed;
         this.ContextMenuStrip = this.extendMenu;
         this.WindowPageControl = windowPageControl;
-        this.FormStartPosition = SDUI.FormStartPosition.CenterScreen;
-        this.RenderBackend = SDUI.Rendering.RenderBackend.Software;
+        this.FormStartPosition = Orivy.FormStartPosition.CenterScreen;
+        this.RenderBackend = Orivy.Rendering.RenderBackend.Software;
         this.Controls.Add(this.windowPageControl);
         this.Controls.Add(this.menuStrip);
         this.menuStrip.BringToFront();
@@ -1223,7 +1223,7 @@ internal partial class MainWindow
 
         var header = CreateBindingCard(
             "bindingHeader",
-            "Binding Lab\nSDUI keeps state flow local to the control tree. Bindings start from the consumer control, and user actions stay on the existing event system instead of forcing command objects everywhere.",
+            "Binding Lab\nOrivy keeps state flow local to the control tree. Bindings start from the consumer control, and user actions stay on the existing event system instead of forcing command objects everywhere.",
             110,
             new Thickness(0, 0, 0, 16),
             ColorScheme.SurfaceContainerHigh);

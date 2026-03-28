@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SDUI\SDUI.csproj" />
+    <ProjectReference Include="..\Orivy\Orivy.csproj" />
   </ItemGroup>
 
 </Project>
